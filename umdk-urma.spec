@@ -14,7 +14,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B003
+    %define rpm_release B004
 %endif
 
 Name          : umdk-urma
@@ -43,6 +43,12 @@ Summary:        Basic URMA libraries of UMDK
 
 %description lib
 This package contains basic URMA libraries of UMDK, such as liburma.so.
+
+%package compat-hns-lib
+Summary:	Libraries of hns
+
+%description compat-hns-lib
+This pachage contains libraries of hns, such as liburma-hns3.so.
 
 %package devel
 Summary:        Include Files and Libraries mandatory for URMA
@@ -107,6 +113,10 @@ if [ -x %{_bindir}/systemctl ] && [ -x %{_sbindir}/rsyslogd ]; then
     %{_bindir}/systemctl restart rsyslog >/dev/null  2>&1
 fi
 
+%files compat-hns-lib
+%defattr(-,root,root)
+    %{_libdir}/liburma-hns3.so
+
 %files devel
 %defattr(-,root,root)
     %dir %{_includedir}/umdk
@@ -144,6 +154,10 @@ fi
 %endif
 
 %changelog
+* Fri Oct 13 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B004
+- Type:feature
+- DESC:update source code, add hw hns3 lib
+
 * Wed Oct 11 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B003
 - Type:bugfix
 - DESC:change name of spec to umdk-urma
