@@ -14,7 +14,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B001
+    %define rpm_release B002
 %endif
 
 Name          : umdk-urma
@@ -26,8 +26,8 @@ License       : Proprietary
 Provides      : Huawei Technologies Co., Ltd
 Source0       : %{name}-%{version}.tar.gz
 BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
-buildArch     : x86_64 aarch64
-
+BuildArch     : X86_64 aarch64
+ExclusiveArch : aarch64
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
 BuildRequires : glib2-devel
 Requires: glibc, glib2
@@ -144,5 +144,9 @@ fi
 %endif
 
 %changelog
+* Wed Oct 11 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B002
+- Type:bugfix
+- DESC:change name of spec to umdk; change arch that only support aarch64
+
 * Tue Oct 10 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B001
 - Package init
