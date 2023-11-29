@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B006
+    %define rpm_release B007
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,10 @@ fi
 %endif
 
 %changelog
+* Wed Nov 29 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B007
+- Type:bugfix
+- DESC:modify SO_REUSEADDR to SO_REUSEPORT
+
 * Tue Nov 28 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B006
 - Type:bugfix
 - DESC:fix bugs detected in urma 
