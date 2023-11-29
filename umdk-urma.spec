@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B005
+    %define rpm_release B006
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,10 @@ fi
 %endif
 
 %changelog
+* Tue Nov 28 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B006
+- Type:bugfix
+- DESC:fix bugs detected in urma 
+
 * Thu Nov 23 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B005
 - Type:feature
 - DESC:add new feature for urma. 
