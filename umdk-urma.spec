@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B007
+    %define rpm_release B008
 %endif
 
 Name          : umdk-urma
@@ -32,7 +32,7 @@ BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 BuildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
-BuildRequires : glib2-devel
+BuildRequires : glib2-devel, systemd
 Requires: glibc, glib2
 %if %{with asan}
 Requires: libasan
@@ -174,6 +174,9 @@ fi
 %endif
 
 %changelog
+* Fri Mar 22 2024 panchenbo <panchenbo@kylinsec.com.cn> - 1.3.0-B008
+- add BuildRequires:systemd for %{_unitdir} Macros
+
 * Wed Nov 29 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B007
 - Type:bugfix
 - DESC:modify SO_REUSEADDR to SO_REUSEPORT
