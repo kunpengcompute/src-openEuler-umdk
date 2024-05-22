@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B007
+    %define rpm_release B009
 %endif
 
 Name          : umdk-urma
@@ -25,14 +25,14 @@ Summary       : Unified memory development kit
 Version       : %{rpm_version}
 Release       : %{rpm_release}
 Group         : nStack
-License       : Proprietary
+License       : GPL-2.0-only
 Provides      : Huawei Technologies Co., Ltd
 Source0       : %{name}-%{version}.tar.gz
 BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 BuildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
-BuildRequires : glib2-devel
+BuildRequires : glib2-devel, systemd, libnl3-devel, openssl-devel
 Requires: glibc, glib2
 %if %{with asan}
 Requires: libasan
@@ -137,6 +137,8 @@ fi
     %{_includedir}/umdk/urma_provider.h
     %{_includedir}/umdk/common/ub_*.h
     %{_includedir}/umdk/common/urma_*.h
+    %{_includedir}/umdk/uvs_api.h
+    %{_includedir}/umdk/uvs_types.h
 
 %files tools
 %defattr(-,root,root)
@@ -174,6 +176,11 @@ fi
 %endif
 
 %changelog
+* Wed May 22 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B009
+- add sync urma_tag
+* Fri Mar 22 2024 panchenbo <panchenbo@kylinsec.com.cn> - 1.3.0-B008
+- add BuildRequires:systemd for %{_unitdir} Macros
+
 * Wed Nov 29 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B007
 - Type:bugfix
 - DESC:modify SO_REUSEADDR to SO_REUSEPORT
