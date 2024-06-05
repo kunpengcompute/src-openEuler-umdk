@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B009
+    %define rpm_release B010
 %endif
 
 Name          : umdk-urma
@@ -137,8 +137,6 @@ fi
     %{_includedir}/umdk/urma_provider.h
     %{_includedir}/umdk/common/ub_*.h
     %{_includedir}/umdk/common/urma_*.h
-    %{_includedir}/umdk/uvs_api.h
-    %{_includedir}/umdk/uvs_types.h
 
 %files tools
 %defattr(-,root,root)
@@ -176,8 +174,12 @@ fi
 %endif
 
 %changelog
+*Wed June 5 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B010
+- fix bugs urma_perftest init
+
 * Wed May 22 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B009
 - add sync urma_tag
+
 * Fri Mar 22 2024 panchenbo <panchenbo@kylinsec.com.cn> - 1.3.0-B008
 - add BuildRequires:systemd for %{_unitdir} Macros
 
