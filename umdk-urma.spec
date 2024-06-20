@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B011
+    %define rpm_release B012
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,9 @@ fi
 %endif
 
 %changelog
+* Thu June 20 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B012
+- Bugfix: hns3 add rq mode for um
+
 *Thu June 20 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B011
 - Bugfix: urma tool information error
 
