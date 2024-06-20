@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B010
+    %define rpm_release B011
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,9 @@ fi
 %endif
 
 %changelog
+*Thu June 20 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B011
+- Bugfix: urma tool information error
+
 *Wed June 5 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B010
 - fix bugs urma_perftest init
 
