@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B012
+    %define rpm_release B013
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,9 @@ fi
 %endif
 
 %changelog
+* Thu July 18 2024 WeiboZhao <zhaoweibo3@huawei.com> - 1.3.0-B013
+- Bugfix: add log for udma
+
 * Thu June 20 2024 WeiboZhao <zhaoweibo3@huawei.com> - 1.3.0-B012
 - Bugfix: hns3 udma: add rq mode for UM
 
