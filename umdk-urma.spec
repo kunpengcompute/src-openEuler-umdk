@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B007
+    %define rpm_release B008
 %endif
 
 Name          : umdk-urma
@@ -32,7 +32,7 @@ BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 BuildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
-BuildRequires : glib2-devel
+BuildRequires : glib2-devel, systemd
 Requires: glibc, glib2
 %if %{with asan}
 Requires: libasan
@@ -134,7 +134,6 @@ fi
     %dir %{_includedir}/umdk/common
     %{_includedir}/umdk/urma_*.h
     %{_includedir}/umdk/ub_errno.h
-    %{_includedir}/umdk/urma_provider.h
     %{_includedir}/umdk/common/ub_*.h
     %{_includedir}/umdk/common/urma_*.h
 
@@ -174,6 +173,10 @@ fi
 %endif
 
 %changelog
+* Thu May 23 2024 lijuzhang <lijuzhang@inspur.com> - 1.3.0-B008
+- Type:bugfix
+- DESC: fix：File listed twice；unknown macro %{_unitdir}
+
 * Wed Nov 29 2023 Yizhen Fan <fanyizhen@huawei.com> - 1.3.0-B007
 - Type:bugfix
 - DESC:modify SO_REUSEADDR to SO_REUSEPORT
