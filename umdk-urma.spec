@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B013
+    %define rpm_release B014
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,9 @@ fi
 %endif
 
 %changelog
+* Tue Aug 27 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B014
+- Bugfix: support dynamic qp function
+
 * Thu July 18 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B013
 - Bugfix: add log for udma
 
