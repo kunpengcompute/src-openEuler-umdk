@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B009
+    %define rpm_release B010
 %endif
 
 Name          : umdk-urma
@@ -173,6 +173,10 @@ fi
 %endif
 
 %changelog
+* Tue Sep 24 2024 lvzhonglin <lvzhonglin@inspur.com> - 1.3.0-B010
+- Type:bugfix
+- DESC: spell mistake
+
 * WED Sep 18 2024 lijuzhang <lijuzhang@inspur.com> - 1.3.0-B009
 - Type:bugfix
 - DESC: update License
