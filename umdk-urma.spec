@@ -52,7 +52,7 @@ This package contains basic URMA libraries of UMDK, such as liburma.so.
 Summary:	Libraries of hns
 
 %description compat-hns-lib
-This pachage contains libraries of hns, such as liburma-hns3.so.
+This package contains libraries of hns, such as liburma-hns3.so.
 %endif
 
 %package devel
