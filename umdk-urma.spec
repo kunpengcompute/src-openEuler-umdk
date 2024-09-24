@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B008
+    %define rpm_release B009
 %endif
 
 Name          : umdk-urma
@@ -25,7 +25,7 @@ Summary       : Unified memory development kit
 Version       : %{rpm_version}
 Release       : %{rpm_release}
 Group         : nStack
-License       : Proprietary
+License       : GPL-2.0-only
 Provides      : Huawei Technologies Co., Ltd
 Source0       : %{name}-%{version}.tar.gz
 BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
@@ -173,6 +173,10 @@ fi
 %endif
 
 %changelog
+* WED Sep 18 2024 lijuzhang <lijuzhang@inspur.com> - 1.3.0-B009
+- Type:bugfix
+- DESC: update License
+
 * Thu May 23 2024 lijuzhang <lijuzhang@inspur.com> - 1.3.0-B008
 - Type:bugfix
 - DESC: fix：File listed twice；unknown macro %{_unitdir}
