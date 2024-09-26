@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B014
+    %define rpm_release B015
 %endif
 
 Name          : umdk-urma
@@ -174,6 +174,9 @@ fi
 %endif
 
 %changelog
+* Tue Sep 24 2024 WeiboZhao <zhaoweibo3@huawei.com> - 1.3.0-B015
+- Bugfix: add prefix of hns3 to udma
+
 * Tue Aug 27 2024 WeiboZhao <zhaoweibo3@huawei.com> - 1.3.0-B014
 - Bugfix: support dynamic qp function
 
