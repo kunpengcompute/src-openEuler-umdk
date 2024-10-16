@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B015
+    %define rpm_release B016
 %endif
 
 Name          : umdk-urma
@@ -174,22 +174,25 @@ fi
 %endif
 
 %changelog
+* Mon Oct 14 2024 Chen Yutao <884071658@qq.com> - 1.3.0-B016
+- Bugfix: Do not show cc_alg in tp_mode_flag of vport_table
+
 * Tue Sep 24 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B015
 - Bugfix: add prefix of hns3 to udma
 
 * Tue Aug 27 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B014
 - Bugfix: support dynamic qp function
 
-* Thu July 18 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B013
+* Thu Jul 18 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B013
 - Bugfix: add log for udma
 
-* Thu June 20 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B012
+* Thu Jun 20 2024 Weibo Zhao <zhaoweibo3@huawei.com> - 1.3.0-B012
 - Bugfix: hns3 add rq mode for um
 
-*Thu June 20 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B011
+* Thu Jun 20 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B011
 - Bugfix: urma tool information error
 
-*Wed June 5 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B010
+* Wed Jun 5 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B010
 - fix bugs urma_perftest init
 
 * Wed May 22 2024 WenChen <chenwen54@huawei.com> - 1.3.0-B009
