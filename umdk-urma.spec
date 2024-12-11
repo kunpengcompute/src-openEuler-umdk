@@ -17,7 +17,7 @@
 %endif
 
 %if %{undefined rpm_release}
-    %define rpm_release B008
+    %define rpm_release B009
 %endif
 
 Name          : umdk-urma
@@ -25,7 +25,7 @@ Summary       : Unified memory development kit
 Version       : %{rpm_version}
 Release       : %{rpm_release}
 Group         : nStack
-License       : Proprietary
+License       : GPL-2.0-only
 Provides      : Huawei Technologies Co., Ltd
 Source0       : %{name}-%{version}.tar.gz
 BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
@@ -174,6 +174,10 @@ fi
 %endif
 
 %changelog
+* Thu Dec 12 2024 chenyutao <chenyutao2@huawei.com> - 1.3.0-B009
+- Type:feature
+- DESC:change license to gpl-xx-only
+
 * Fri Mar 22 2024 panchenbo <panchenbo@kylinsec.com.cn> - 1.3.0-B008
 - add BuildRequires:systemd for %{_unitdir} Macros
 
