@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) Huawei Technologies Co., Ltd. 2021-2025. All rights reserved.
+
 # add --with asan option, i.e. disable asan by default
 %bcond_with asan
 
@@ -492,5 +495,5 @@ fi
 %endif
 
 %changelog
-* Tue Dec 30 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B000
+* Tue Dec 30 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B001
 - Initial UMDK-25.12.0 rpm spec file
