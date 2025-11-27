@@ -46,7 +46,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B002
+    %define rpm_release B003
 %endif
 
 Name          : umdk
@@ -495,6 +495,8 @@ fi
 %endif
 
 %changelog
+* Thu Nov 27 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B003
+- urma added set/get tp_attr functionality interfaces
 * Sat Nov 22 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B002
 - urma added the tp_type feature
 * Tue Dec 30 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B001
