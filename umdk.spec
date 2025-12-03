@@ -46,7 +46,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B004
+    %define rpm_release B005
 %endif
 
 Name          : umdk
@@ -496,6 +496,8 @@ fi
 %endif
 
 %changelog
+* Wed Dec 3 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B005
+- umq add read/write for post/poll
 * Tue Dec 2 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B004
 - urma supports querying topo information for a single device.
 * Thu Nov 27 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B003
