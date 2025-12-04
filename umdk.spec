@@ -46,7 +46,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B006
+    %define rpm_release B007
 %endif
 
 Name          : umdk
@@ -496,6 +496,8 @@ fi
 %endif
 
 %changelog
+* Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B007
+- umq update read/write code
 * Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B006
 - umq adapt urma topo query
 * Wed Dec 3 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B005
