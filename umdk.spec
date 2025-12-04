@@ -40,13 +40,16 @@
 %if %{defined kernel_version}
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %else
-    %define kernel_version %(uname -r)
+    %define kernel_version %( \
+        rpm -q --qf "%%{VERSION}-%%{RELEASE}.%%{ARCH}" kernel-devel 2>/dev/null || \
+        uname -r \
+    )
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %endif
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B007
+    %define rpm_release B008
 %endif
 
 Name          : umdk
@@ -209,7 +212,7 @@ AutoReqProv:    on
 This package contains umq_perftest and related UMQ tools.
 %endif
 
-%if %{with ums}
+%if %{build_all} || %{with ums}
 %package ums
 Summary:        kmod file of ums
 BuildRequires:  glib2-devel, libnl3-devel
@@ -447,7 +450,7 @@ fi
     %{_includedir}/ub/umdk/ulock/dlock/dlock_server_api.h
 %endif
 
-%if %{with ums}
+%if %{build_all} || %{with ums}
 %files ums
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
@@ -496,6 +499,8 @@ fi
 %endif
 
 %changelog
+* Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
+- ums adapt to ubcore_get_route_list and add compile ums by default
 * Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B007
 - umq update read/write code
 * Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B006
