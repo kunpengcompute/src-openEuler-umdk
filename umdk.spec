@@ -49,7 +49,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B008
+    %define rpm_release B009
 %endif
 
 Name          : umdk
@@ -499,6 +499,8 @@ fi
 %endif
 
 %changelog
+* Thu Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
+- ums fix the issue of illegal segment access permission settings
 * Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
 - ums adapt to ubcore_get_route_list and add compile ums by default
 * Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B007
