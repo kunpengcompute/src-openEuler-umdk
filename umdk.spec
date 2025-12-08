@@ -49,7 +49,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B009
+    %define rpm_release B010
 %endif
 
 Name          : umdk
@@ -499,6 +499,8 @@ fi
 %endif
 
 %changelog
+* Mon Dec 8 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B010
+- urma and urpc fix some bugs 
 * Sat Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
 - ums fix the issue of illegal segment access permission settings
 * Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
