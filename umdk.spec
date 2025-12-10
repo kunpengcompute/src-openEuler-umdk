@@ -49,7 +49,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B010
+    %define rpm_release B011
 %endif
 
 Name          : umdk
@@ -499,6 +499,8 @@ fi
 %endif
 
 %changelog
+* Wed Dec 10 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B011
+- udma add compilation macro and umq fix bugs
 * Mon Dec 8 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B010
 - urma and urpc fix some bugs 
 * Sat Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
