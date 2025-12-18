@@ -49,7 +49,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B012
+    %define rpm_release B013
 %endif
 
 Name          : umdk
@@ -499,6 +499,8 @@ fi
 %endif
 
 %changelog
+* Thu Dec 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B013
+- urma bugfix perftest and flush jetty 
 * Mon Dec 15 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B012
 - urma, dlock, ums, and umq fix some bugs 
 * Wed Dec 10 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B011
