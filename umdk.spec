@@ -40,13 +40,16 @@
 %if %{defined kernel_version}
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %else
-    %define kernel_version %(uname -r)
+    %define kernel_version %( \
+        rpm -q --qf "%%{VERSION}-%%{RELEASE}.%%{ARCH}" kernel-devel 2>/dev/null || \
+        uname -r \
+    )
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %endif
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B003
+    %define rpm_release B012
 %endif
 
 Name          : umdk
@@ -209,7 +212,7 @@ AutoReqProv:    on
 This package contains umq_perftest and related UMQ tools.
 %endif
 
-%if %{with ums}
+%if %{build_all} || %{with ums}
 %package ums
 Summary:        kmod file of ums
 BuildRequires:  glib2-devel, libnl3-devel
@@ -322,6 +325,8 @@ fi
     %dir %{_includedir}/ub/umdk/urma
     %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/urma_*.h
+    %{_includedir}/ub/umdk/urma/uvs_api.h
+    %{_includedir}/ub/umdk/urma/uvs_types.h
     %{_includedir}/ub/umdk/urma/udma/udma_u_ctl.h
 %if %{with gcov}
     %dir /var/lib/ub/umdk/urma/gcov/%{name}
@@ -445,7 +450,7 @@ fi
     %{_includedir}/ub/umdk/ulock/dlock/dlock_server_api.h
 %endif
 
-%if %{with ums}
+%if %{build_all} || %{with ums}
 %files ums
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
@@ -494,6 +499,24 @@ fi
 %endif
 
 %changelog
+* Mon Dec 15 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B012
+- urma, dlock, ums, and umq fix some bugs 
+* Wed Dec 10 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B011
+- udma add compilation macro and umq fix bugs
+* Mon Dec 8 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B010
+- urma and urpc fix some bugs 
+* Sat Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
+- ums fix the issue of illegal segment access permission settings
+* Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
+- ums adapt to ubcore_get_route_list and add compile ums by default
+* Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B007
+- umq update read/write code
+* Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B006
+- umq adapt urma topo query
+* Wed Dec 3 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B005
+- umq add read/write for post/poll
+* Tue Dec 2 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B004
+- urma supports querying topo information for a single device.
 * Thu Nov 27 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B003
 - urma added set/get tp_attr functionality interfaces
 * Sat Nov 22 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B002
