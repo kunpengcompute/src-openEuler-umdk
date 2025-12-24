@@ -40,16 +40,20 @@
 %if %{defined kernel_version}
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %else
-    %define kernel_version %( \
-        rpm -q --qf "%%{VERSION}-%%{RELEASE}.%%{ARCH}" kernel-devel 2>/dev/null || \
-        uname -r \
+    %define kernel_version %(
+        KERNEL_DEVEL_COUNT=$(rpm -qa kernel-devel 2>/dev/null | wc -l);
+        if [ "$KERNEL_DEVEL_COUNT" -eq 1 ]; then
+            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' kernel-devel 2>/dev/null;
+        else
+            uname -r;
+        fi
     )
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %endif
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B013
+    %define rpm_release B014
 %endif
 
 Name          : umdk
@@ -499,6 +503,8 @@ fi
 %endif
 
 %changelog
+* Wed Dec 24 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B014
+- adapt ums compile issue when multiple kernel-devel are installed
 * Thu Dec 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B013
 - urma bugfix perftest and flush jetty 
 * Mon Dec 15 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B012
