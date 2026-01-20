@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B014
+    %define rpm_release B015
 %endif
 
 Name          : umdk
@@ -76,6 +76,8 @@ Requires: libasan
 %if %{with tsan}
 Requires: libtsan
 %endif
+
+Patch0000: 0000-umdk-urma-add-container-support.patch
 
 %description
 A new system interconnect architecture
@@ -236,6 +238,7 @@ tools of ums, contains ums_run
 
 %prep
 %setup -c -n %{name}-%{version}
+%patch0000 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -503,6 +506,8 @@ fi
 %endif
 
 %changelog
+* Wed Jan 14 2026 wuyuyan_98 <wuyuyan@huawei.com> - 25.12.0-B015
+- urma add container support
 * Wed Dec 24 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B014
 - adapt ums compile issue when multiple kernel-devel are installed
 * Thu Dec 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B013
