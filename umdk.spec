@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B016
+    %define rpm_release B017
 %endif
 
 Name          : umdk
@@ -79,6 +79,7 @@ Requires: libtsan
 
 Patch0000: 0000-umdk-urma-add-container-support.patch
 Patch0001: 0001-umdk-urpc-support-shared-jfr.patch
+Patch0002: 0002-umdk-urma-bugfix-container.patch
 
 %description
 A new system interconnect architecture
@@ -241,6 +242,7 @@ tools of ums, contains ums_run
 %setup -c -n %{name}-%{version}
 %patch0000 -p1
 %patch0001 -p1
+%patch0002 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -508,6 +510,8 @@ fi
 %endif
 
 %changelog
+* Tue Jan 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B017
+- bugfix of urma container
 * Tue Jan 20 2026 simonhua97 <huayu9@huawei.com> - 25.12.0-B016
 - urpc support shared jfr
 * Wed Jan 14 2026 wuyuyan_98 <wuyuyan@huawei.com> - 25.12.0-B015
