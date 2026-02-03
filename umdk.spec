@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B017
+    %define rpm_release B018
 %endif
 
 Name          : umdk
@@ -80,6 +80,10 @@ Requires: libtsan
 Patch0000: 0000-umdk-urma-add-container-support.patch
 Patch0001: 0001-umdk-urpc-support-shared-jfr.patch
 Patch0002: 0002-umdk-urma-bugfix-container.patch
+Patch0003: 0003-umdk-udma-Fix-a-bug-related-to-create-sq.patch
+Patch0004: 0004-umdk-udma-Support-for-the-separate-page-table-feature.patch
+Patch0005: 0005-umdk-udma-bugfix-related-to-log-print.patch
+Patch0006: 0006-umdk-udma-bugfix-related-to-free-tid.patch
 
 %description
 A new system interconnect architecture
@@ -243,6 +247,10 @@ tools of ums, contains ums_run
 %patch0000 -p1
 %patch0001 -p1
 %patch0002 -p1
+%patch0003 -p1
+%patch0004 -p1
+%patch0005 -p1
+%patch0006 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -510,6 +518,8 @@ fi
 %endif
 
 %changelog
+* Tue Feb 3 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B018
+- bugfix of create sq and free tid
 * Tue Jan 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B017
 - bugfix of urma container
 * Tue Jan 20 2026 simonhua97 <huayu9@huawei.com> - 25.12.0-B016
