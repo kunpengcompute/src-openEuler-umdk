@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B018
+    %define rpm_release B019
 %endif
 
 Name          : umdk
@@ -84,6 +84,10 @@ Patch0003: 0003-umdk-udma-Fix-a-bug-related-to-create-sq.patch
 Patch0004: 0004-umdk-udma-Support-for-the-separate-page-table-feature.patch
 Patch0005: 0005-umdk-udma-bugfix-related-to-log-print.patch
 Patch0006: 0006-umdk-udma-bugfix-related-to-free-tid.patch
+Patch0007: 0007-umdk-urma-bugfix-related-to-uvs.patch
+Patch0008: 0008-umdk-urma-bugfix-related-to-uvs-and-urma-admin.patch
+Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
+Patch0010: 0010-umdk-urma-support-ipourma.patch
 
 %description
 A new system interconnect architecture
@@ -251,6 +255,10 @@ tools of ums, contains ums_run
 %patch0004 -p1
 %patch0005 -p1
 %patch0006 -p1
+%patch0007 -p1
+%patch0008 -p1
+%patch0009 -p1
+%patch0010 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -518,6 +526,8 @@ fi
 %endif
 
 %changelog
+* Wed Feb 4 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B019
+- bugfix of urma container
 * Tue Feb 3 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B018
 - bugfix of create sq and free tid
 * Tue Jan 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B017
