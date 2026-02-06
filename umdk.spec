@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B019
+    %define rpm_release B020
 %endif
 
 Name          : umdk
@@ -88,6 +88,7 @@ Patch0007: 0007-umdk-urma-bugfix-related-to-uvs.patch
 Patch0008: 0008-umdk-urma-bugfix-related-to-uvs-and-urma-admin.patch
 Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
 Patch0010: 0010-umdk-urma-support-ipourma.patch
+Patch0011: 0011-umdk-urpc-support-rnr-free-flowcontrol.patch
 
 %description
 A new system interconnect architecture
@@ -259,6 +260,7 @@ tools of ums, contains ums_run
 %patch0008 -p1
 %patch0009 -p1
 %patch0010 -p1
+%patch0011 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -526,6 +528,8 @@ fi
 %endif
 
 %changelog
+* Fri Feb 6 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B020
+- urpc support rnr-free flowcontrol
 * Wed Feb 4 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B019
 - bugfix of urma container
 * Tue Feb 3 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B018
