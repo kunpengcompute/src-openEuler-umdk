@@ -94,7 +94,7 @@ index 899ab1a..e8a1483 100644
 -    if (!is_valid_bondp_comp(bdp_comp)) {
 -        URMA_LOG_ERR("Invalid param\n");
 -        return URMA_EINVAL;
-+    
++
 +    bdp_vjfce_info_table_close_fd(bdp_comp);
 +    bdp_vjfce_info_table_destroy((bondp_hash_table_t *)bdp_comp->comp_ctx);
 +    for (int i = 0; i < bdp_comp->dev_num; i++) {

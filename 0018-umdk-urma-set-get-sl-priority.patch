@@ -1,0 +1,316 @@
+From c298a92db7f1b8ede3ffdab89888c0050f11c65a Mon Sep 17 00:00:00 2001
+From: z00929493 <zhaihaorui@huawei.com>
+Date: Tue, 10 Feb 2026 10:03:40 +0800
+Subject: [PATCH] urma: set/get sl-priority
+
+(cherry picked from commit 42a35293701e03c7fbb02e2a5f036dd91936f6be)
+---
+ src/urma/lib/urma/core/include/urma_cmd.h     |  1 +
+ src/urma/lib/urma/core/include/urma_types.h   | 17 ++++++++
+ .../lib/urma/core/include/urma_types_str.h    | 20 ++++++++++
+ src/urma/tools/urma_admin/admin.c             |  2 +
+ src/urma/tools/urma_admin/admin_cmd.c         |  2 +
+ src/urma/tools/urma_admin/admin_cmd.h         |  8 ++++
+ src/urma/tools/urma_admin/admin_cmd_dev.c     | 26 ++++++++++++
+ src/urma/tools/urma_admin/admin_cmd_show.c    | 40 +++++++++++++++++++
+ src/urma/tools/urma_admin/admin_parameters.c  | 10 ++++-
+ src/urma/tools/urma_admin/admin_parameters.h  |  2 +
+ 10 files changed, 127 insertions(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/core/include/urma_cmd.h b/src/urma/lib/urma/core/include/urma_cmd.h
+index 7a37250..b04bf20 100644
+--- a/src/urma/lib/urma/core/include/urma_cmd.h
++++ b/src/urma/lib/urma/core/include/urma_cmd.h
+@@ -43,6 +43,7 @@ typedef enum urma_core_cmd {
+     URMA_CORE_UNEXPOSE_DEV_NS,
+     URMA_CORE_SET_DEV_EID_NS,
+     URMA_CORE_GET_TOPO_INFO,
++    URMA_CORE_SET_SL,
+ } urma_core_cmd_t;
+ 
+ /* only for uburma device ioctl */
+diff --git a/src/urma/lib/urma/core/include/urma_types.h b/src/urma/lib/urma/core/include/urma_types.h
+index f39ed99..6c28b7e 100644
+--- a/src/urma/lib/urma/core/include/urma_types.h
++++ b/src/urma/lib/urma/core/include/urma_types.h
+@@ -35,6 +35,7 @@ extern "C" {
+ #define URMA_MAX_NAME               64
+ #define URMA_MAX_PATH               4096
+ #define URMA_EID_SIZE               (16)
++#define URMA_MAX_PRIORITY_CNT       16
+ #define URMA_IPV4_MAP_IPV6_PREFIX   (0x0000ffff)
+ #define URMA_MAX_EID_CNT            1024 /* refer to UBCORE_MAX_SIP */
+ #define URMA_CC_IDX_TABLE_SIZE      81   /* support 9 priorities and 9 algorithms */
+@@ -138,6 +139,21 @@ typedef struct urma_port_attr {
+     urma_mtu_t active_mtu;          /* [Public] current effective mtu. */
+ } urma_port_attr_t;
+ 
++union urma_tp_type_en {
++    struct {
++        uint32_t rtp : 1;
++        uint32_t ctp : 1;
++        uint32_t utp : 1;
++        uint32_t reserved : 29;
++    } bs;
++    uint32_t value;
++};
++
++struct urma_sl_info {
++    uint32_t SL;
++    union urma_tp_type_en tp_type;
++};
++
+ typedef union urma_device_feature {
+     struct {
+         uint32_t oor                   : 1; /* [Public] URMA_OUT_OF_ORDER_RECEIVING. */
+@@ -256,6 +272,7 @@ typedef struct urma_device_cap {
+     urma_tp_type_cap_t rc_tp_cap;
+     urma_tp_type_cap_t um_tp_cap;
+     urma_tp_feature_t tp_feature;
++    struct urma_sl_info priority_info[URMA_MAX_PRIORITY_CNT];
+ } urma_device_cap_t;
+ 
+ typedef struct urma_guid {
+diff --git a/src/urma/lib/urma/core/include/urma_types_str.h b/src/urma/lib/urma/core/include/urma_types_str.h
+index a57853b..e75a275 100644
+--- a/src/urma/lib/urma/core/include/urma_types_str.h
++++ b/src/urma/lib/urma/core/include/urma_types_str.h
+@@ -89,6 +89,26 @@ static inline const char *urma_link_width_to_string(urma_link_width_t width)
+     return g_urma_link_width_str[width];
+ }
+ 
++static const char * const g_urma_tp_type_en_str[] = {
++    [URMA_RTP]  =      "RTP",
++    [URMA_CTP]  =      "CTP",
++    [URMA_UTP]  =      "UTP",
++};
++ 
++static inline const char *urma_tp_type_en_to_string(union urma_tp_type_en tp_type)
++{
++    if (tp_type.bs.rtp == 1 && tp_type.bs.ctp == 0 && tp_type.bs.utp == 0) {
++        return g_urma_tp_type_en_str[URMA_RTP];
++    }
++    if (tp_type.bs.rtp == 0 && tp_type.bs.ctp == 1 && tp_type.bs.utp == 0) {
++        return g_urma_tp_type_en_str[URMA_CTP];
++    }
++    if (tp_type.bs.rtp == 0 && tp_type.bs.ctp == 0 && tp_type.bs.utp == 1) {
++        return g_urma_tp_type_en_str[URMA_UTP];
++    }
++    return "Invalid Value";
++}
++
+ #define URMA_DEVICE_FEAT_NUM 9
+ 
+ static const char *const g_urma_device_feat_str[URMA_DEVICE_FEAT_NUM] = {
+diff --git a/src/urma/tools/urma_admin/admin.c b/src/urma/tools/urma_admin/admin.c
+index 59713fc..be24fdb 100644
+--- a/src/urma/tools/urma_admin/admin.c
++++ b/src/urma/tools/urma_admin/admin.c
+@@ -64,6 +64,8 @@ int main(int argc, char *argv[])
+ 
+     admin_config_t cfg = {
+         .ue_idx = OWN_UE_IDX,
++        .priority = URMA_MAX_PRIORITY_CNT,
++        .SL = URMA_MAX_PRIORITY_CNT,
+         .argc = argc,
+         .argv = argv,
+         .filename = argv[0],
+diff --git a/src/urma/tools/urma_admin/admin_cmd.c b/src/urma/tools/urma_admin/admin_cmd.c
+index 13db742..121c609 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.c
++++ b/src/urma/tools/urma_admin/admin_cmd.c
+@@ -100,6 +100,8 @@ static int cmd_main_usage(admin_config_t *cfg)
+     (void)printf("  -M, --ns_mode <0 or 1>                      ns_mode with (exclusive: 0) | (shared: 1).\n");
+     (void)printf("  -l, --min_id  <0 - U32_MAX>                 min reserved jetty id, U32_MAX means invalid.\n");
+     (void)printf("  -u, --max_id  <0 - U32_MAX>                 max reserved jetty id, U32_MAX means invalid.\n");
++    (void)printf("  -p, --priority  <0 - 15>                    the serial number of priority.\n");
++    (void)printf("  -u, --max_id  <0 - 15>                      the serial number of SL.\n");
+     return 0;
+ }
+ 
+diff --git a/src/urma/tools/urma_admin/admin_cmd.h b/src/urma/tools/urma_admin/admin_cmd.h
+index 347965c..d9e9b41 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.h
++++ b/src/urma/tools/urma_admin/admin_cmd.h
+@@ -81,6 +81,14 @@ typedef struct admin_core_cmd_topo_info {
+     } out;
+ } admin_core_cmd_topo_info_t;
+ 
++typedef struct admin_core_cmd_sl_info {
++    struct {
++        char dev_name[URMA_MAX_NAME];
++        uint32_t SL;
++        uint32_t priority;
++    } in;
++} admin_core_cmd_sl_info_t;
++
+ #define UBCORE_GENL_FAMILY_NAME    "UBCORE_GENL"
+ #define UBCORE_GENL_FAMILY_VERSION 1
+ 
+diff --git a/src/urma/tools/urma_admin/admin_cmd_dev.c b/src/urma/tools/urma_admin/admin_cmd_dev.c
+index ebe3590..65665e3 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_dev.c
++++ b/src/urma/tools/urma_admin/admin_cmd_dev.c
+@@ -114,6 +114,31 @@ static int cmd_dev_set_ns(admin_config_t *cfg)
+     return ret;
+ }
+ 
++static int cmd_dev_set_sl(admin_config_t *cfg)
++{
++    int ret = 0;
++    admin_core_cmd_sl_info_t arg = {0};
++    arg.in.priority = cfg->priority;
++    arg.in.SL = cfg->SL;
++    (void)memcpy(arg.in.dev_name, cfg->dev_name, URMA_ADMIN_MAX_DEV_NAME);
++
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_SL, 0);
++    if (msg == NULL) {
++        return -ENOMEM;
++    }
++
++    admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_core_cmd_sl_info_t));
++    admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
++    ret = admin_nl_send_recv_msg_default(msg);
++    admin_nl_free_msg(msg);
++    if (ret < 0) {
++        (void)printf("set_sl fail, please check input, ret:%d, errno:%d.\n", ret, errno);
++        return ret;
++    }
++
++    return 0;
++}
++
+ static int cmd_dev_set(admin_config_t *cfg)
+ {
+     int ret;
+@@ -124,6 +149,7 @@ static int cmd_dev_set(admin_config_t *cfg)
+     static const admin_cmd_t cmds[] = {
+         {NULL, cmd_dev_usage},  //
+         {"ns", cmd_dev_set_ns}, //
++        {"sl", cmd_dev_set_sl}, //
+         {0},                    //
+     };
+     return exec_cmd(cfg, cmds);
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index c59d8a3..8089259 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -66,6 +66,28 @@ static void admin_parse_port_attr(const char *sysfs_path, admin_show_ubep_t *ube
+     free(port_path);
+ }
+ 
++static void admin_parse_priority_attr(const char *sysfs_path, admin_show_ubep_t *ubep)
++{
++    uint8_t i;
++    char *priority_path = calloc(1, DEV_PATH_MAX);
++    if (priority_path == NULL) {
++        return;
++    }
++ 
++    for (i = 0; i < URMA_MAX_PRIORITY_CNT; i++) {
++        if (snprintf(priority_path, DEV_PATH_MAX - 1, "%s/priority/priority%u", sysfs_path, i) <= 0) {
++            (void)printf("snprintf failed, path: %s, priority_num:%u.\n", sysfs_path, i);
++            continue;
++        }
++ 
++        struct urma_sl_info *priority_attr = &(ubep->dev_attr.dev_cap.priority_info[i]);
++ 
++        (void)admin_parse_file_value_u32(priority_path, "sl", (uint32_t *)&priority_attr->SL);
++        (void)admin_parse_file_value_u32(priority_path, "tp_type", (uint32_t *)&priority_attr->tp_type.value);
++    }
++    free(priority_path);
++}
++
+ static bool has_bonding_dev_prefix(const char *dev_name)
+ {
+     const char *prefix = "bonding_dev";
+@@ -149,6 +171,8 @@ static int admin_parse_device_attr(const char *sysfs_path, admin_show_ubep_t *ub
+ 
+     admin_read_eid_list(sysfs_path, ubep->eid_list, dev_attr->dev_cap.max_eid_cnt);
+ 
++    admin_parse_priority_attr(sysfs_path, ubep);
++
+     if (ubep->dev_attr.port_cnt > 0 && ubep->dev_attr.port_cnt != UINT8_INVALID) {
+         admin_parse_port_attr(sysfs_path, ubep);
+     }
+@@ -377,6 +401,21 @@ static void print_ubep_eids(const admin_show_ubep_t *ubep)
+     }
+ }
+ 
++static void print_ubep_prioritys(const admin_show_ubep_t *ubep)
++{
++    printf("priority  :    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15\n");
++    printf("      sl  :");
++    for (int i = 0; i < URMA_MAX_PRIORITY_CNT; ++i) {
++        printf("%5d", ubep->dev_attr.dev_cap.priority_info[i].SL);
++    }
++    printf("\n");
++    printf(" tp_type  :");
++    for (int i = 0; i < URMA_MAX_PRIORITY_CNT; ++i) {
++        printf("  %s", urma_tp_type_en_to_string(ubep->dev_attr.dev_cap.priority_info[i].tp_type));
++    }
++    printf("\n");
++}
++
+ static void print_ubep_whole_info(const admin_show_ubep_t *ubep, int *index, const admin_config_t *cfg)
+ {
+     uint32_t i;
+@@ -435,6 +474,7 @@ static void print_ubep_whole_info(const admin_show_ubep_t *ubep, int *index, con
+         (void)printf("  active_mtu           : %u [%s]\n", ubep->dev_attr.port_attr[i].active_mtu,
+                      urma_mtu_to_string(ubep->dev_attr.port_attr[i].active_mtu));
+     }
++    print_ubep_prioritys(ubep);
+     (void)printf(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+ }
+ 
+diff --git a/src/urma/tools/urma_admin/admin_parameters.c b/src/urma/tools/urma_admin/admin_parameters.c
+index 5c005e6..88b92e0 100644
+--- a/src/urma/tools/urma_admin/admin_parameters.c
++++ b/src/urma/tools/urma_admin/admin_parameters.c
+@@ -204,6 +204,8 @@ static const struct option g_urma_admin_long_options[] = {
+     {"ns_mode", required_argument, NULL, 'M'},       //
+     {"min_id", required_argument, NULL, 'l'},        //
+     {"max_id", required_argument, NULL, 'u'},        //
++    {"priority", required_argument, NULL, 'p'},      //
++    {"sl", required_argument, NULL, 's'},            //
+     {NULL, no_argument, NULL, '\0'},                 //
+ };
+ 
+@@ -256,7 +258,7 @@ int admin_parse_args(admin_config_t *cfg)
+ {
+     int ret = 0;
+     while (1) {
+-        int c = getopt_long(cfg->argc, cfg->argv, "C:hd:e:mv:i:wR:k:K:n:M:u:l:", g_urma_admin_long_options, NULL);
++        int c = getopt_long(cfg->argc, cfg->argv, "C:hd:e:mv:i:wR:k:K:n:M:p:s:u:l:", g_urma_admin_long_options, NULL);
+         if (c == -1) {
+             break;
+         }
+@@ -300,6 +302,12 @@ int admin_parse_args(admin_config_t *cfg)
+             case 'M':
+                 ret = admin_str_to_u8(optarg, &cfg->ns_mode);
+                 break;
++            case 'p':
++                ret = admin_str_to_u8(optarg, &cfg->priority);
++                break;
++            case 's':
++                ret = admin_str_to_u8(optarg, &cfg->SL);
++                break;
+             case ':':
+                 printf("Option -%c requires an argument\n", optopt);
+                 URMA_ADMIN_LOG("Option -%c requires an argument\n", optopt);
+diff --git a/src/urma/tools/urma_admin/admin_parameters.h b/src/urma/tools/urma_admin/admin_parameters.h
+index 98adc3a..edffcd3 100644
+--- a/src/urma/tools/urma_admin/admin_parameters.h
++++ b/src/urma/tools/urma_admin/admin_parameters.h
+@@ -290,6 +290,8 @@ typedef struct admin_config {
+     /* eid end */
+     tool_query_key_t key;
+     uint8_t ns_mode; /* 0: exclusive, 1: shared */
++    uint8_t priority;
++    uint8_t SL;
+ } admin_config_t;
+ 
+ int admin_str_to_eid(const char *buf, urma_eid_t *eid);
+-- 
+2.28.0.windows.1
+
