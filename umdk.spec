@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B020
+    %define rpm_release B021
 %endif
 
 Name          : umdk
@@ -89,6 +89,7 @@ Patch0008: 0008-umdk-urma-bugfix-related-to-uvs-and-urma-admin.patch
 Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
 Patch0010: 0010-umdk-urma-support-ipourma.patch
 Patch0011: 0011-umdk-urpc-support-rnr-free-flowcontrol.patch
+Patch0012: 0012-umdk-urpc-support-adaptive-flowcontrol-and-log-enhancement.patch
 
 %description
 A new system interconnect architecture
@@ -261,6 +262,7 @@ tools of ums, contains ums_run
 %patch0009 -p1
 %patch0010 -p1
 %patch0011 -p1
+%patch0012 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -437,6 +439,8 @@ fi
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_api.h
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_types.h
     %{_includedir}/ub/umdk/urpc/umq/umq_types.h
+    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_api.h
+    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_types.h
 
 %files urpc-framework-example
 %defattr(-,root,root)
@@ -528,6 +532,8 @@ fi
 %endif
 
 %changelog
+* Sat Feb 14 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B021
+- urpc support adaptive flowcontrol and log enhancement
 * Fri Feb 6 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B020
 - urpc support rnr-free flowcontrol
 * Wed Feb 4 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B019
