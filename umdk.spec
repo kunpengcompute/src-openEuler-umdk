@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B022
+    %define rpm_release B023
 %endif
 
 Name          : umdk
@@ -98,6 +98,11 @@ Patch0017: 0017-umdk-urma-refine-uvs-logging.patch
 Patch0018: 0018-umdk-urma-set-get-sl-priority.patch
 Patch0019: 0019-umdk-udma-support-disable-compile-udma.patch
 Patch0020: 0020-umdk-urma-standalone-aggregate-mode-currently-does-not-support-WQE-list.patch
+Patch0021: 0021-umdk-urma-add-entity_id-into-bondp-and-admin-topo.patch
+Patch0022: 0022-umdk-urma-bondp-support-half-loopback.patch
+Patch0023: 0023-umdk-urma-change-logic-between-device_list-and-eid_list.patch
+Patch0024: 0024-umdk-urma-fix-expose-agg-dev.patch
+Patch0025: 0025-umdk-urma-optimize-efficiency-of-expose-agg-dev.patch
 
 %description
 A new system interconnect architecture
@@ -279,6 +284,11 @@ tools of ums, contains ums_run
 %patch 0018 -p1
 %patch 0019 -p1
 %patch 0020 -p1
+%patch 0021 -p1
+%patch 0022 -p1
+%patch 0023 -p1
+%patch 0024 -p1
+%patch 0025 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -548,6 +558,8 @@ fi
 %endif
 
 %changelog
+* Wed Feb 25 2026 bishulei <bishulei@huawei.com> - 25.12.0-B023
+- sync bugfix of urma
 * Tue Feb 24 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B022
 - sync bugfix of urma
 * Sat Feb 14 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B021
