@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B021
+    %define rpm_release B022
 %endif
 
 Name          : umdk
@@ -90,6 +90,14 @@ Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
 Patch0010: 0010-umdk-urma-support-ipourma.patch
 Patch0011: 0011-umdk-urpc-support-rnr-free-flowcontrol.patch
 Patch0012: 0012-umdk-urpc-support-adaptive-flowcontrol-and-log-enhancement.patch
+Patch0013: 0013-umdk-urma-Fix-urma_perftest-size-check-for-send-opc.patch
+Patch0014: 0014-umdk-urma-modify-log-for-liburma-bondp.patch
+Patch0015: 0015-umdk-urma-modify-urma-log-format.patch
+Patch0016: 0016-umdk-urma-optimize-the-logs-of-bondp-and-liburma.patch
+Patch0017: 0017-umdk-urma-refine-uvs-logging.patch
+Patch0018: 0018-umdk-urma-set-get-sl-priority.patch
+Patch0019: 0019-umdk-udma-support-disable-compile-udma.patch
+Patch0020: 0020-umdk-urma-standalone-aggregate-mode-currently-does-not-support-WQE-list.patch
 
 %description
 A new system interconnect architecture
@@ -250,19 +258,27 @@ tools of ums, contains ums_run
 
 %prep
 %setup -c -n %{name}-%{version}
-%patch0000 -p1
-%patch0001 -p1
-%patch0002 -p1
-%patch0003 -p1
-%patch0004 -p1
-%patch0005 -p1
-%patch0006 -p1
-%patch0007 -p1
-%patch0008 -p1
-%patch0009 -p1
-%patch0010 -p1
-%patch0011 -p1
-%patch0012 -p1
+%patch 0000 -p1
+%patch 0001 -p1
+%patch 0002 -p1
+%patch 0003 -p1
+%patch 0004 -p1
+%patch 0005 -p1
+%patch 0006 -p1
+%patch 0007 -p1
+%patch 0008 -p1
+%patch 0009 -p1
+%patch 0010 -p1
+%patch 0011 -p1
+%patch 0012 -p1
+%patch 0013 -p1
+%patch 0014 -p1
+%patch 0015 -p1
+%patch 0016 -p1
+%patch 0017 -p1
+%patch 0018 -p1
+%patch 0019 -p1
+%patch 0020 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -532,6 +548,8 @@ fi
 %endif
 
 %changelog
+* Tue Feb 24 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B022
+- sync bugfix of urma
 * Sat Feb 14 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B021
 - urpc support adaptive flowcontrol and log enhancement
 * Fri Feb 6 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B020
