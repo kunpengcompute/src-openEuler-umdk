@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B023
+    %define rpm_release B024
 %endif
 
 Name          : umdk
@@ -103,6 +103,7 @@ Patch0022: 0022-umdk-urma-bondp-support-half-loopback.patch
 Patch0023: 0023-umdk-urma-change-logic-between-device_list-and-eid_list.patch
 Patch0024: 0024-umdk-urma-fix-expose-agg-dev.patch
 Patch0025: 0025-umdk-urma-optimize-efficiency-of-expose-agg-dev.patch
+Patch0026: 0026-umdk-urma-set-CTP-priority-to-6-as-workaround.patch
 
 %description
 A new system interconnect architecture
@@ -289,6 +290,7 @@ tools of ums, contains ums_run
 %patch 0023 -p1
 %patch 0024 -p1
 %patch 0025 -p1
+%patch 0026 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -558,6 +560,8 @@ fi
 %endif
 
 %changelog
+* Thu Feb 26 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B024
+- urma: set CTP priority to 6 as workaround
 * Wed Feb 25 2026 bishulei <bishulei@huawei.com> - 25.12.0-B023
 - sync bugfix of urma
 * Tue Feb 24 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B022
@@ -579,13 +583,13 @@ fi
 * Wed Dec 24 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B014
 - adapt ums compile issue when multiple kernel-devel are installed
 * Thu Dec 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B013
-- urma bugfix perftest and flush jetty 
+- urma bugfix perftest and flush jetty
 * Mon Dec 15 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B012
-- urma, dlock, ums, and umq fix some bugs 
+- urma, dlock, ums, and umq fix some bugs
 * Wed Dec 10 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B011
 - udma add compilation macro and umq fix bugs
 * Mon Dec 8 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B010
-- urma and urpc fix some bugs 
+- urma and urpc fix some bugs
 * Sat Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
 - ums fix the issue of illegal segment access permission settings
 * Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
