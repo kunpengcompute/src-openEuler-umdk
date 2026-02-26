@@ -1,0 +1,66 @@
+From 13af1d1d9b9aa0dcea2ea7fbd09c1f71fe41af68 Mon Sep 17 00:00:00 2001
+From: huying <huying21@huawei.com>
+Date: Mon, 26 Jan 2026 20:14:35 +0800
+Subject: [PATCH] ums: fix the issue of links not being shareable
+
+(cherry picked from commit aee97e60623727da91a69e9cce93bebf18f2cb0d)
+---
+ src/usock/ums/kmod/ums/cm/ums_core.c    | 11 +++++++----
+ src/usock/ums/kmod/ums/dev/ums_ubcore.c |  5 +++--
+ 2 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/src/usock/ums/kmod/ums/cm/ums_core.c b/src/usock/ums/kmod/ums/cm/ums_core.c
+index 5b014e3..bc75148 100644
+--- a/src/usock/ums/kmod/ums/cm/ums_core.c
++++ b/src/usock/ums/kmod/ums/cm/ums_core.c
+@@ -496,8 +496,7 @@ static int ums_lgr_init(struct ums_link_group *lgr, struct ums_sock *ums,
+ 	if (rc != 0)
+ 		goto out;
+ 
+-	if (lnk->ums_dev->ub_dev->netdev)
+-		lgr->net = dev_net(lnk->ums_dev->ub_dev->netdev);
++	lgr->net = ini->net;
+ 	/* UMS only supports VM continous mode */
+ 	lgr->buf_type = UMS_VIRT_CONT_BUFS;
+ 	atomic_inc(&g_lgr_cnt);
+@@ -1139,6 +1138,11 @@ int ums_vlan_by_tcpsk(struct socket *clcsock, struct ums_init_info *ini)
+ 	return 0;
+ }
+ 
++static inline bool ums_lgr_net_match(struct ums_link_group *lgr, struct net *net)
++{
++	return net_eq(lgr->net, net);
++}
++
+ static bool ums_lgr_match(struct ums_link_group *lgr, struct ums_init_info *ini,
+ 	enum ums_lgr_role role, struct net *net)
+ {
+@@ -1155,8 +1159,7 @@ static bool ums_lgr_match(struct ums_link_group *lgr, struct ums_init_info *ini,
+ 		if (!ums_link_active(lnk))
+ 			continue;
+ 
+-		/* use verbs API to check netns, instead of lgr->net */
+-		if (!ums_udev_can_access_from_ns(lnk->ums_dev, net))
++		if (!ums_lgr_net_match(lgr, net))
+ 			return false;
+ 
+ 		if ((lgr->role == UMS_SERV || lnk->tjetty_id == ini->tjetty_id) &&
+diff --git a/src/usock/ums/kmod/ums/dev/ums_ubcore.c b/src/usock/ums/kmod/ums/dev/ums_ubcore.c
+index 7779f59..a2e8943 100644
+--- a/src/usock/ums/kmod/ums/dev/ums_ubcore.c
++++ b/src/usock/ums/kmod/ums/dev/ums_ubcore.c
+@@ -125,8 +125,9 @@ int ums_ubcore_determine_eid(struct ums_ubcore_determine_eid_param *param)
+ 
+ 	/* Try to locate the EID via IP address. */
+ 	for (i = 0; i < param->ums_ub_dev->ub_dev->eid_table.eid_cnt; i++) {
+-		if (ums_ubcore_sk_rcv_saddr_equal_eid(param->sk,
+-		    &param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].eid)) {
++		if ((param->net == param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].net) &&
++			ums_ubcore_sk_rcv_saddr_equal_eid(param->sk,
++			&param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].eid)) {
+ 			*param->eid_index = i;
+ 			(void)memcpy(param->eid->raw, param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].eid.raw, UMS_EID_SIZE);
+ 			return 0;
+-- 
+2.28.0.windows.1
+

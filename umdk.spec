@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B027
+    %define rpm_release B028
 %endif
 
 Name          : umdk
@@ -104,6 +104,7 @@ Patch0025: 0025-umdk-urma-optimize-efficiency-of-expose-agg-dev.patch
 Patch0026: 0026-umdk-urma-set-CTP-priority-to-6-as-workaround.patch
 Patch0027: 0027-umdk-urma-optimize-EID-lookup-logic.patch
 Patch0028: 0028-umdk-urma-add-urma-ping-client.patch
+Patch0029: 0029-umdk-ums-fix-the-issue-of-links-not-being-shareable.patch
 
 %description
 A new system interconnect architecture
@@ -291,6 +292,7 @@ tools of ums, contains ums_run
 %patch 0026 -p1
 %patch 0027 -p1
 %patch 0028 -p1
+%patch 0029 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -559,6 +561,8 @@ fi
 %endif
 
 %changelog
+* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B028
+- ums: fix the issue of links not being shareable
 * Fri Feb 27 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B027
 - add urma_ping client
 * Fri Feb 27 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B026
