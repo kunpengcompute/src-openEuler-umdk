@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B031
+    %define rpm_release B032
 %endif
 
 Name          : umdk
@@ -109,6 +109,7 @@ Patch0030: 0030-umdk-ums-prevent-Send-WR-from-being-posted-to-Jetty-when-ubcore_
 Patch0031: 0031-umdk-dlock-fix-example-issue-client_init-deinit-calls-need-to-be-locked.patch
 Patch0032: 0032-umdk-urma-seg-cache-default-enable.patch
 Patch0033: 0033-umdk-urma-fix-timing-bug-in-urma-ping.patch
+Patch0034: 0034-umdk-dlock-fix-codecheck-warnings.patch
 
 %description
 A new system interconnect architecture
@@ -301,6 +302,7 @@ tools of ums, contains ums_run
 %patch 0031 -p1
 %patch 0032 -p1
 %patch 0033 -p1
+%patch 0034 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -569,6 +571,8 @@ fi
 %endif
 
 %changelog
+* Mon Mar 2 2026 huying <huying21@huawei.com> - 25.12.0-B032
+- dlock: fix codecheck warnings
 * Mon Mar 2 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B031
 - urma: make bondp seg cache default enable
 * Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B030
