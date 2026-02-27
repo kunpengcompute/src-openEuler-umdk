@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B026
+    %define rpm_release B027
 %endif
 
 Name          : umdk
@@ -103,6 +103,7 @@ Patch0024: 0024-umdk-urma-fix-expose-agg-dev.patch
 Patch0025: 0025-umdk-urma-optimize-efficiency-of-expose-agg-dev.patch
 Patch0026: 0026-umdk-urma-set-CTP-priority-to-6-as-workaround.patch
 Patch0027: 0027-umdk-urma-optimize-EID-lookup-logic.patch
+Patch0028: 0028-umdk-urma-add-urma-ping-client.patch
 
 %description
 A new system interconnect architecture
@@ -289,6 +290,7 @@ tools of ums, contains ums_run
 %patch 0025 -p1
 %patch 0026 -p1
 %patch 0027 -p1
+%patch 0028 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -396,6 +398,7 @@ fi
     /etc/rsyslog.d/urma_admin.conf
     %{_bindir}/urma_perftest
     %{_bindir}/ubagg_cli
+    %{_bindir}/urma_ping
 
 %post urma-tools
 if [ -x %{_bindir}/systemctl ] && [ -x %{_sbindir}/rsyslogd ]; then
@@ -556,6 +559,8 @@ fi
 %endif
 
 %changelog
+* Fri Feb 27 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B027
+- add urma_ping client
 * Fri Feb 27 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B026
 - urpc rollback of flowcontrol and log enhancement
 * Fri Feb 27 2026 bishulei <bishulei@huawei.com> - 25.12.0-B025
