@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B025
+    %define rpm_release B026
 %endif
 
 Name          : umdk
@@ -88,8 +88,6 @@ Patch0007: 0007-umdk-urma-bugfix-related-to-uvs.patch
 Patch0008: 0008-umdk-urma-bugfix-related-to-uvs-and-urma-admin.patch
 Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
 Patch0010: 0010-umdk-urma-support-ipourma.patch
-Patch0011: 0011-umdk-urpc-support-rnr-free-flowcontrol.patch
-Patch0012: 0012-umdk-urpc-support-adaptive-flowcontrol-and-log-enhancement.patch
 Patch0013: 0013-umdk-urma-Fix-urma_perftest-size-check-for-send-opc.patch
 Patch0014: 0014-umdk-urma-modify-log-for-liburma-bondp.patch
 Patch0015: 0015-umdk-urma-modify-urma-log-format.patch
@@ -276,8 +274,6 @@ tools of ums, contains ums_run
 %patch 0008 -p1
 %patch 0009 -p1
 %patch 0010 -p1
-%patch 0011 -p1
-%patch 0012 -p1
 %patch 0013 -p1
 %patch 0014 -p1
 %patch 0015 -p1
@@ -469,8 +465,6 @@ fi
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_api.h
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_types.h
     %{_includedir}/ub/umdk/urpc/umq/umq_types.h
-    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_api.h
-    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_types.h
 
 %files urpc-framework-example
 %defattr(-,root,root)
@@ -562,6 +556,8 @@ fi
 %endif
 
 %changelog
+* Fri Feb 27 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B026
+- urpc rollback of flowcontrol and log enhancement
 * Fri Feb 27 2026 bishulei <bishulei@huawei.com> - 25.12.0-B025
 - optimize EID lookup logic
 * Thu Feb 26 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B024
