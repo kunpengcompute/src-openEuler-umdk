@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B033
+    %define rpm_release B034
 %endif
 
 Name          : umdk
@@ -111,6 +111,7 @@ Patch0032: 0032-umdk-urma-seg-cache-default-enable.patch
 Patch0033: 0033-umdk-urma-fix-timing-bug-in-urma-ping.patch
 Patch0034: 0034-umdk-dlock-fix-codecheck-warnings.patch
 Patch0035: 0035-umdk-ums-fix-codecheck-warnings.patch
+Patch0036: 0036-umdk-urma-support-uboe.patch
 
 %description
 A new system interconnect architecture
@@ -305,6 +306,7 @@ tools of ums, contains ums_run
 %patch 0033 -p1
 %patch 0034 -p1
 %patch 0035 -p1
+%patch 0036 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -573,6 +575,8 @@ fi
 %endif
 
 %changelog
+* Tue Mar 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B034
+- urma: support uboe
 * Mon Mar 2 2026 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B033
 - ums: fix codecheck warnings
 * Mon Mar 2 2026 huying <huying21@huawei.com> - 25.12.0-B032
