@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B038
+    %define rpm_release B039
 %endif
 
 Name          : umdk
@@ -119,6 +119,8 @@ Patch0038: 0038-umdk-urma-bugfix-query-sl-resource.patch
 Patch0039: 0039-umdk-urma-bondp-datapath-optimization.patch
 Patch0040: 0040-umdk-urma-userctl-header-file-in-user-space.patch
 Patch0041: 0041-umdk-urma-User-space-implementation-of-Jetty-extension-interface.patch
+Patch0042: 0042-umdk-udma-Support-uboe-function.patch
+Patch0043: 0043-umdk-udma-Support-user-ctl-function.patch
 %description
 A new system interconnect architecture
 
@@ -320,6 +322,8 @@ tools of ums, contains ums_run
 %patch 0039 -p1
 %patch 0040 -p1
 %patch 0041 -p1
+%patch 0042 -p1
+%patch 0043 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -590,6 +594,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 4 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B039
+- udma: bugfix related to user ctl
 * Wed Mar 4 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B038
 - urma: bugfix userctl
 * Wed Mar 4 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B037
