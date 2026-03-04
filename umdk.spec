@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B037
+    %define rpm_release B038
 %endif
 
 Name          : umdk
@@ -117,7 +117,8 @@ Patch0036: 0036-umdk-urma-support-uboe.patch
 Patch0037: 0037-umdk-urpc-normalize-line-ending-and-bugfix.patch
 Patch0038: 0038-umdk-urma-bugfix-query-sl-resource.patch
 Patch0039: 0039-umdk-urma-bondp-datapath-optimization.patch
-
+Patch0040: 0040-umdk-urma-userctl-header-file-in-user-space.patch
+Patch0041: 0041-umdk-urma-User-space-implementation-of-Jetty-extension-interface.patch
 %description
 A new system interconnect architecture
 
@@ -317,6 +318,8 @@ tools of ums, contains ums_run
 %patch 0037 -p1
 %patch 0038 -p1
 %patch 0039 -p1
+%patch 0040 -p1
+%patch 0041 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -587,6 +590,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 4 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B038
+- urma: bugfix userctl
 * Wed Mar 4 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B037
 - urma: bondp datapath optimization
 * Tue Mar 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B036
