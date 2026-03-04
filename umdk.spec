@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B036
+    %define rpm_release B037
 %endif
 
 Name          : umdk
@@ -116,6 +116,7 @@ Patch0035: 0035-umdk-ums-fix-codecheck-warnings.patch
 Patch0036: 0036-umdk-urma-support-uboe.patch
 Patch0037: 0037-umdk-urpc-normalize-line-ending-and-bugfix.patch
 Patch0038: 0038-umdk-urma-bugfix-query-sl-resource.patch
+Patch0039: 0039-umdk-urma-bondp-datapath-optimization.patch
 
 %description
 A new system interconnect architecture
@@ -315,6 +316,7 @@ tools of ums, contains ums_run
 %patch 0036 -p1
 %patch 0037 -p1
 %patch 0038 -p1
+%patch 0039 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -585,6 +587,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 4 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B037
+- urma: bondp datapath optimization
 * Tue Mar 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B036
 - urma: bugfix query sl resource
 * Tue Mar 3 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B035
