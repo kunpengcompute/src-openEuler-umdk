@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B035
+    %define rpm_release B036
 %endif
 
 Name          : umdk
@@ -115,6 +115,7 @@ Patch0034: 0034-umdk-dlock-fix-codecheck-warnings.patch
 Patch0035: 0035-umdk-ums-fix-codecheck-warnings.patch
 Patch0036: 0036-umdk-urma-support-uboe.patch
 Patch0037: 0037-umdk-urpc-normalize-line-ending-and-bugfix.patch
+Patch0038: 0038-umdk-urma-bugfix-query-sl-resource.patch
 
 %description
 A new system interconnect architecture
@@ -313,6 +314,7 @@ tools of ums, contains ums_run
 %patch 0035 -p1
 %patch 0036 -p1
 %patch 0037 -p1
+%patch 0038 -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -583,6 +585,8 @@ fi
 %endif
 
 %changelog
+* Tue Mar 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B036
+- urma: bugfix query sl resource
 * Tue Mar 3 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B035
 - urpc support adaptive flowcontrol and log enhancement
 * Tue Mar 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B034
