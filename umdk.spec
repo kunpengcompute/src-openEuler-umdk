@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B040
+    %define rpm_release B041
 %endif
 
 Name          : umdk
@@ -123,6 +123,10 @@ Patch0042: 0042-umdk-udma-Support-uboe-function.patch
 Patch0043: 0043-umdk-udma-Support-user-ctl-function.patch
 Patch0044: 0044-umdk-urma-hotfix-bondp-topo-to-adapt-loopback-changes.patch
 Patch0045: 0045-umdk-urma-bugfix-of-urma_admin.patch
+Patch0046: 0046-umdk-urma-optimize-urma_admin-usage-printing.patch
+Patch0047: 0047-umdk-urma-urma_perftest-support-page_size-config-value.patch
+Patch0048: 0048-umdk-urma-bugfix-for-urma_perftest.patch
+Patch0049: 0049-umdk-urma-add-new-param-checks-for-urma_ping-client.patch
 
 %description
 A new system interconnect architecture
@@ -553,6 +557,8 @@ fi
 %endif
 
 %changelog
+* Sat Mar 7 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B041
+- urma: optimize urma_admin usage printing
 * Wed Mar 4 2026 Yongqiang Guo <guoyongqiang12@huawei.com> - 25.12.0-B040
 - urma: hotfix bondp topo to adapt loopback changes.
 * Wed Mar 4 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B039
