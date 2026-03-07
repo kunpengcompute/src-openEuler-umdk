@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B039
+    %define rpm_release B040
 %endif
 
 Name          : umdk
@@ -109,7 +109,7 @@ Patch0028: 0028-umdk-urma-add-urma-ping-client.patch
 Patch0029: 0029-umdk-ums-fix-the-issue-of-links-not-being-shareable.patch
 Patch0030: 0030-umdk-ums-prevent-Send-WR-from-being-posted-to-Jetty-when-ubcore_bind_jetty-fails.patch
 Patch0031: 0031-umdk-dlock-fix-example-issue-client_init-deinit-calls-need-to-be-locked.patch
-Patch0032: 0032-umdk-urma-seg-cache-default-enable.patch
+Patch0032: 0032-umdk-urma-seg-cache-default-disable.patch
 Patch0033: 0033-umdk-urma-fix-timing-bug-in-urma-ping.patch
 Patch0034: 0034-umdk-dlock-fix-codecheck-warnings.patch
 Patch0035: 0035-umdk-ums-fix-codecheck-warnings.patch
@@ -121,6 +121,9 @@ Patch0040: 0040-umdk-urma-userctl-header-file-in-user-space.patch
 Patch0041: 0041-umdk-urma-User-space-implementation-of-Jetty-extension-interface.patch
 Patch0042: 0042-umdk-udma-Support-uboe-function.patch
 Patch0043: 0043-umdk-udma-Support-user-ctl-function.patch
+Patch0044: 0044-umdk-urma-hotfix-bondp-topo-to-adapt-loopback-changes.patch
+Patch0045: 0045-umdk-urma-bugfix-of-urma_admin.patch
+
 %description
 A new system interconnect architecture
 
@@ -279,51 +282,7 @@ tools of ums, contains ums_run
 %endif
 
 %prep
-%setup -c -n %{name}-%{version}
-%patch 0000 -p1
-%patch 0001 -p1
-%patch 0002 -p1
-%patch 0003 -p1
-%patch 0004 -p1
-%patch 0005 -p1
-%patch 0006 -p1
-%patch 0007 -p1
-%patch 0008 -p1
-%patch 0009 -p1
-%patch 0010 -p1
-%patch 0011 -p1
-%patch 0012 -p1
-%patch 0013 -p1
-%patch 0014 -p1
-%patch 0015 -p1
-%patch 0016 -p1
-%patch 0017 -p1
-%patch 0018 -p1
-%patch 0019 -p1
-%patch 0020 -p1
-%patch 0021 -p1
-%patch 0022 -p1
-%patch 0023 -p1
-%patch 0024 -p1
-%patch 0025 -p1
-%patch 0026 -p1
-%patch 0027 -p1
-%patch 0028 -p1
-%patch 0029 -p1
-%patch 0030 -p1
-%patch 0031 -p1
-%patch 0032 -p1
-%patch 0033 -p1
-%patch 0034 -p1
-%patch 0035 -p1
-%patch 0036 -p1
-%patch 0037 -p1
-%patch 0038 -p1
-%patch 0039 -p1
-%patch 0040 -p1
-%patch 0041 -p1
-%patch 0042 -p1
-%patch 0043 -p1
+%autosetup -c -n %{name}-%{version} -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -594,6 +553,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 4 2026 Yongqiang Guo <guoyongqiang12@huawei.com> - 25.12.0-B040
+- urma: hotfix bondp topo to adapt loopback changes.
 * Wed Mar 4 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B039
 - udma: bugfix related to user ctl
 * Wed Mar 4 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B038
@@ -611,7 +572,7 @@ fi
 * Mon Mar 2 2026 huying <huying21@huawei.com> - 25.12.0-B032
 - dlock: fix codecheck warnings
 * Mon Mar 2 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B031
-- urma: make bondp seg cache default enable
+- urma: make bondp seg cache default disable
 * Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B030
 - dlock: fix example issue, client_init/deinit() calls need to be locked
 * Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B029

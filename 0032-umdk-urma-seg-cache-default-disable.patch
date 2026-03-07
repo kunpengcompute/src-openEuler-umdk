@@ -1,5 +1,5 @@
 diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
-index 468d3bcea6e92524b1a6b51b43b6c332ec435d97..0fd2874851a144e062772b34fa2c4655e8d475bc 100644
+index 468d3bc..0fd2874 100644
 --- a/src/urma/lib/urma/bond/bondp_api.c
 +++ b/src/urma/lib/urma/bond/bondp_api.c
 @@ -10,6 +10,7 @@
@@ -29,17 +29,33 @@ index 468d3bcea6e92524b1a6b51b43b6c332ec435d97..0fd2874851a144e062772b34fa2c4655
              URMA_LOG_ERR("Unsupported opcode, opcode:%d\n", in->opcode);
              return -EINVAL;
 diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
-index 8fa48a3f00840b1eb703a6561e2ec940fb6e5a48..e2a8ed1768280e8d827bfdbafe8d78bae26e4564 100644
+index 8fa48a3..3b9bdd0 100644
 --- a/src/urma/lib/urma/bond/bondp_segment.c
 +++ b/src/urma/lib/urma/bond/bondp_segment.c
-@@ -522,6 +522,12 @@ static int bondp_add_v2p_token_id(bondp_context_t *bdp_ctx, bondp_v2p_token_id_t
+@@ -27,6 +27,7 @@
+ #define BDP_VA_VTSEG_HASH_INFO_TABLE_SIZE (1024)
+ 
+ static bondp_hash_table_t g_va_vtseg_tbl;
++static bool g_seg_cache_enable = false;
+ 
+ // key is va
+ typedef struct bdp_va_vtseg_info {
+@@ -339,7 +340,7 @@ static bondp_ret_t import_matrix_port_seg_by_direct_route(bondp_context_t *bdp_c
+     if (is_half_loopback(bdp_ctx->topo_map, &eid)) {
+         return bondp_import_seg_half_loopback(bdp_ctx, bondp_seg_cfg, &eid);
+     }
+-    
++
+     for (i = 0; i < direct_dev_info->direct_num; ++i) {
+         local_port = get_matrix_port_p_idx(direct_dev_info->local_map_idx[i].peer_iodie,
+             direct_dev_info->local_map_idx[i].peer_port);
+@@ -522,6 +523,11 @@ static int bondp_add_v2p_token_id(bondp_context_t *bdp_ctx, bondp_v2p_token_id_t
      return 0;
  }
  
-+static bool seg_cache_enable = false;
 +void bondp_toggle_seg_cache(bool enable)
 +{
-+    seg_cache_enable = enable;
++    g_seg_cache_enable = enable;
 +}
 +
  urma_target_seg_t *bondp_import_seg(urma_context_t *ctx, urma_seg_t *seg,
@@ -73,7 +89,7 @@ index 8fa48a3f00840b1eb703a6561e2ec940fb6e5a48..e2a8ed1768280e8d827bfdbafe8d78ba
 -        bondp_fill_v_tseg(&bdp_imprt_tseg->v_tseg, seg, addr, v2p_token_id.v_handle, ctx);
 -        ret = bondp_import_p_seg(bdp_ctx, seg, &bondp_seg_cfg);
 -        if (ret != 0) {
-+    if (seg_cache_enable) {
++    if (g_seg_cache_enable) {
 +        (void)memcpy(&v_remote_eid, &seg->ubva.eid, sizeof(urma_eid_t));
 +        int ret = bdp_r_v2p_token_id_tabl_lookup(&bdp_ctx->remote_v2p_token_id_table, seg->token_id,
 +            &v_remote_eid, &v2p_token_id);
@@ -121,7 +137,7 @@ index 8fa48a3f00840b1eb703a6561e2ec940fb6e5a48..e2a8ed1768280e8d827bfdbafe8d78ba
 -    ret = bondp_add_v2p_token_id(bdp_ctx, &v2p_token_id);
 -    if (ret != 0) {
 -        goto unimport_p_seg;
-+    if (seg_cache_enable) {
++    if (g_seg_cache_enable) {
 +        v2p_token_id.key.v_remote_eid = v_remote_eid;
 +        v2p_token_id.key.v_token_id = seg->token_id;
 +        (void)memcpy(v2p_token_id.peer_p_seg, udata_out.peer_p_seg, sizeof(bondp_udata_import_seg_t));
@@ -134,7 +150,7 @@ index 8fa48a3f00840b1eb703a6561e2ec940fb6e5a48..e2a8ed1768280e8d827bfdbafe8d78ba
  
      return &bdp_imprt_tseg->v_tseg;
 diff --git a/src/urma/lib/urma/bond/bondp_segment.h b/src/urma/lib/urma/bond/bondp_segment.h
-index 99c61af75dd93cd025acaacc0e0216d9a3049485..0307418cf83895a400d9e12710a68ed880577824 100644
+index 99c61af..0307418 100644
 --- a/src/urma/lib/urma/bond/bondp_segment.h
 +++ b/src/urma/lib/urma/bond/bondp_segment.h
 @@ -9,7 +9,11 @@
@@ -160,7 +176,7 @@ index 99c61af75dd93cd025acaacc0e0216d9a3049485..0307418cf83895a400d9e12710a68ed8
 +
 +#endif // BONDP_SEGMENT_H
 diff --git a/src/urma/lib/urma/bond/include/urma_ubagg.h b/src/urma/lib/urma/bond/include/urma_ubagg.h
-index 9c4139d5c5d73fcfc57fa1b127db05b2d79ae49c..04689257054acad8ba67b965e3fa875ab67b9205 100644
+index 9c4139d..0468925 100644
 --- a/src/urma/lib/urma/bond/include/urma_ubagg.h
 +++ b/src/urma/lib/urma/bond/include/urma_ubagg.h
 @@ -30,6 +30,7 @@ typedef enum urma_bond_user_ctl_opcode {
@@ -178,3 +194,6 @@ index 9c4139d5c5d73fcfc57fa1b127db05b2d79ae49c..04689257054acad8ba67b965e3fa875a
 -#endif
 \ No newline at end of file
 +#endif
+-- 
+2.28.0.windows.1
+
