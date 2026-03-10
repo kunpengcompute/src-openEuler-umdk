@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B041
+    %define rpm_release B042
 %endif
 
 Name          : umdk
@@ -127,6 +127,7 @@ Patch0046: 0046-umdk-urma-optimize-urma_admin-usage-printing.patch
 Patch0047: 0047-umdk-urma-urma_perftest-support-page_size-config-value.patch
 Patch0048: 0048-umdk-urma-bugfix-for-urma_perftest.patch
 Patch0049: 0049-umdk-urma-add-new-param-checks-for-urma_ping-client.patch
+Patch0050: 0050-umdk-urma-correct-log-format.patch
 
 %description
 A new system interconnect architecture
@@ -557,6 +558,8 @@ fi
 %endif
 
 %changelog
+* Tue Mar 10 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B042
+- urma: correct log format for construct and destruct
 * Sat Mar 7 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B041
 - urma: optimize urma_admin usage printing
 * Wed Mar 4 2026 Yongqiang Guo <guoyongqiang12@huawei.com> - 25.12.0-B040
