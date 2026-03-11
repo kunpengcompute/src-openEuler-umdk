@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B042
+    %define rpm_release B043
 %endif
 
 Name          : umdk
@@ -128,6 +128,22 @@ Patch0047: 0047-umdk-urma-urma_perftest-support-page_size-config-value.patch
 Patch0048: 0048-umdk-urma-bugfix-for-urma_perftest.patch
 Patch0049: 0049-umdk-urma-add-new-param-checks-for-urma_ping-client.patch
 Patch0050: 0050-umdk-urma-correct-log-format.patch
+Patch0051: 0051-umdk-urma-cleancode-fix-for-sync.patch
+Patch0052: 0052-umdk-urma-cleancode-fix-for-sync-urma-ping.patch
+Patch0053: 0053-umdk-urma-simplify-bondp-import.patch
+Patch0054: 0054-umdk-urma-bond-import-without-user-mode-topo.patch
+Patch0055: 0055-umdk-urma-remove-unused-bond-code.patch
+Patch0056: 0056-umdk-urma-Disable-deletion-operations-on-bonding_dev_0.patch
+Patch0057: 0057-umdk-urma-fix-cleancode.patch
+Patch0058: 0058-umdk-urma-add-signal-handler-for-urma_ping.patch
+Patch0059: 0059-umdk-urma-bugfix-for-inline_data.patch
+Patch0060: 0060-umdk-urma-cleancode-fix-for-bondp_segment-etc.patch
+Patch0061: 0061-umdk-urma-fix-bondp_datapath-cleancode.patch
+Patch0062: 0062-umdk-urma-clean-code-fo-topo_info.patch
+Patch0063: 0063-umdk-urma-urma_admin-cleancode.patch
+Patch0064: 0064-umdk-urma-urma_perftest-cleancode.patch
+Patch0065: 0065-umdk-urma-cleancode-fix-for-ping_parameters.patch
+Patch0066: 0066-umdk-urma-check-ioctl-errno-value.patch
 
 %description
 A new system interconnect architecture
@@ -558,6 +574,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 11 2026  luyicai <luyicai1994@yeah.net> - 25.12.0-B043
+- sync bugfix of urma
 * Tue Mar 10 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B042
 - urma: correct log format for construct and destruct
 * Sat Mar 7 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B041
