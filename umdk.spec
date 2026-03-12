@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B044
+    %define rpm_release B045
 %endif
 
 Name          : umdk
@@ -145,6 +145,7 @@ Patch0064: 0064-umdk-urma-urma_perftest-cleancode.patch
 Patch0065: 0065-umdk-urma-cleancode-fix-for-ping_parameters.patch
 Patch0066: 0066-umdk-urma-check-ioctl-errno-value.patch
 Patch0067: 0067-umdk-urma-change-uvs-and-urma_admin-log-format.patch
+Patch0068: 0068-umdk-urma-cleancode-fix-for-bond.patch
 
 %description
 A new system interconnect architecture
@@ -575,6 +576,8 @@ fi
 %endif
 
 %changelog
+* Thu Mar 12 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B045
+- urma: cleancode fix for bondp
 * Thu Mar 12 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B044
 - urma: change uvs and urma_admin log format
 * Wed Mar 11 2026  luyicai <luyicai1994@yeah.net> - 25.12.0-B043
