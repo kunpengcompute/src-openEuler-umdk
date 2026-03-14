@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B046
+    %define rpm_release B047
 %endif
 
 Name          : umdk
@@ -149,6 +149,10 @@ Patch0068: 0068-umdk-urma-cleancode-fix-for-bond.patch
 Patch0069: 0069-umdk-urma-bondp-seg-cache-should-not-import-vseg-twice.patch
 Patch0070: 0070-umdk-urma-bond-device-no-longer-requires.patch
 Patch0071: 0071-umdk-urma-add-comments-for-urma_wait_jfc0.patch
+Patch0072: 0072-umdk-urma-bonding-dev-adapts-to-SL-functionality.patch
+Patch0073: 0073-umdk-urma-remove-unused-bondp-code.patch
+Patch0074: 0074-umdk-urma-add-eid_idx-validity-check-when-set-eid-to-ns.patch
+Patch0075: 0075-umdk-urma-for-updates-to-external-files-or-APIs.patch
 
 %description
 A new system interconnect architecture
@@ -579,6 +583,8 @@ fi
 %endif
 
 %changelog
+* Sat Mar 14 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B047
+- urma: support SL functionality; update bondp&urma_admin
 * Sat Mar 14 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B046
 - urma: sync for liburma and bondp implementation
 * Thu Mar 12 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B045
