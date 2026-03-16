@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B047
+    %define rpm_release B048
 %endif
 
 Name          : umdk
@@ -153,6 +153,7 @@ Patch0072: 0072-umdk-urma-bonding-dev-adapts-to-SL-functionality.patch
 Patch0073: 0073-umdk-urma-remove-unused-bondp-code.patch
 Patch0074: 0074-umdk-urma-add-eid_idx-validity-check-when-set-eid-to-ns.patch
 Patch0075: 0075-umdk-urma-for-updates-to-external-files-or-APIs.patch
+Patch0076: 0076-umdk-urma-update-urma-admin-agg-expose.patch
 
 %description
 A new system interconnect architecture
@@ -583,6 +584,8 @@ fi
 %endif
 
 %changelog
+* Mon Mar 16 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B048
+- urma: update urma_admin agg expose
 * Sat Mar 14 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B047
 - urma: support SL functionality; update bondp&urma_admin
 * Sat Mar 14 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B046
