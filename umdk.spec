@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B048
+    %define rpm_release B049
 %endif
 
 Name          : umdk
@@ -154,6 +154,7 @@ Patch0073: 0073-umdk-urma-remove-unused-bondp-code.patch
 Patch0074: 0074-umdk-urma-add-eid_idx-validity-check-when-set-eid-to-ns.patch
 Patch0075: 0075-umdk-urma-for-updates-to-external-files-or-APIs.patch
 Patch0076: 0076-umdk-urma-update-urma-admin-agg-expose.patch
+Patch0077: 0077-umdk-urma-do-not-parse-vendor-and-device-for-bonding-device.patch
 
 %description
 A new system interconnect architecture
@@ -584,6 +585,8 @@ fi
 %endif
 
 %changelog
+* Tue Mar 17 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B049
+- urma: do not parse vendor and device for bonding device
 * Mon Mar 16 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B048
 - urma: update urma_admin agg expose
 * Sat Mar 14 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B047
