@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B050
+    %define rpm_release B051
 %endif
 
 Name          : umdk
@@ -156,6 +156,9 @@ Patch0075: 0075-umdk-urma-for-updates-to-external-files-or-APIs.patch
 Patch0076: 0076-umdk-urma-update-urma-admin-agg-expose.patch
 Patch0077: 0077-umdk-urma-do-not-parse-vendor-and-device-for-bonding-device.patch
 Patch0078: 0078-umdk-urma-update-urma_admin-show.patch
+Patch0079: 0079-umdk-urma-add-param-check-for-target-port.patch
+Patch0080: 0081-umdk-urma-fix-codecheck.patch
+Patch0081: 0081-umdk-urma-optimize-perftest-tool-parameters.patch
 
 %description
 A new system interconnect architecture
@@ -586,6 +589,8 @@ fi
 %endif
 
 %changelog
+* Thu Mar 19 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B051
+- urma: perftest para optimization
 * Wed Mar 18 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B050
 - urma: update urma_admin show for bonding devices
 * Tue Mar 17 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B049
