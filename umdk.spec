@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B053
+    %define rpm_release B054
 %endif
 
 Name          : umdk
@@ -161,6 +161,7 @@ Patch0080: 0081-umdk-urma-fix-codecheck.patch
 Patch0081: 0081-umdk-urma-optimize-perftest-tool-parameters.patch
 Patch0082: 0082-umdk-dlock-adapt-to-urma-bondp-API-change-remove-bond-user-ctl-code.patch
 Patch0083: 0083-umdk-dlock-adapt-to-urma-API-change-set-jetty-priority-by-tp_type.patch
+Patch0084: 0084-umdk-dlock-synchronize-jetty-flush-flags-to-avoid-data-race-issue.patch
 
 %description
 A new system interconnect architecture
@@ -591,6 +592,8 @@ fi
 %endif
 
 %changelog
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B054
+- dlock: synchronize jetty flush flags to avoid data race issue
 * Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B053
 - dlock: adapt to urma API change, set jetty priority by tp_type
 * Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B052
