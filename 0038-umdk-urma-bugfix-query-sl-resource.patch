@@ -1,0 +1,95 @@
+From 2da9ac128dd80f1e751e943609d5bf179976674e Mon Sep 17 00:00:00 2001
+From: Wen Chen <chenwen54@huawei.com>
+Date: Fri, 27 Feb 2026 11:17:09 +0800
+Subject: [PATCH 1/2] urma: bugfix query sl resource
+
+(cherry picked from commit ec8b31f807abfcda565841a7ddac9b7a4550bf43)
+---
+ src/urma/lib/urma/core/urma_cmd_tlv.c | 7 +++++++
+ src/urma/lib/urma/core/urma_cmd_tlv.h | 7 +++++++
+ src/urma/lib/urma/core/urma_device.c  | 2 +-
+ src/urma/lib/urma/core/urma_device.h  | 1 +
+ src/urma/lib/urma/core/urma_main.c    | 7 +++++++
+ 5 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/core/urma_cmd_tlv.c b/src/urma/lib/urma/core/urma_cmd_tlv.c
+index 7015fd9..1aa4aa4 100644
+--- a/src/urma/lib/urma/core/urma_cmd_tlv.c
++++ b/src/urma/lib/urma/core/urma_cmd_tlv.c
+@@ -856,6 +856,13 @@ int urma_ioctl_query_dev_attr(int ioctl_fd, urma_cmd_query_device_attr_t *arg)
+     ATTR_ARRAY(a++, QUERY_DEVICE_OUT_PORT_ATTR_ACTIVE_WIDTH, arg->out.attr.port_attr, active_width);
+     ATTR_ARRAY(a++, QUERY_DEVICE_OUT_PORT_ATTR_ACTIVE_SPEED, arg->out.attr.port_attr, active_speed);
+     ATTR_ARRAY(a++, QUERY_DEVICE_OUT_PORT_ATTR_ACTIVE_MTU, arg->out.attr.port_attr, active_mtu);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_RM_ORDER_CAP, arg->out.attr.dev_cap.rm_order_cap.value);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_RC_ORDER_CAP, arg->out.attr.dev_cap.rc_order_cap.value);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_RM_TP_CAP, arg->out.attr.dev_cap.rm_tp_cap.value);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_RC_TP_CAP, arg->out.attr.dev_cap.rc_tp_cap.value);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_UM_TP_CAP, arg->out.attr.dev_cap.um_tp_cap.value);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_TP_FEATURE, arg->out.attr.dev_cap.tp_feature.value);
++	ATTR(a++, QUERY_DEVICE_OUT_DEV_CAP_PRIORITY_INFO, arg->out.attr.dev_cap.priority_info);
+ 
+     return urma_tlv_ioctl(ioctl_fd, URMA_CMD_QUERY_DEV_ATTR, attrs, sizeof(attrs));
+ }
+diff --git a/src/urma/lib/urma/core/urma_cmd_tlv.h b/src/urma/lib/urma/core/urma_cmd_tlv.h
+index ced6b08..2faa342 100644
+--- a/src/urma/lib/urma/core/urma_cmd_tlv.h
++++ b/src/urma/lib/urma/core/urma_cmd_tlv.h
+@@ -754,6 +754,13 @@ typedef enum urma_cmd_query_device_attr_type {
+     QUERY_DEVICE_OUT_PORT_ATTR_ACTIVE_MTU,
+     QUERY_DEVICE_OUT_RESERVED_JETTY_ID_MIN,
+     QUERY_DEVICE_OUT_RESERVED_JETTY_ID_MAX,
++	QUERY_DEVICE_OUT_DEV_CAP_RM_ORDER_CAP,
++	QUERY_DEVICE_OUT_DEV_CAP_RC_ORDER_CAP,
++	QUERY_DEVICE_OUT_DEV_CAP_RM_TP_CAP,
++	QUERY_DEVICE_OUT_DEV_CAP_RC_TP_CAP,
++	QUERY_DEVICE_OUT_DEV_CAP_UM_TP_CAP,
++	QUERY_DEVICE_OUT_DEV_CAP_TP_FEATURE,
++	QUERY_DEVICE_OUT_DEV_CAP_PRIORITY_INFO,
+     QUERY_DEVICE_OUT_NUM, /* Only for calculating number of types */
+ } uvs_cmd_set_upi_type_t;
+ 
+diff --git a/src/urma/lib/urma/core/urma_device.c b/src/urma/lib/urma/core/urma_device.c
+index 74566c4..a5be59b 100644
+--- a/src/urma/lib/urma/core/urma_device.c
++++ b/src/urma/lib/urma/core/urma_device.c
+@@ -173,7 +173,7 @@ int urma_read_eid_with_index(urma_sysfs_dev_t *sysfs_dev, uint32_t eid_index, ur
+     }
+ }
+ 
+-static int urma_query_device_attr(urma_sysfs_dev_t *sysfs_dev)
++int urma_query_device_attr(urma_sysfs_dev_t *sysfs_dev)
+ {
+     char cdev_path[URMA_MAX_PATH] = {0};
+ 
+diff --git a/src/urma/lib/urma/core/urma_device.h b/src/urma/lib/urma/core/urma_device.h
+index 1a86304..38b4ff7 100644
+--- a/src/urma/lib/urma/core/urma_device.h
++++ b/src/urma/lib/urma/core/urma_device.h
+@@ -26,5 +26,6 @@ bool urma_match_driver(urma_sysfs_dev_t *sysfs_dev, struct ub_list *driver_list)
+ uint32_t urma_read_eid_list(urma_device_t *dev, urma_eid_info_t *eid_list, uint32_t max_eid_cnt);
+ int urma_read_eid_with_index(urma_sysfs_dev_t *sysfs_dev, uint32_t eid_index, urma_eid_t *eid);
+ void urma_discover_sysfs_path(void);
++int urma_query_device_attr(urma_sysfs_dev_t *sysfs_dev);
+ 
+ #endif
+diff --git a/src/urma/lib/urma/core/urma_main.c b/src/urma/lib/urma/core/urma_main.c
+index a136081..2b0d38b 100644
+--- a/src/urma/lib/urma/core/urma_main.c
++++ b/src/urma/lib/urma/core/urma_main.c
+@@ -388,6 +388,13 @@ urma_status_t urma_query_device(urma_device_t *dev, urma_device_attr_t *dev_attr
+     }
+ 
+     urma_update_port_attr(dev->sysfs_dev);
++
++    int ret = urma_query_device_attr(dev->sysfs_dev);
++    if (ret != 0) {
++        URMA_LOG_ERR("Failed to query device attr, ret: %d.\n", ret);
++        return URMA_FAIL;
++    }
++
+     (void)memcpy(dev_attr, &dev->sysfs_dev->dev_attr, sizeof(urma_device_attr_t));
+ 
+     return URMA_SUCCESS;
+-- 
+2.28.0.windows.1
+

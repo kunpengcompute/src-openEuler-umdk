@@ -1,0 +1,41 @@
+From d471da39a8ef8579eef7510727b76935d830c5d2 Mon Sep 17 00:00:00 2001
+From: youyilin <youyilin2@huawei.com>
+Date: Wed, 4 Mar 2026 11:09:49 +0800
+Subject: [PATCH] urma: add new param checks for urma_ping client
+
+---
+ src/urma/tools/urma_ping/ping_parameters.c | 5 +++++
+ src/urma/tools/urma_ping/ping_run.c        | 2 +-
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/urma/tools/urma_ping/ping_parameters.c b/src/urma/tools/urma_ping/ping_parameters.c
+index 691a845a..ebe27229 100644
+--- a/src/urma/tools/urma_ping/ping_parameters.c
++++ b/src/urma/tools/urma_ping/ping_parameters.c
+@@ -184,5 +184,10 @@ int check_args(ping_cfg_t *cfg)
+         return -EINVAL;
+     }
+ 
++    if (cfg->size > 4096) {
++        LOG_ERROR("Size must be less than or equal to 4096\n");
++        return -EINVAL;
++    }
++
+     return 0;
+ }
+diff --git a/src/urma/tools/urma_ping/ping_run.c b/src/urma/tools/urma_ping/ping_run.c
+index fa8aaa3e..77c17585 100644
+--- a/src/urma/tools/urma_ping/ping_run.c
++++ b/src/urma/tools/urma_ping/ping_run.c
+@@ -521,7 +521,7 @@ static int recv_ping_msg(ping_cfg_t *cfg, ping_urma_resource_t *res, ping_per_se
+ 
+         bool unmatched = (ret > 0 && cr.imm_data != seq_info->seq);
+         bool received = (ret > 0 && cr.imm_data == seq_info->seq);
+-        timed_out = (seq_info->rtt >= cfg->timeout * 1000);
++        timed_out = ((seq_info->rtt >= cfg->timeout * 1000) && (cfg->timeout != 0));
+ 
+         if (unmatched) {
+             LOG_VERBOSE("Unmatched reply received: expected seq=%d, got seq=%d\n",
+-- 
+GitCode
+

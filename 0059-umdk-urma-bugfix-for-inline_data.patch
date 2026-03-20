@@ -1,0 +1,101 @@
+From f12b613e26127e8cab90f4da7dbeed5f3f949d2a Mon Sep 17 00:00:00 2001
+From: lisc972 <lishuchen3@huawei.com>
+Date: Tue, 10 Mar 2026 10:22:52 +0800
+Subject: [PATCH] urma: bugfix for inline_data
+
+(cherry picked from commit b515baddc1c9ca76c0b3c3da43b4b00194131b53)
+---
+ .../tools/urma_perftest/perftest_parameters.c |  4 +--
+ .../tools/urma_perftest/perftest_parameters.h |  6 ----
+ .../tools/urma_perftest/perftest_resources.c  | 29 -------------------
+ 3 files changed, 2 insertions(+), 37 deletions(-)
+
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.c b/src/urma/tools/urma_perftest/perftest_parameters.c
+index f189f99f..68019d3f 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.c
++++ b/src/urma/tools/urma_perftest/perftest_parameters.c
+@@ -259,7 +259,7 @@ static void init_cfg(perftest_config_t *cfg)
+     cfg->use_jfce = false;
+     cfg->time_type.value = 0;
+     // Update to max value of the device attr after creation context
+-    cfg->inline_size = (cfg->type == PERFTEST_BW) ? PERFTEST_DEF_INLINE_BW : PERFTEST_DEF_INLINE_LAT;
++    cfg->inline_size = 0;
+     cfg->jettys = PERFTEST_DEF_NUM_JETTYS;
+     cfg->token_policy = URMA_TOKEN_NONE;
+     cfg->iters = (cfg->type == PERFTEST_BW) ? PERFTEST_DEF_ITERS_BW : PERFTEST_DEF_ITERS_LAT;
+@@ -958,7 +958,7 @@ int check_local_cfg(perftest_config_t *cfg)
+         return -1;
+     }
+ 
+-    if (strstr(cfg->dev_name, "bonding_dev") != NULL || !cfg->single_path) {
++    if (strstr(cfg->dev_name, "bonding_dev") != NULL && !cfg->single_path) {
+         cfg->use_ctp = true;
+     }
+ 
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.h b/src/urma/tools/urma_perftest/perftest_parameters.h
+index 912cfb7c..d3eb34b1 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.h
++++ b/src/urma/tools/urma_perftest/perftest_parameters.h
+@@ -40,12 +40,6 @@
+ #define PERFTEST_SIZE_CQ_MOD_LIMIT (8192)
+ #define PERFTEST_BW_NO_PEAK_INTERS (20000)
+ 
+-#define PERFTEST_INLINE_LAT_RC (220)
+-#define PERFTEST_INLINE_LAT_RM (236)
+-#define PERFTEST_INLINE_LAT_UM (188)
+-#define PERFTEST_DEF_INLINE_LAT PERFTEST_INLINE_LAT_RC
+-#define PERFTEST_DEF_INLINE_BW (0)
+-
+ #define PERFTEST_DEF_CACHE_LINE_SIZE (64)
+ #define PERFTEST_PAGE_SIZE (4096)
+ 
+diff --git a/src/urma/tools/urma_perftest/perftest_resources.c b/src/urma/tools/urma_perftest/perftest_resources.c
+index 41e9111d..396053ae 100644
+--- a/src/urma/tools/urma_perftest/perftest_resources.c
++++ b/src/urma/tools/urma_perftest/perftest_resources.c
+@@ -47,34 +47,6 @@ static void print_log(int level, char *message)
+     printf("%s|%s\n", log_level_str[level], message);
+ }
+ 
+-static void check_device_inline(perftest_config_t *cfg)
+-{
+-    uint32_t default_inline = 0;
+-    uint32_t expect_inline = 0;
+-    if (cfg->tp_type == URMA_TRANSPORT_UB) {
+-        if (cfg->type == PERFTEST_LAT) {
+-            if (cfg->api_type == PERFTEST_WRITE) {
+-                default_inline = PERFTEST_DEF_INLINE_LAT;
+-                expect_inline = default_inline;
+-            } else if (cfg->api_type == PERFTEST_SEND) {
+-                default_inline = PERFTEST_DEF_INLINE_LAT;
+-                expect_inline = (cfg->trans_mode == URMA_TM_RC) ? PERFTEST_INLINE_LAT_RC :
+-                    (cfg->trans_mode == URMA_TM_RM) ? PERFTEST_INLINE_LAT_RM : PERFTEST_INLINE_LAT_UM;
+-            }
+-        }
+-    }
+-
+-    if (cfg->inline_size == default_inline) {
+-        cfg->inline_size = expect_inline;
+-    }
+-    /* inline_size check only available for latency test */
+-    if (cfg->type == PERFTEST_LAT && cfg->inline_size != default_inline &&
+-        cfg->inline_size > expect_inline) {
+-        (void)fprintf(stderr, "The recommended inline_size is no larger than: %u, but it is: %u, "
+-            "which may lead to performance reduction.\n", expect_inline, cfg->inline_size);
+-    }
+-}
+-
+ static int check_share_jfr(perftest_config_t *cfg, urma_device_t *urma_dev)
+ {
+     if (urma_dev->type == URMA_TRANSPORT_UB && cfg->share_jfr == false) {
+@@ -105,7 +77,6 @@ static int check_dev_cap(perftest_context_t *ctx, perftest_config_t *cfg)
+     }
+ 
+     cfg->tp_type = urma_dev->type;
+-    check_device_inline(cfg);
+ 
+     if (cfg->sge_num > ctx->dev_attr.dev_cap.max_jfs_sge) {
+         (void)printf("Error: max_jfs_sge out of range, max_jfs_sge:%u.\n", ctx->dev_attr.dev_cap.max_jfs_sge);
+-- 
+GitCode
+
