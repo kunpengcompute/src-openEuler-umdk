@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B051
+    %define rpm_release B052
 %endif
 
 Name          : umdk
@@ -159,6 +159,7 @@ Patch0078: 0078-umdk-urma-update-urma_admin-show.patch
 Patch0079: 0079-umdk-urma-add-param-check-for-target-port.patch
 Patch0080: 0081-umdk-urma-fix-codecheck.patch
 Patch0081: 0081-umdk-urma-optimize-perftest-tool-parameters.patch
+Patch0082: 0082-umdk-dlock-adapt-to-urma-bondp-API-change-remove-bond-user-ctl-code.patch
 
 %description
 A new system interconnect architecture
@@ -589,6 +590,8 @@ fi
 %endif
 
 %changelog
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B052
+- dlock: adapt to urma bondp API change, remove bond user ctl code
 * Thu Mar 19 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B051
 - urma: perftest para optimization
 * Wed Mar 18 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B050
