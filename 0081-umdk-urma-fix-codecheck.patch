@@ -1,0 +1,161 @@
+From 61200f126923c2ade3e305d4c3f3dbaf29216cd6 Mon Sep 17 00:00:00 2001
+From: luyicai <luyicai1994@yeah.net>
+Date: Wed, 18 Mar 2026 20:00:19 +0800
+Subject: [PATCH 11/12] urma: fix codecheck
+
+Signed-off-by: luyicai <luyicai1994@yeah.net>
+(cherry picked from commit a57a3dd589a3f86632c0703a43003e6872f57d99)
+---
+ src/urma/lib/urma/bond/bondp_api.c                 | 2 +-
+ src/urma/lib/urma/bond/bondp_segment.c             | 1 -
+ src/urma/tools/urma_admin/admin_cmd_agg.c          | 9 +++++----
+ src/urma/tools/urma_admin/admin_cmd_show.c         | 5 +++--
+ src/urma/tools/urma_admin/admin_log.c              | 2 +-
+ src/urma/tools/urma_perftest/perftest_parameters.c | 4 ++--
+ src/urma/tools/urma_ping/ping_run.c                | 4 ++--
+ 7 files changed, 14 insertions(+), 13 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 4a800105..f6772284 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -1046,7 +1046,7 @@ static int add_remote_jetty_id_info(bondp_context_t *bdp_ctx, bondp_target_jetty
+     return 0;
+ }
+ 
+-urma_target_jetty_t * bondp_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *token_value)
++urma_target_jetty_t *bondp_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *token_value)
+ {
+     bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(ctx, bondp_context_t, v_ctx);
+ 
+diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
+index 8184a421..3e6c174e 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.c
++++ b/src/urma/lib/urma/bond/bondp_segment.c
+@@ -424,7 +424,6 @@ urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg)
+     bondp_import_tseg_t *bdp_tseg = CONTAINER_OF_FIELD(target_seg, bondp_import_tseg_t, v_tseg);
+     urma_status_t ret = URMA_SUCCESS;
+ 
+-
+     if (bondp_unimport_pseg(bdp_tseg) != URMA_SUCCESS) {
+         ret = URMA_FAIL;
+     }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_agg.c b/src/urma/tools/urma_admin/admin_cmd_agg.c
+index d059d384..1d138b3a 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_agg.c
++++ b/src/urma/tools/urma_admin/admin_cmd_agg.c
+@@ -154,7 +154,8 @@ static int expose_agg_device(admin_urma_topo_bonding_dev_t *bonding_info, int ns
+         return ret;
+     }
+ 
+-    printf("Setting EID index %d in bonding device %s, netns %d\n", bonding_info->bonding_eid_idx, bonding_info->dev_name, ns_fd);
++    printf("Setting EID index %d in bonding device %s, netns %d\n",
++        bonding_info->bonding_eid_idx, bonding_info->dev_name, ns_fd);
+     ret = admin_nl_set_eid_ns(bonding_info->dev_name, bonding_info->bonding_eid_idx, ns_fd);
+     if (ret != 0) {
+         printf("Failed to set EID index %d in bonding device %s, netns %d, ret=%d\n", bonding_info->bonding_eid_idx,
+@@ -181,7 +182,7 @@ static int expose_agg_device(admin_urma_topo_bonding_dev_t *bonding_info, int ns
+         ret = admin_nl_set_eid_ns(dev_info->dev_name, dev_info->primary_eid_idx, ns_fd);
+         if (ret != 0) {
+             printf("Failed to set EID index %d in primary device %s, netns %d, ret=%d\n", dev_info->primary_eid_idx,
+-                    dev_info->dev_name, ns_fd, ret);
++                   dev_info->dev_name, ns_fd, ret);
+             admin_nl_unexpose_dev_ns(dev_info->dev_name, ns_fd);
+             goto unexpose_agg_dev;
+         }
+@@ -195,8 +196,8 @@ static int expose_agg_device(admin_urma_topo_bonding_dev_t *bonding_info, int ns
+                    dev_info->dev_name, ns_fd);
+             ret = admin_nl_set_eid_ns(dev_info->dev_name, dev_info->port_eid_idx[i], ns_fd);
+             if (ret != 0) {
+-                printf("Failed to set port EID index %d in primary device %s, netns %d, ret=%d\n", dev_info->port_eid_idx[i],
+-                       dev_info->dev_name, ns_fd, ret);
++                printf("Failed to set port EID index %d in primary device %s, netns %d, ret=%d\n",
++                       dev_info->port_eid_idx[i], dev_info->dev_name, ns_fd, ret);
+             }
+         }
+     }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index 70c40611..99a63098 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -986,7 +986,7 @@ static void urma_eid_to_ipv6_str(const urma_eid_t *eid, char *out, size_t out_le
+             if (n <= 0) {
+                 printf("Failed convert eid to ipv6.\n");
+             }
+-            ptr +=n;
++            ptr += n;
+             left -= n;
+             i += max_zero_len;
+             printed = true;
+@@ -1216,8 +1216,9 @@ int admin_cmd_get_topo_bonding_dev_by_eid(const urma_eid_t *agg_eid,
+     int ret;
+     admin_core_cmd_topo_bonding_dev_t *arg = NULL;
+ 
+-    if (agg_eid == NULL || out == NULL)
++    if (agg_eid == NULL || out == NULL) {
+         return -EINVAL;
++    }
+ 
+     arg = calloc(1, sizeof(admin_core_cmd_topo_bonding_dev_t));
+     if (arg == NULL) {
+diff --git a/src/urma/tools/urma_admin/admin_log.c b/src/urma/tools/urma_admin/admin_log.c
+index 4fab9e97..e72a043f 100644
+--- a/src/urma/tools/urma_admin/admin_log.c
++++ b/src/urma/tools/urma_admin/admin_log.c
+@@ -29,7 +29,7 @@ static int urma_admin_vlog(const char *function, int line, const char *format, v
+ 
+     /* add log head info, "URMA|urma_admin|thread_id|-|function|[line]|format" */
+     ret = snprintf(newformat, MAX_LOG_LEN, "%s|%s|%ld|-|%s[%d]|%s",
+-            URMA_LOG_TAG, ADMIN_LOG_TAG, (long)syscall(__NR_gettid), function, line, format);
++        URMA_LOG_TAG, ADMIN_LOG_TAG, (long)syscall(__NR_gettid), function, line, format);
+     if (ret <= 0 || ret >= (int)sizeof(newformat)) {
+         return ret;
+     }
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.c b/src/urma/tools/urma_perftest/perftest_parameters.c
+index b9831267..12e1c435 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.c
++++ b/src/urma/tools/urma_perftest/perftest_parameters.c
+@@ -21,8 +21,8 @@
+ #include "urma_types.h"
+ #include "urma_types_str.h"
+ #include "perftest_communication.h"
+-#include "perftest_parameters.h"
+ #include "urma_api.h"
++#include "perftest_parameters.h"
+ 
+ #define PERFTEST_CACHE_LINE_FILE_SIZE (10)
+ #define PERFTEST_JFC_MUL_THRESHOLD (4)
+@@ -950,7 +950,7 @@ bool is_jfr_depth_valid(perftest_config_t *cfg)
+     return (cfg->jfr_depth * (cfg->jettys / cfg->jettys_pre_jfr)) >= (cfg->jettys * cfg->jfr_post_list);
+ }
+ 
+-int get_jetty_priority_by_tp_type(char *name, union urma_tp_type_en tp_type)
++static int get_jetty_priority_by_tp_type(char *name, union urma_tp_type_en tp_type)
+ {
+     int pri = 0;
+     urma_device_t *urma_dev;
+diff --git a/src/urma/tools/urma_ping/ping_run.c b/src/urma/tools/urma_ping/ping_run.c
+index 73295b0f..61595721 100644
+--- a/src/urma/tools/urma_ping/ping_run.c
++++ b/src/urma/tools/urma_ping/ping_run.c
+@@ -64,7 +64,7 @@ static void primary_eid_to_main_primary_eid(urma_eid_t *primary_eid)
+     bool find_entity_id = false;
+     uint32_t target_entity_id;
+     int target_node_id;
+-    
++
+     for (int i = 0; i < (int)topo_map.node_num; i++) {
+         for (int j = 0; j < DEV_NUM; j++) {
+             for (int k = 0; k < IODIE_NUM; k++) {
+@@ -598,7 +598,7 @@ int start_ping(ping_cfg_t *cfg)
+     LOG_VERBOSE("Timeout(s)  : %u\n", cfg->timeout);
+ 
+     init_stat();
+-    signal(SIGINT, signal_handler);
++    (void)signal(SIGINT, signal_handler);
+ 
+     double ping_start_time = get_time_in_ms();
+ 
+-- 
+2.28.0.windows.1
+
