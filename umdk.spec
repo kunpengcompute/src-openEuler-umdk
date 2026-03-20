@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B055
+    %define rpm_release B056
 %endif
 
 Name          : umdk
@@ -163,6 +163,7 @@ Patch0082: 0082-umdk-dlock-adapt-to-urma-bondp-API-change-remove-bond-user-ctl-c
 Patch0083: 0083-umdk-dlock-adapt-to-urma-API-change-set-jetty-priority-by-tp_type.patch
 Patch0084: 0084-umdk-dlock-synchronize-jetty-flush-flags-to-avoid-data-race-issue.patch
 Patch0085: 0085-umdk-udma-bugfix-related-to-clean-jfc.patch
+Patch0086: 0086-umdk-dlock-initialize-reserved-field-prevent-heap-bits-leaks.patch
 
 %description
 A new system interconnect architecture
@@ -593,6 +594,8 @@ fi
 %endif
 
 %changelog
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B056
+- dlock: initialize reserved field, prevent heap bits leaks
 * Fri Mar 20 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B055
 - udma: fix a bug related to clean jfc
 * Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B054
