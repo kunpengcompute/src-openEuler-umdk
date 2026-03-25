@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B058
+    %define rpm_release B059
 %endif
 
 Name          : umdk
@@ -599,6 +599,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B059
+- urma: update version kernel commit
 * Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B058
 - urma: fix bondig poll and device create bugs
 * Tue Mar 24 2026 huying <huying21@huawei.com> - 25.12.0-B057
