@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B057
+    %define rpm_release B058
 %endif
 
 Name          : umdk
@@ -165,7 +165,12 @@ Patch0084: 0084-umdk-dlock-synchronize-jetty-flush-flags-to-avoid-data-race-issu
 Patch0085: 0085-umdk-udma-bugfix-related-to-clean-jfc.patch
 Patch0086: 0086-umdk-dlock-initialize-reserved-field-prevent-heap-bits-leaks.patch
 Patch0087: 0087-umdk-ums-adapt-to-ubcore-API-change-set-jetty-priority-by-tp_type.patch
-
+Patch0088: 0088-umdk-urma-refactor-bondp-poll-and-flush.patch
+Patch0089: 0089-umdk-urma-inline_data-add-description.patch
+Patch0090: 0090-umdk-urma-remove-legacy-bond-device-create-delete.patch
+Patch0091: 0091-umdk-urma-support-ubp-methods.patch
+Patch0092: 0092-umdk-urma-bugfix-for-libiurma-log-config.patch
+Patch0093: 0093-umdk-urma-add-max-jetty-config-check-for-urma_perftest.patch
 %description
 A new system interconnect architecture
 
@@ -190,7 +195,7 @@ libraries.
 Summary:        tools of urma
 Requires:       umdk-urma-lib = %{version}
 %description urma-tools
-tools of urma, contains  urma_perftest, urma_admin, ubagg_cli.
+tools of urma, contains  urma_perftest, urma_admin, urma_ping.
 
 %package urma-bin
 Summary:        binary file of urma
@@ -431,7 +436,6 @@ fi
     %{_bindir}/urma_admin
     /etc/rsyslog.d/urma_admin.conf
     %{_bindir}/urma_perftest
-    %{_bindir}/ubagg_cli
     %{_bindir}/urma_ping
 
 %post urma-tools
@@ -595,6 +599,8 @@ fi
 %endif
 
 %changelog
+* Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B058
+- urma: fix bondig poll and device create bugs
 * Tue Mar 24 2026 huying <huying21@huawei.com> - 25.12.0-B057
 - ums: adapt to ubcore API change, set jetty priority by tp_type
 * Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B056
