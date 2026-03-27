@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B019
+    %define rpm_release B043
 %endif
 
 Name          : umdk
@@ -88,6 +88,62 @@ Patch0007: 0007-umdk-urma-bugfix-related-to-uvs.patch
 Patch0008: 0008-umdk-urma-bugfix-related-to-uvs-and-urma-admin.patch
 Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
 Patch0010: 0010-umdk-urma-support-ipourma.patch
+Patch0011: 0011-umdk-urpc-support-rnr-free-flowcontrol.patch
+Patch0012: 0012-umdk-urpc-support-adaptive-flowcontrol-and-log-enhancement.patch
+Patch0013: 0013-umdk-urma-Fix-urma_perftest-size-check-for-send-opc.patch
+Patch0014: 0014-umdk-urma-modify-log-for-liburma-bondp.patch
+Patch0015: 0015-umdk-urma-modify-urma-log-format.patch
+Patch0016: 0016-umdk-urma-optimize-the-logs-of-bondp-and-liburma.patch
+Patch0017: 0017-umdk-urma-refine-uvs-logging.patch
+Patch0018: 0018-umdk-urma-set-get-sl-priority.patch
+Patch0019: 0019-umdk-udma-support-disable-compile-udma.patch
+Patch0020: 0020-umdk-urma-standalone-aggregate-mode-currently-does-not-support-WQE-list.patch
+Patch0021: 0021-umdk-urma-add-entity_id-into-bondp-and-admin-topo.patch
+Patch0022: 0022-umdk-urma-bondp-support-half-loopback.patch
+Patch0023: 0023-umdk-urma-change-logic-between-device_list-and-eid_list.patch
+Patch0024: 0024-umdk-urma-fix-expose-agg-dev.patch
+Patch0025: 0025-umdk-urma-optimize-efficiency-of-expose-agg-dev.patch
+Patch0026: 0026-umdk-urma-set-CTP-priority-to-6-as-workaround.patch
+Patch0027: 0027-umdk-urma-optimize-EID-lookup-logic.patch
+Patch0028: 0028-umdk-urma-add-urma-ping-client.patch
+Patch0029: 0029-umdk-ums-fix-the-issue-of-links-not-being-shareable.patch
+Patch0030: 0030-umdk-ums-prevent-Send-WR-from-being-posted-to-Jetty-when-ubcore_bind_jetty-fails.patch
+Patch0031: 0031-umdk-dlock-fix-example-issue-client_init-deinit-calls-need-to-be-locked.patch
+Patch0032: 0032-umdk-urma-seg-cache-default-disable.patch
+Patch0033: 0033-umdk-urma-fix-timing-bug-in-urma-ping.patch
+Patch0034: 0034-umdk-dlock-fix-codecheck-warnings.patch
+Patch0035: 0035-umdk-ums-fix-codecheck-warnings.patch
+Patch0036: 0036-umdk-urma-support-uboe.patch
+Patch0037: 0037-umdk-urpc-normalize-line-ending-and-bugfix.patch
+Patch0038: 0038-umdk-urma-bugfix-query-sl-resource.patch
+Patch0039: 0039-umdk-urma-bondp-datapath-optimization.patch
+Patch0040: 0040-umdk-urma-userctl-header-file-in-user-space.patch
+Patch0041: 0041-umdk-urma-User-space-implementation-of-Jetty-extension-interface.patch
+Patch0042: 0042-umdk-udma-Support-uboe-function.patch
+Patch0043: 0043-umdk-udma-Support-user-ctl-function.patch
+Patch0044: 0044-umdk-urma-hotfix-bondp-topo-to-adapt-loopback-changes.patch
+Patch0045: 0045-umdk-urma-bugfix-of-urma_admin.patch
+Patch0046: 0046-umdk-urma-optimize-urma_admin-usage-printing.patch
+Patch0047: 0047-umdk-urma-urma_perftest-support-page_size-config-value.patch
+Patch0048: 0048-umdk-urma-bugfix-for-urma_perftest.patch
+Patch0049: 0049-umdk-urma-add-new-param-checks-for-urma_ping-client.patch
+Patch0050: 0050-umdk-urma-correct-log-format.patch
+Patch0051: 0051-umdk-urma-cleancode-fix-for-sync.patch
+Patch0052: 0052-umdk-urma-cleancode-fix-for-sync-urma-ping.patch
+Patch0053: 0053-umdk-urma-simplify-bondp-import.patch
+Patch0054: 0054-umdk-urma-bond-import-without-user-mode-topo.patch
+Patch0055: 0055-umdk-urma-remove-unused-bond-code.patch
+Patch0056: 0056-umdk-urma-Disable-deletion-operations-on-bonding_dev_0.patch
+Patch0057: 0057-umdk-urma-fix-cleancode.patch
+Patch0058: 0058-umdk-urma-add-signal-handler-for-urma_ping.patch
+Patch0059: 0059-umdk-urma-bugfix-for-inline_data.patch
+Patch0060: 0060-umdk-urma-cleancode-fix-for-bondp_segment-etc.patch
+Patch0061: 0061-umdk-urma-fix-bondp_datapath-cleancode.patch
+Patch0062: 0062-umdk-urma-clean-code-fo-topo_info.patch
+Patch0063: 0063-umdk-urma-urma_admin-cleancode.patch
+Patch0064: 0064-umdk-urma-urma_perftest-cleancode.patch
+Patch0065: 0065-umdk-urma-cleancode-fix-for-ping_parameters.patch
+Patch0066: 0066-umdk-urma-check-ioctl-errno-value.patch
 
 %description
 A new system interconnect architecture
@@ -228,7 +284,7 @@ AutoReqProv:    on
 This package contains umq_perftest and related UMQ tools.
 %endif
 
-%if %{build_all} || %{with ums}
+%if %{with ums}
 %package ums
 Summary:        kmod file of ums
 BuildRequires:  glib2-devel, libnl3-devel
@@ -247,18 +303,7 @@ tools of ums, contains ums_run
 %endif
 
 %prep
-%setup -c -n %{name}-%{version}
-%patch0000 -p1
-%patch0001 -p1
-%patch0002 -p1
-%patch0003 -p1
-%patch0004 -p1
-%patch0005 -p1
-%patch0006 -p1
-%patch0007 -p1
-%patch0008 -p1
-%patch0009 -p1
-%patch0010 -p1
+%autosetup -c -n %{name}-%{version} -p1
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -366,6 +411,7 @@ fi
     /etc/rsyslog.d/urma_admin.conf
     %{_bindir}/urma_perftest
     %{_bindir}/ubagg_cli
+    %{_bindir}/urma_ping
 
 %post urma-tools
 if [ -x %{_bindir}/systemctl ] && [ -x %{_sbindir}/rsyslogd ]; then
@@ -435,6 +481,8 @@ fi
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_api.h
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_types.h
     %{_includedir}/ub/umdk/urpc/umq/umq_types.h
+    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_api.h
+    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_types.h
 
 %files urpc-framework-example
 %defattr(-,root,root)
@@ -477,7 +525,7 @@ fi
     %{_includedir}/ub/umdk/ulock/dlock/dlock_server_api.h
 %endif
 
-%if %{build_all} || %{with ums}
+%if %{with ums}
 %files ums
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
@@ -526,6 +574,54 @@ fi
 %endif
 
 %changelog
+* Wed Mar 11 2026  luyicai <luyicai1994@yeah.net> - 25.12.0-B043
+- sync bugfix of urma
+* Tue Mar 10 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B042
+- urma: correct log format for construct and destruct
+* Sat Mar 7 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B041
+- urma: optimize urma_admin usage printing
+* Wed Mar 4 2026 Yongqiang Guo <guoyongqiang12@huawei.com> - 25.12.0-B040
+- urma: hotfix bondp topo to adapt loopback changes.
+* Wed Mar 4 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B039
+- udma: bugfix related to user ctl
+* Wed Mar 4 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B038
+- urma: bugfix userctl
+* Wed Mar 4 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B037
+- urma: bondp datapath optimization
+* Tue Mar 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B036
+- urma: bugfix query sl resource
+* Tue Mar 3 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B035
+- urpc support adaptive flowcontrol and log enhancement
+* Tue Mar 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B034
+- urma: support uboe
+* Mon Mar 2 2026 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B033
+- ums: fix codecheck warnings
+* Mon Mar 2 2026 huying <huying21@huawei.com> - 25.12.0-B032
+- dlock: fix codecheck warnings
+* Mon Mar 2 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B031
+- urma: make bondp seg cache default disable
+* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B030
+- dlock: fix example issue, client_init/deinit() calls need to be locked
+* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B029
+- ums: prevent Send WR from being posted to Jetty when ubcore_bind_jetty fails
+* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B028
+- ums: fix the issue of links not being shareable
+* Fri Feb 27 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B027
+- add urma_ping client
+* Fri Feb 27 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B026
+- urpc rollback of flowcontrol and log enhancement
+* Fri Feb 27 2026 bishulei <bishulei@huawei.com> - 25.12.0-B025
+- optimize EID lookup logic
+* Thu Feb 26 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B024
+- urma: set CTP priority to 6 as workaround
+* Wed Feb 25 2026 bishulei <bishulei@huawei.com> - 25.12.0-B023
+- sync bugfix of urma
+* Tue Feb 24 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B022
+- sync bugfix of urma
+* Sat Feb 14 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B021
+- urpc support adaptive flowcontrol and log enhancement
+* Fri Feb 6 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B020
+- urpc support rnr-free flowcontrol
 * Wed Feb 4 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B019
 - bugfix of urma container
 * Tue Feb 3 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B018
@@ -539,13 +635,13 @@ fi
 * Wed Dec 24 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B014
 - adapt ums compile issue when multiple kernel-devel are installed
 * Thu Dec 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B013
-- urma bugfix perftest and flush jetty 
+- urma bugfix perftest and flush jetty
 * Mon Dec 15 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B012
-- urma, dlock, ums, and umq fix some bugs 
+- urma, dlock, ums, and umq fix some bugs
 * Wed Dec 10 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B011
 - udma add compilation macro and umq fix bugs
 * Mon Dec 8 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B010
-- urma and urpc fix some bugs 
+- urma and urpc fix some bugs
 * Sat Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
 - ums fix the issue of illegal segment access permission settings
 * Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
