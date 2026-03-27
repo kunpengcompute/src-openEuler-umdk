@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B059
+    %define rpm_release B060
 %endif
 
 Name          : umdk
@@ -171,6 +171,7 @@ Patch0090: 0090-umdk-urma-remove-legacy-bond-device-create-delete.patch
 Patch0091: 0091-umdk-urma-support-ubp-methods.patch
 Patch0092: 0092-umdk-urma-bugfix-for-libiurma-log-config.patch
 Patch0093: 0093-umdk-urma-add-max-jetty-config-check-for-urma_perftest.patch
+Patch0094: 0094-umdk-urma-fix-default-parameters-of-urma-perftest.patch
 %description
 A new system interconnect architecture
 
@@ -599,6 +600,8 @@ fi
 %endif
 
 %changelog
+* Fri Mar 27 2026 luyizhou  <luyizhou1@huawei.com> - 25.12.0-B060
+- urma: fix default parameters of urma_perftest
 * Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B059
 - urma: update version kernel commit
 * Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B058
