@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B060
+    %define rpm_release B061
 %endif
 
 Name          : umdk
@@ -157,7 +157,7 @@ Patch0076: 0076-umdk-urma-update-urma-admin-agg-expose.patch
 Patch0077: 0077-umdk-urma-do-not-parse-vendor-and-device-for-bonding-device.patch
 Patch0078: 0078-umdk-urma-update-urma_admin-show.patch
 Patch0079: 0079-umdk-urma-add-param-check-for-target-port.patch
-Patch0080: 0081-umdk-urma-fix-codecheck.patch
+Patch0080: 0080-umdk-urma-fix-codecheck.patch
 Patch0081: 0081-umdk-urma-optimize-perftest-tool-parameters.patch
 Patch0082: 0082-umdk-dlock-adapt-to-urma-bondp-API-change-remove-bond-user-ctl-code.patch
 Patch0083: 0083-umdk-dlock-adapt-to-urma-API-change-set-jetty-priority-by-tp_type.patch
@@ -172,6 +172,13 @@ Patch0091: 0091-umdk-urma-support-ubp-methods.patch
 Patch0092: 0092-umdk-urma-bugfix-for-libiurma-log-config.patch
 Patch0093: 0093-umdk-urma-add-max-jetty-config-check-for-urma_perftest.patch
 Patch0094: 0094-umdk-urma-fix-default-parameters-of-urma-perftest.patch
+Patch0095: 0095-umdk-urma-fix-the-issue-of-VeLinux-urma-log-not-displaying.patch
+Patch0096: 0096-umdk-urma-bugfix-perftest-display-bw-peak-err.patch
+Patch0097: 0097-umdk-urma-fix-urma_admin-agg-del.patch
+Patch0098: 0098-umdk-urma-fix-prepare-recv-wr-when-urma_perftest-send_bw.patch
+Patch0099: 0099-umdk-urma-fix-codecheck-problems.patch
+Patch0100: 0100-umdk-urma-Update-JFS-index.patch
+Patch0101: 0101-umdk-urma-support-the-perftest-O-parameter.patch
 %description
 A new system interconnect architecture
 
@@ -600,6 +607,8 @@ fi
 %endif
 
 %changelog
+* Tue Mar 31 2026 bishulei <bishulei@huawei.com> - 25.12.0-B061
+- urma: sync bugfix of urma
 * Fri Mar 27 2026 luyizhou  <luyizhou1@huawei.com> - 25.12.0-B060
 - urma: fix default parameters of urma_perftest
 * Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B059
