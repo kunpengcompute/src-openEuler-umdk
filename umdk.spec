@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B061
+    %define rpm_release B062
 %endif
 
 Name          : umdk
@@ -179,6 +179,7 @@ Patch0098: 0098-umdk-urma-fix-prepare-recv-wr-when-urma_perftest-send_bw.patch
 Patch0099: 0099-umdk-urma-fix-codecheck-problems.patch
 Patch0100: 0100-umdk-urma-Update-JFS-index.patch
 Patch0101: 0101-umdk-urma-support-the-perftest-O-parameter.patch
+Patch0102: 0102-umdk-urma-rctp-reuse-in-urma-bind-jetty.patch
 %description
 A new system interconnect architecture
 
@@ -607,6 +608,8 @@ fi
 %endif
 
 %changelog
+* Wed Apr 1 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B062
+- urma: rctp reuse in urma_bind_jetty
 * Tue Mar 31 2026 bishulei <bishulei@huawei.com> - 25.12.0-B061
 - urma: sync bugfix of urma
 * Fri Mar 27 2026 luyizhou  <luyizhou1@huawei.com> - 25.12.0-B060
