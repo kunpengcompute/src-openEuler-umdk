@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B065
+    %define rpm_release B066
 %endif
 
 Name          : umdk
@@ -185,6 +185,7 @@ Patch0104: 0104-umdk-urma-update-validation-checks-for-single-path-and-aggregati
 Patch0105: 0105-umdk-urma-reduce-urma-slide-window-when-standalone.patch
 Patch0106: 0106-umdk-urma-bdp-slide-wnd-bool-function-return-value-fix.patch
 Patch0107: 0107-umdk-urma-support-custom-dev_name-in-urma_admin-agg-add-command.patch
+Patch0108: 0108-umdk-ums-fix-softirq-context-safety-in-ums_link_put.patch
 %description
 A new system interconnect architecture
 
@@ -613,6 +614,8 @@ fi
 %endif
 
 %changelog
+* Thu Apr 9 2026 huying <huying21@huawei.com> - 25.12.0-B066
+- ums: fix softirq context safety in ums_link_put
 * Wed Apr 8 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B065
 - urma: support custom dev_name in urma_admin agg add command
 * Wed Apr 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B064
