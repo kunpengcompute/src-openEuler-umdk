@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B064
+    %define rpm_release B065
 %endif
 
 Name          : umdk
@@ -184,6 +184,7 @@ Patch0103: 0103-umdk-urma-support-create-agg-dev-with-explicit-dev_name.patch
 Patch0104: 0104-umdk-urma-update-validation-checks-for-single-path-and-aggregation-mode.patch
 Patch0105: 0105-umdk-urma-reduce-urma-slide-window-when-standalone.patch
 Patch0106: 0106-umdk-urma-bdp-slide-wnd-bool-function-return-value-fix.patch
+Patch0107: 0107-umdk-urma-support-custom-dev_name-in-urma_admin-agg-add-command.patch
 %description
 A new system interconnect architecture
 
@@ -612,6 +613,8 @@ fi
 %endif
 
 %changelog
+* Wed Apr 8 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B065
+- urma: support custom dev_name in urma_admin agg add command
 * Wed Apr 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B064
 - urma: update validation checks for single path and aggregation mode
 * Thu Apr 2 2026 bishulei <bishulei@huawei.com> - 25.12.0-B063
