@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B068
+    %define rpm_release B069
 %endif
 
 Name          : umdk
@@ -188,6 +188,7 @@ Patch0107: 0107-umdk-urma-support-custom-dev_name-in-urma_admin-agg-add-command.
 Patch0108: 0108-umdk-ums-fix-softirq-context-safety-in-ums_link_put.patch
 Patch0109: 0109-umdk-ums-fix-and-prevent-credits-deadlock-by-reserving-emergency-credits.patch
 Patch0110: 0110-umdk-urma-fix-bondp-balance-mode-datapath.patch
+Patch0111: 0111-umdk-urma-support-clos-port.patch 
 %description
 A new system interconnect architecture
 
@@ -616,6 +617,8 @@ fi
 %endif
 
 %changelog
+* Sun Apr 19 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B069
+- umdk: supports CLOS networking and failover, health checks, shared TP, and reliable link establishment.
 * Mon Apr 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B068
 - urma: fix bondp balance mode datapath
 * Thu Apr 9 2026 huying <huying21@huawei.com> - 25.12.0-B067
