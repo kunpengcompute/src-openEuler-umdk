@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B070
+    %define rpm_release B071
 %endif
 
 Name          : umdk
@@ -190,6 +190,36 @@ Patch0109: 0109-umdk-ums-fix-and-prevent-credits-deadlock-by-reserving-emergency
 Patch0110: 0110-umdk-urma-fix-bondp-balance-mode-datapath.patch
 Patch0111: 0111-umdk-urma-support-clos-port.patch
 Patch0112: 0112-umdk-urpc-enable-urma-clos-networking-and-failover.patch
+Patch0113: 0113-umdk-urma-fix-concurrency-error.patch
+Patch0114: 0114-umdk-urma-perftest-profiling-with-process.patch
+Patch0115: 0115-umdk-urma-add-urma-switch-inc.patch
+Patch0116: 0116-umdk-urma-bonding-dev-support-affinity-for-specific-iodie.patch
+Patch0117: 0117-umdk-urma-refactor-bonding-device-create-delete-context.patch
+Patch0118: 0118-umdk-urma-fix-bonding-device-cr-local_id.patch
+Patch0119: 0119-umdk-urma-fix-yum-install-error.patch
+Patch0120: 0120-umdk-urma-remove-bonding-device-unused-code.patch
+Patch0121: 0121-umdk-urma-return-wrong-when-there-are-no-send-path.patch
+Patch0122: 0122-umdk-urma-bondp-support-nl-revert-msg.patch
+Patch0123: 0123-umdk-urma-bonding-device-resend-should-keep-order.patch
+Patch0124: 0124-umdk-urma-fix-urma-log-format.patch
+Patch0125: 0125-umdk-urma-init-bondp-context-by-member-eid-info-list.patch
+Patch0126: 0126-umdk-urma-fix-wrid-0-in-empty-wr.patch
+Patch0127: 0127-umdk-urma-schedule-send-balance-should-support-iodie-leve.patch
+Patch0128: 0128-umdk-urma-recovery-backup-link.patch
+Patch0129: 0129-umdk-urma-user_space-support-profiling-by-only-UDMA.patch
+Patch0130: 0130-umdk-urma-fix-urma_perftest-single_path-compatibility.patch
+Patch0131: 0131-umdk-urma-update-bonding-device-failover-status.patch
+Patch0132: 0132-umdk-urma-bondp-support-balance-mode-recovery-link.patch
+Patch0133: 0133-umdk-urma-bonding-device-import-will-try-all-iodie.patch
+Patch0134: 0134-umdk-urma-fix-asan-build.patch
+Patch0135: 0135-umdk-urma-Add-fool-proofing-to-uvs_get_path_set-interface.patch
+Patch0136: 0136-umdk-urma-fix-bonding-device-udata-in-size.patch
+Patch0137: 0137-urma-Enable-ctp-while-using-single_path-mode-and-fix.patch
+Patch0138: 0138-umdk-urma-bugfix-for-bonding-import_jetty-jfr.patch
+Patch0139: 0139-umdk-urma-delete-pog-when-user_space-profiling.patch
+Patch0140: 0140-umdk-urma-fix-bonding-device-bug.patch
+Patch0141: 0141-umdk-urma-bonding-device-should-handle-flush_err_done-cr.patch
+Patch0142: 0142-urma-profiling-support-long-lived-thread.patch
 %description
 A new system interconnect architecture
 
@@ -618,6 +648,8 @@ fi
 %endif
 
 %changelog
+* Mon Apr 27 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B071
+- urma: fix bonding failover issue
 * Mon Apr 20 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B070
 - urpc: enable urma CLOS networking and failover
 * Sun Apr 19 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B069
