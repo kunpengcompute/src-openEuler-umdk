@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B072
+    %define rpm_release B073
 %endif
 
 Name          : umdk
@@ -68,7 +68,7 @@ BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
-BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, openssl-devel, glib2-devel, libnl3-devel, kernel-devel, libummu-devel
+BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, openssl-devel, glib2-devel, libnl3-devel, libummu-devel
 Requires: glibc, glib2, libummu
 %if %{with asan}
 Requires: libasan
@@ -222,6 +222,9 @@ Patch0141: 0141-umdk-urma-bonding-device-should-handle-flush_err_done-cr.patch
 Patch0142: 0142-umdk-urma-profiling-support-long-lived-thread.patch
 Patch0143: 0143-umdk-urma-bonding-tseg-and-tjetty-support-ref.patch
 Patch0144: 0144-umdk-urma-fix-tjetty-error-parameter.patch
+Patch0145: 0145-umdk-urma-support-change-log-separator.patch
+Patch0146: 0146-umdk-urma-fix-port-down-recover-error-bug.patch
+Patch0147: 0147-umdk-urma-delete-the-flushing-operation-before-delete-jetty.patch
 
 %description
 A new system interconnect architecture
@@ -365,7 +368,7 @@ This package contains umq_perftest and related UMQ tools.
 %if %{build_all} || %{with ums}
 %package ums
 Summary:        kmod file of ums
-BuildRequires:  glib2-devel, libnl3-devel
+BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
 Requires:       glib2, libnl3
 %description ums
 kmod file of ums
@@ -482,6 +485,11 @@ fi
     %dir /var/lib/ub/umdk/urma/gcov/%{name}
     /var/lib/ub/umdk/urma/gcov/%{name}/
 %endif
+
+%pre urma-tools
+if [ -d /usr/bin/urma_admin ] && [ ! -L  /usr/bin/urma_admin ];then
+    rm -rf /usr/bin/urma_admin
+fi
 
 %files urma-tools
 %defattr(-,root,root)
@@ -651,6 +659,8 @@ fi
 %endif
 
 %changelog
+* Tue Apr 28 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B073
+- urma: fix double install urma error
 * Mon Apr 27 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B072
 - urma: bonding tseg and tjetty support ref
 * Mon Apr 27 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B071
