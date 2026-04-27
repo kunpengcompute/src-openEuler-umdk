@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B071
+    %define rpm_release B072
 %endif
 
 Name          : umdk
@@ -219,7 +219,10 @@ Patch0138: 0138-umdk-urma-bugfix-for-bonding-import_jetty-jfr.patch
 Patch0139: 0139-umdk-urma-delete-pog-when-user_space-profiling.patch
 Patch0140: 0140-umdk-urma-fix-bonding-device-bug.patch
 Patch0141: 0141-umdk-urma-bonding-device-should-handle-flush_err_done-cr.patch
-Patch0142: 0142-urma-profiling-support-long-lived-thread.patch
+Patch0142: 0142-umdk-urma-profiling-support-long-lived-thread.patch
+Patch0143: 0143-umdk-urma-bonding-tseg-and-tjetty-support-ref.patch
+Patch0144: 0144-umdk-urma-fix-tjetty-error-parameter.patch
+
 %description
 A new system interconnect architecture
 
@@ -648,6 +651,8 @@ fi
 %endif
 
 %changelog
+* Mon Apr 27 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B072
+- urma: bonding tseg and tjetty support ref
 * Mon Apr 27 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B071
 - urma: fix bonding failover issue
 * Mon Apr 20 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B070
