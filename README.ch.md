@@ -41,7 +41,7 @@ UB通信基础库，提供了单边、双边、原子操作等远端内存操作
 
 ```bash
   mkdir -p /root/rpmbuild/SOURCES/
-  tar -czf /root/rpmbuild/SOURCES/umdk-25.12.0.tar.gz --exclude=.git `ls -A`
+  cp ./* /root/rpmbuild/SOURCES/
   rpmbuild -ba umdk.spec
 ```
 

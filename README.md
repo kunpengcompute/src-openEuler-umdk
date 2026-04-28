@@ -40,7 +40,7 @@ It offers two types of interfaces: one is the northbound application programming
 
 ```bash
   mkdir -p /root/rpmbuild/SOURCES/
-  tar -czf /root/rpmbuild/SOURCES/umdk-25.12.0.tar.gz --exclude=.git `ls -A`
+  cp ./* /root/rpmbuild/SOURCES/
   rpmbuild -ba umdk.spec
 ```
 
