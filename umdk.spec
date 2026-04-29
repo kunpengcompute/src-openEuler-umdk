@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B074
+    %define rpm_release B075
 %endif
 
 Name          : umdk
@@ -226,6 +226,8 @@ Patch0145: 0145-umdk-urma-support-change-log-separator.patch
 Patch0146: 0146-umdk-urma-fix-port-down-recover-error-bug.patch
 Patch0147: 0147-umdk-urma-delete-the-flushing-operation-before-delete-jetty.patch
 Patch0148: 0148-umdk-urma-bonding-device-should-not-use-wr-entry-if-jetty.patch
+Patch0149: 0149-umdk-urma-bugfix-retry-send-msg.patch
+Patch0150: 0150-umdk-urma-add-log-in-unimport_jetty-and-delete_jetty.patch
 
 %description
 A new system interconnect architecture
@@ -656,6 +658,8 @@ fi
 %endif
 
 %changelog
+* Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B075
+- urma: bugfix retry send msg
 * Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B074
 * urma: bugfix bonding should not use wr entry if jetty deleted
 * Tue Apr 28 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B073
