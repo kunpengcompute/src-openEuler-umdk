@@ -1,0 +1,177 @@
+From c0739a505887c301483cf730ee2a6c47289c272e Mon Sep 17 00:00:00 2001
+From: chenjingwei0113 <chenjingwei13@huawei.com>
+Date: Wed, 29 Apr 2026 20:48:16 +0800
+Subject: [PATCH] urma: add log in unimport_jetty and delete_jetty
+
+---
+ src/urma/lib/urma/bond/bondp_api.c          | 22 ++++++++++++++++++++-
+ src/urma/lib/urma/bond/bondp_provider_ops.c | 11 +++++++++++
+ src/urma/lib/urma/bond/bondp_segment.c      |  7 +++++++
+ 3 files changed, 39 insertions(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 2be0cbfc..3f54b2a0 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -10,6 +10,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <sys/epoll.h>
++#include <stdatomic.h>
+ 
+ #include "ub_util.h"
+ #include "ubagg_ioctl.h"
+@@ -1111,6 +1112,12 @@ static int bondp_create_pjetty(bondp_context_t *bdp_ctx, bondp_comp_t *bdp_jetty
+ 
+ static int bondp_delete_vjetty(bondp_comp_t *bdp_jetty)
+ {
++    unsigned long ref_cnt;
++
++    ref_cnt = atomic_load(&(bdp_jetty->use_cnt.atomic_cnt));
++
++    URMA_LOG_INFO("bondp delete, v_jetty id is %u, modify_to err is %d, vjetty_use_cnt is %lu.\n",
++        bdp_jetty->v_jetty.jetty_id.id, bdp_jetty->modify_to_error, ref_cnt);
+     return urma_cmd_delete_jetty(&bdp_jetty->v_jetty);
+ }
+ 
+@@ -1121,6 +1128,9 @@ static int bondp_delete_pjetty(bondp_comp_t *bdp_jetty)
+         if (bdp_jetty->p_jetty[i] == NULL) {
+             continue;
+         }
++
++        URMA_LOG_INFO("bondp delete, p_jetty id is %u.\n", 
++            bdp_jetty->p_jetty[i]->jetty_id.id);
+         int p_ret = urma_delete_jetty(bdp_jetty->p_jetty[i]);
+         if (p_ret) {
+             URMA_LOG_ERR("Failed to delete pjetty %d, ret: %d.\n", i, ret);
+@@ -1338,6 +1348,8 @@ urma_status_t bondp_modify_jetty(urma_jetty_t *jetty, urma_jetty_attr_t *attr)
+     if ((attr->mask & JETTY_STATE) && attr->state == URMA_JETTY_STATE_ERROR) {
+         bdp_jetty->modify_to_error = true;
+     }
++    URMA_LOG_DEBUG("bondp modify_jetty v_jetty id is %u, old_state is %d.\n",
++        bdp_jetty->v_jetty.jetty_id.id, attr->state);
+     for (int i = 0; i < URMA_UBAGG_DEV_MAX_NUM; i++) {
+         if (bdp_jetty->p_jetty[i] == NULL) {
+             continue;
+@@ -1347,6 +1359,8 @@ urma_status_t bondp_modify_jetty(urma_jetty_t *jetty, urma_jetty_attr_t *attr)
+             final_ret = ret;
+             URMA_LOG_ERR("modify pjetty fail, index:%d, ret:%d\n", i, final_ret);
+         }
++        URMA_LOG_DEBUG("bondp modify_jetty p_jetty id is %u, new_state is %d.\n",
++            bdp_jetty->p_jetty[i]->jetty_id.id, attr->state);
+     }
+     return final_ret;
+ }
+@@ -1489,6 +1503,11 @@ static int bondp_import_pjetty(
+ 
+ static int bondp_unimport_vjetty(bondp_target_jetty_t *bdp_tjetty)
+ {
++    unsigned long ref_cnt;
++
++    ref_cnt = atomic_load(&(bdp_tjetty->use_cnt.atomic_cnt));
++    URMA_LOG_INFO("bondp vjetty id is %u, v_jetty use_cnt before import is %lu.\n",
++        bdp_tjetty->v_tjetty.id.id, ref_cnt);
+     return urma_cmd_unimport_jetty(&bdp_tjetty->v_tjetty);
+ }
+ 
+@@ -1507,6 +1526,8 @@ static int bondp_unimport_pjetty(bondp_target_jetty_t *bdp_tjetty)
+             if (!bdp_tjetty->p_tjetty[i][j]) {
+                 continue;
+             }
++            URMA_LOG_INFO("bondp unimport pjetty is done, jetty id is %u.\n",
++                bdp_tjetty->p_tjetty[i][j]->id.id);
+             if (urma_unimport_jetty(bdp_tjetty->p_tjetty[i][j]) != URMA_SUCCESS) {
+                 ret = URMA_FAIL;
+             }
+@@ -1954,7 +1975,6 @@ int bondp_wait_jfc(urma_jfce_t *jfce, uint32_t jfc_cnt, int time_out, urma_jfc_t
+             continue;
+         }
+         jfc[actual_num++] = v_jfc;
+-        URMA_LOG_DEBUG("p_jfc:%p, add v_jfc:%p\n", p_jfc, v_jfc);
+     }
+     PERF_PROFILING_END(BOND_WAIT_JFC);
+     return actual_num;
+diff --git a/src/urma/lib/urma/bond/bondp_provider_ops.c b/src/urma/lib/urma/bond/bondp_provider_ops.c
+index 5e48de4a..a698a1ff 100644
+--- a/src/urma/lib/urma/bond/bondp_provider_ops.c
++++ b/src/urma/lib/urma/bond/bondp_provider_ops.c
+@@ -242,6 +242,8 @@ static int bondp_create_vcontext(bondp_context_t *bdp_ctx, urma_device_t *dev, u
+     bdp_ctx->v_ctx.async_fd = async_fd;
+     bdp_ctx->bonding_mode = BONDP_BONDING_MODE_STANDALONE;
+     bdp_ctx->bonding_level = BONDP_BONDING_LEVEL_PORT;
++    URMA_LOG_DEBUG("bondp create_vctx, eid_idx is %u, dev_num is %d.\n",
++        bdp_ctx->v_ctx.eid_index, bdp_ctx->dev_num);
+     atomic_init(&bdp_ctx->token_id_cnt, 0);
+     return 0;
+ 
+@@ -256,13 +258,19 @@ DESTROY_P_VJETTY_ID_TABLE:
+ static int bondp_delete_vcontext(bondp_context_t *bdp_ctx)
+ 
+ {
++    urma_context_t *urma_ctx = &bdp_ctx->v_ctx;
++    unsigned long ref_cnt;
+     int ret = 0;
+ 
++    ref_cnt = atomic_load(&(urma_ctx->ref.atomic_cnt));
++
+     if (bdp_ctx->v_ctx.async_fd >= 0) {
+         (void)close(bdp_ctx->v_ctx.async_fd);
+     }
+     bdp_ctx->v_ctx.async_fd = bdp_ctx->real_async_fd;
+     bdp_ctx->real_async_fd = -1;
++    URMA_LOG_INFO("bondp delete_vctx, eid_idx is %d, ref_cnt is %lu, dev_num is %d, bonding_model is %d, bonding_level is %d.\n",
++        bdp_ctx->v_ctx.eid_index, ref_cnt, bdp_ctx->dev_num, bdp_ctx->bonding_mode, bdp_ctx->bonding_level);
+ 
+     if (urma_cmd_delete_context(&bdp_ctx->v_ctx)) {
+         URMA_LOG_ERR("Failed to urma_cmd_delete_context\n");
+@@ -370,6 +378,7 @@ static int bondp_create_pcontext(bondp_context_t *bdp_ctx, bondp_bonding_mode_t
+             return -1;
+         }
+         bdp_ctx->p_ctxs[i] = ctx;
++        URMA_LOG_DEBUG("bondp create_pctx, eid_idx is %u.\n", bdp_ctx->p_ctxs[i]->eid_index);
+ 
+         int fd = ctx->async_fd;
+         if (set_fd_noblock(fd) != 0) {
+@@ -406,6 +415,8 @@ static int bondp_delete_pcontext(bondp_context_t *bdp_ctx)
+         }
+         (void)epoll_ctl(bdp_ctx->v_ctx.async_fd, EPOLL_CTL_DEL,
+                         bdp_ctx->p_ctxs[i]->async_fd, NULL);
++        URMA_LOG_INFO("bondp delete_pctx, eid_idx is %u.\n",
++            bdp_ctx->p_ctxs[i]->eid_index);
+ 
+         sub_ret = urma_delete_context(bdp_ctx->p_ctxs[i]);
+         if (sub_ret != 0) {
+diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
+index b7c185fc..5d3eb07a 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.c
++++ b/src/urma/lib/urma/bond/bondp_segment.c
+@@ -75,6 +75,8 @@ static int bondp_delete_pseg(bondp_tseg_t *bdp_seg)
+         if (bdp_seg->p_tseg[i] == NULL) {
+             continue;
+         }
++        URMA_LOG_INFO("bondp delete_pseg token_id is %u.\n",
++            bdp_seg->p_tseg[i]->seg.token_id);
+         bdp_seg->p_tseg[i]->handle = bdp_seg->p_orig_handle[i];
+         if (urma_unregister_seg(bdp_seg->p_tseg[i]) != URMA_SUCCESS) {
+             URMA_LOG_ERR("Failed to unregister pseg %d\n", i);
+@@ -124,12 +126,17 @@ DELETE_PSEG:
+ 
+ static int bondp_delete_vseg(bondp_tseg_t *bdp_seg)
+ {
++    unsigned long ref_cnt;
++
+     if (bdp_seg == NULL) {
+         URMA_LOG_ERR("invalid param.\n");
+         return URMA_FAIL;
+     }
++    ref_cnt = atomic_load(&(bdp_seg->use_cnt.atomic_cnt));
+     urma_target_seg_t *target_seg = &bdp_seg->v_tseg;
+     target_seg->handle = bdp_seg->v_orig_handle;
++    URMA_LOG_INFO("bondp delete_vseg, token_id is %u, bdp_seg use_cnt is %lu.\n",
++            bdp_seg->v_tseg.seg.token_id, ref_cnt);
+ 
+     if (urma_cmd_unregister_seg(target_seg) != 0) {
+         URMA_LOG_ERR("Failed to unregister segment, token_id:%u, handle:%lu.\n",
+-- 
+2.28.0.windows.1
+
