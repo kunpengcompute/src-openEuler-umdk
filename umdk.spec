@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B078
+    %define rpm_release B079
 %endif
 
 Name          : umdk
@@ -230,6 +230,8 @@ Patch0149: 0149-umdk-urma-bugfix-retry-send-msg.patch
 Patch0150: 0150-umdk-urma-add-log-in-unimport_jetty-and-delete_jetty.patch
 Patch0151: 0151-umdk-urma-bonding-device-remove-target-jetty-from-vconn.patch
 Patch0152: 0152-umdk-urma-bonding-device-move-wr-buf-from-jfc-to-comp.patch
+Patch0153: 0153-umdk-urma-urma_get_perf_info-bug-fix.patch
+Patch0154: 0154-umdk-urma-fix-bonding-device-flush-err-done-handler.patch
 
 %description
 A new system interconnect architecture
@@ -660,6 +662,8 @@ fi
 %endif
 
 %changelog
+* Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B079
+- urma: urma_get_perf_info bug fix
 * Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B078
 - urma: bonding device move wr buf from jfc to comp
 * Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B075
