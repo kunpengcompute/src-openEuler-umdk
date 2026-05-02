@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B079
+    %define rpm_release B080
 %endif
 
 Name          : umdk
@@ -232,6 +232,7 @@ Patch0151: 0151-umdk-urma-bonding-device-remove-target-jetty-from-vconn.patch
 Patch0152: 0152-umdk-urma-bonding-device-move-wr-buf-from-jfc-to-comp.patch
 Patch0153: 0153-umdk-urma-urma_get_perf_info-bug-fix.patch
 Patch0154: 0154-umdk-urma-fix-bonding-device-flush-err-done-handler.patch
+Patch0155: 0155-urma-bonding-schedule-send-balance-support-random-se.patch
 
 %description
 A new system interconnect architecture
@@ -662,6 +663,8 @@ fi
 %endif
 
 %changelog
+* Sat May 2 2026 jilei <jilei8@huawei.com> - 25.12.0-B080
+- urma: bonding schedule send balance support random select
 * Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B079
 - urma: urma_get_perf_info bug fix
 * Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B078
