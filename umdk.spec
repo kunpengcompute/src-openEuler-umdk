@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B080
+    %define rpm_release B081
 %endif
 
 Name          : umdk
@@ -233,6 +233,12 @@ Patch0152: 0152-umdk-urma-bonding-device-move-wr-buf-from-jfc-to-comp.patch
 Patch0153: 0153-umdk-urma-urma_get_perf_info-bug-fix.patch
 Patch0154: 0154-umdk-urma-fix-bonding-device-flush-err-done-handler.patch
 Patch0155: 0155-urma-bonding-schedule-send-balance-support-random-se.patch
+Patch0156: 0156-umdk-urma-filter-path-set-by-EID-type-for-FULLMESH_1D-top.patch
+Patch0157: 0157-umdk-urma-refactor-bonding-conn-api.patch
+Patch0158: 0158-umdk-urma-display-full-EID-format-in-show-topo-command.patch
+Patch0159: 0159-umdk-urma-supports-p9999-latency-statistics.patch
+Patch0160: 0160-umdk-urma-fix-bonding-standalone-rm-mode.patch
+Patch0161: 0161-umdk-urma-fix_fake_cr.patch
 
 %description
 A new system interconnect architecture
@@ -663,6 +669,8 @@ fi
 %endif
 
 %changelog
+* Tue May 5 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B081
+- urma: enhance bonding schedule with random balance selection support
 * Sat May 2 2026 jilei <jilei8@huawei.com> - 25.12.0-B080
 - urma: bonding schedule send balance support random select
 * Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B079
