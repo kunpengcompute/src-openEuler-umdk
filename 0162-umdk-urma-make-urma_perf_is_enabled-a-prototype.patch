@@ -1,0 +1,26 @@
+From 2c287caaad506c2390133a0712c16666f7fa40f6 Mon Sep 17 00:00:00 2001
+From: wanghang73 <wanghang73@huawei.com>
+Date: Wed, 6 May 2026 10:53:06 +0800
+Subject: [PATCH] urma: make urma_perf_is_enabled a prototype
+
+(cherry picked from commit 5eaf6bc1f5b7cd2797cf41f0ce70ca26e600dac0)
+---
+ src/urma/lib/urma/core/urma_private.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/core/urma_private.h b/src/urma/lib/urma/core/urma_private.h
+index 06a44d94..23abf990 100644
+--- a/src/urma/lib/urma/core/urma_private.h
++++ b/src/urma/lib/urma/core/urma_private.h
+@@ -102,7 +102,7 @@ uint32_t urma_ubagg_switch_get(void);
+         } \
+     } while (0)
+ 
+-bool urma_perf_is_enabled();
++bool urma_perf_is_enabled(void);
+ uint64_t urma_get_perf_timestamp(void);
+ urma_status_t urma_step_perf(urma_perf_record_type_t type, uint64_t latency);
+ 
+-- 
+2.43.0
+

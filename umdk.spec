@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B081
+    %define rpm_release B082
 %endif
 
 Name          : umdk
@@ -239,6 +239,13 @@ Patch0158: 0158-umdk-urma-display-full-EID-format-in-show-topo-command.patch
 Patch0159: 0159-umdk-urma-supports-p9999-latency-statistics.patch
 Patch0160: 0160-umdk-urma-fix-bonding-standalone-rm-mode.patch
 Patch0161: 0161-umdk-urma-fix_fake_cr.patch
+Patch0162: 0162-umdk-urma-make-urma_perf_is_enabled-a-prototype.patch
+Patch0163: 0163-umdk-urma-optimize-the-log-content-output-in-the-URMA-sec.patch
+Patch0164: 0164-umdk-urma-Fixed-the-chip_id-and-die_id-validation-logic.patch
+Patch0165: 0165-umdk-urma-bonding-provider-should-parse-env-when-initiali.patch
+Patch0166: 0166-umdk-urma-bonding-balance-mode-support-fallback-to-non-af.patch
+Patch0167: 0167-umdk-urma-fix-correct-bonding-mode-opcode-mismatch-in-urm.patch
+Patch0168: 0168-umdk-urma-Wr_buf-supports-selection-from-either-jfc-or-je.patch
 
 %description
 A new system interconnect architecture
@@ -669,6 +676,8 @@ fi
 %endif
 
 %changelog
+* Wed May 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B082
+- urma: make urma_perf_is_enabled a proper prototype (void)
 * Tue May 5 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B081
 - urma: enhance bonding schedule with random balance selection support
 * Sat May 2 2026 jilei <jilei8@huawei.com> - 25.12.0-B080
