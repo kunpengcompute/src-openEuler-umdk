@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B082
+    %define rpm_release B083
 %endif
 
 Name          : umdk
@@ -246,6 +246,7 @@ Patch0165: 0165-umdk-urma-bonding-provider-should-parse-env-when-initiali.patch
 Patch0166: 0166-umdk-urma-bonding-balance-mode-support-fallback-to-non-af.patch
 Patch0167: 0167-umdk-urma-fix-correct-bonding-mode-opcode-mismatch-in-urm.patch
 Patch0168: 0168-umdk-urma-Wr_buf-supports-selection-from-either-jfc-or-je.patch
+Patch0169: 0169-umdk-urpc-support-qbuf-escape-and-share-flow-control-jfr.patch
 
 %description
 A new system interconnect architecture
@@ -676,6 +677,8 @@ fi
 %endif
 
 %changelog
+* Wed May 13 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B083
+- urpc: support qbuf escape and share flow control jfr
 * Wed May 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B082
 - urma: make urma_perf_is_enabled a proper prototype (void)
 * Tue May 5 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B081
