@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B083
+    %define rpm_release B084
 %endif
 
 Name          : umdk
@@ -68,7 +68,7 @@ BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
-BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, openssl-devel, glib2-devel, libnl3-devel, libummu-devel
+BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel
 Requires: glibc, glib2, libummu
 %if %{with asan}
 Requires: libasan
@@ -247,6 +247,11 @@ Patch0166: 0166-umdk-urma-bonding-balance-mode-support-fallback-to-non-af.patch
 Patch0167: 0167-umdk-urma-fix-correct-bonding-mode-opcode-mismatch-in-urm.patch
 Patch0168: 0168-umdk-urma-Wr_buf-supports-selection-from-either-jfc-or-je.patch
 Patch0169: 0169-umdk-urpc-support-qbuf-escape-and-share-flow-control-jfr.patch
+Patch0170: 0170-umdk-urma-fix-return-CONVERT_SKIP-when-comp-is-NULL.patch
+Patch0171: 0171-umdk-urma-avoid-to-record-error-log-when-failed-to-wait-jfc-with.patch
+Patch0172: 0172-umdk-urma-support-bazel-compile.patch
+Patch0173: 0173-umdk-urma-fix-the-change-of-new-interface-for-cache.patch
+Patch0174: 0174-umdk-urma-reorganize-uvs-cmake-openssl.patch
 
 %description
 A new system interconnect architecture
@@ -276,7 +281,6 @@ tools of urma, contains  urma_perftest, urma_admin, urma_ping.
 
 %package urma-bin
 Summary:        binary file of urma
-BuildRequires:  gcc
 Requires:       glibc
 %description urma-bin
 binary file of urma
@@ -299,47 +303,17 @@ to develop applications based on urma_test.
 %endif
 %endif
 
-%if %{build_all} || %{with dlock}
-%package dlock-lib
-Summary:        Library files of dlock
-Requires:       umdk-urma-lib = %{version}
-
-%description dlock-lib
-This package contains the libdlock*.so files for the distributed lock feature.
-
-%package dlock-devel
-Summary:        Include development libraries and headers for dlock
-Requires:       umdk-dlock-lib = %{version}
-AutoReqProv:    on
-
-%description dlock-devel
-This package contains all necessary include files and libraries needed
-to develop applications based on dlock.
-
-%package dlock-example
-Summary:        Executable examples of dlock
-Requires:       umdk-dlock-lib = %{version}
-AutoReqProv:    on
-
-%description dlock-example
-This package contains all the executable examples of dlock.
-
-%files dlock-example
-%defattr(-,root,root)
-    %{_bindir}/dlock_primary_test
-    %{_bindir}/dlock_client_test
-    %{_bindir}/dlock_client_object_test
-%endif
-
 %if %{build_all} || %{with urpc}
 %package urpc-framework
 Summary:        URPC framework shared library
+BuildRequires:  openssl-devel
 Requires:       umdk-urma-lib
 %description urpc-framework
 This package contains the URPC framework shared libraries (e.g. liburpc.so).
 
 %package urpc-umq
 Summary:        URPC umq shared library
+BuildRequires:  openssl-devel
 Requires:       umdk-urma-lib
 %description urpc-umq
 This package contains the URPC umq shared libraries (e.g. libumq.so).
@@ -385,6 +359,33 @@ Requires:       umdk-urma-lib umdk-urpc-umq-devel = %{version}
 AutoReqProv:    on
 %description urpc-umq-tools
 This package contains umq_perftest and related UMQ tools.
+%endif
+
+%if %{build_all} || %{with dlock}
+%package dlock-lib
+Summary:        Library files of dlock
+BuildRequires:  openssl-devel
+Requires:       umdk-urma-lib = %{version}
+
+%description dlock-lib
+This package contains the libdlock*.so files for the distributed lock feature.
+
+%package dlock-devel
+Summary:        Include development libraries and headers for dlock
+Requires:       umdk-dlock-lib = %{version}
+AutoReqProv:    on
+
+%description dlock-devel
+This package contains all necessary include files and libraries needed
+to develop applications based on dlock.
+
+%package dlock-example
+Summary:        Executable examples of dlock
+Requires:       umdk-dlock-lib = %{version}
+AutoReqProv:    on
+
+%description dlock-example
+This package contains all the executable examples of dlock.
 %endif
 
 %if %{build_all} || %{with ums}
@@ -500,8 +501,8 @@ fi
     %{_includedir}/ub/umdk/urma/uvs_types.h
     %{_includedir}/ub/umdk/urma/udma/udma_u_ctl.h
 %if %{with gcov}
-    %dir /var/lib/ub/umdk/urma/gcov/%{name}
-    /var/lib/ub/umdk/urma/gcov/%{name}/
+    %dir /var/lib/umdk/gcov/%{name}
+    /var/lib/umdk/gcov/%{name}/
 %endif
 
 %pre urma-tools
@@ -626,6 +627,12 @@ fi
     %{_includedir}/ub/umdk/ulock/dlock/dlock_client_api.h
     %{_includedir}/ub/umdk/ulock/dlock/dlock_types.h
     %{_includedir}/ub/umdk/ulock/dlock/dlock_server_api.h
+
+%files dlock-example
+%defattr(-,root,root)
+    %{_bindir}/dlock_primary_test
+    %{_bindir}/dlock_client_test
+    %{_bindir}/dlock_client_object_test
 %endif
 
 %if %{build_all} || %{with ums}
@@ -640,7 +647,7 @@ if [ -d /lib/modules/$(uname -r)/kernel/net/smc ]; then
     %{__rm} -rf /lib/modules/$(uname -r)/kernel/net/smc
 fi
 if [[ %{kernel_version} != $(uname -r) ]]; then
-    %dir /lib/modules/$(uname -r)/weak-updates/drivers/ums/
+    mkdir -p /lib/modules/$(uname -r)/weak-updates/drivers/ums/
     echo "/lib/modules/%{kernel_version}/extra/ums/ums.ko" | /sbin/weak-modules --add-module --no-initramfs --verbose
 fi
 
@@ -677,6 +684,8 @@ fi
 %endif
 
 %changelog
+* Wed May 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B084
+- urma: support bazel compile
 * Wed May 13 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B083
 - urpc: support qbuf escape and share flow control jfr
 * Wed May 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B082

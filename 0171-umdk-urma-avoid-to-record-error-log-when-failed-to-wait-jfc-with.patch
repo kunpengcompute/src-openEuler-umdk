@@ -1,0 +1,28 @@
+From 7845c8f89451b69242fe3a2d31373d4465830901 Mon Sep 17 00:00:00 2001
+From: chenyutao <chenyutao2@huawei.com>
+Date: Sat, 16 May 2026 14:13:19 +0800
+Subject: [PATCH] urma: avoid to record error log when failed to wait jfc with
+ errno as EAGAIN
+
+Signed-off-by: chenyutao <chenyutao2@huawei.com>
+(cherry picked from commit 6d6c73b3bc7393371630620c057b0b02d5508a95)
+---
+ src/urma/lib/urma/core/urma_cmd_tlv.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/core/urma_cmd_tlv.c b/src/urma/lib/urma/core/urma_cmd_tlv.c
+index f36a57ad..b9204ffa 100644
+--- a/src/urma/lib/urma/core/urma_cmd_tlv.c
++++ b/src/urma/lib/urma/core/urma_cmd_tlv.c
+@@ -1296,7 +1296,7 @@ int urma_ioctl_wait_jfc(int ioctl_fd, urma_cmd_jfce_wait_t *arg)
+         .args_addr = (uint64_t)(uintptr_t)attrs,
+      };
+     int ret = ioctl(ioctl_fd, URMA_CMD_WAIT_JFC, &hdr);
+-    if (ret != 0) {
++    if (ret != 0 && errno != EAGAIN) {
+         URMA_LOG_ERR("wait jfc ioctl failed, ret=%d, errno=%d.\n", ret, errno);
+     }
+     return ret;
+-- 
+2.43.0
+
