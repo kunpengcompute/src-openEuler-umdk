@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B084
+    %define rpm_release B085
 %endif
 
 Name          : umdk
@@ -252,6 +252,18 @@ Patch0171: 0171-umdk-urma-avoid-to-record-error-log-when-failed-to-wait-jfc-with
 Patch0172: 0172-umdk-urma-support-bazel-compile.patch
 Patch0173: 0173-umdk-urma-fix-the-change-of-new-interface-for-cache.patch
 Patch0174: 0174-umdk-urma-reorganize-uvs-cmake-openssl.patch
+Patch0175: 0175-umdk-urma-fix-ceqn-upper-bound-wording.patch
+Patch0176: 0176-umdk-urma-fix-warning-typo-in-support-matrix.patch
+Patch0177: 0177-umdk-urma-fix-unlimited-help-text-typo-in-urma_ping.patch
+Patch0178: 0178-umdk-urma-support-link-retransmission-counting.patch
+Patch0179: 0179-umdk-urma-change-bazel-liburma-udma-so-name.patch
+Patch0180: 0180-umdk-urma-revert-non-blocking-scene-for-JFR-deletion.patch
+Patch0181: 0181-umdk-urma-move-log-init-to-liburma_init-constructor.patch
+Patch0182: 0182-umdk-urma-add-extended-interface-for-bondp_create_jfc.patch
+Patch0183: 0183-umdk-urma-add-validation-for-port_ids-in-bondp_create_jfs-jetty.patch
+Patch0184: 0184-umdk-urma-add-extended-interface-for-bondp_create_jfr.patch
+Patch0185: 0185-umdk-urma-fix-bondp_import_jetty-mem-leak.patch
+Patch0186: 0186-umdk-urma-support-link-recovery-under-active_backup-mode.patch
 
 %description
 A new system interconnect architecture
@@ -684,6 +696,8 @@ fi
 %endif
 
 %changelog
+* Fri May 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B085
+- urma: fix bondp import jetty mem leak
 * Wed May 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B084
 - urma: support bazel compile
 * Wed May 13 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B083
