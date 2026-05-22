@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B085
+    %define rpm_release B086
 %endif
 
 Name          : umdk
@@ -264,6 +264,7 @@ Patch0183: 0183-umdk-urma-add-validation-for-port_ids-in-bondp_create_jfs-jetty.
 Patch0184: 0184-umdk-urma-add-extended-interface-for-bondp_create_jfr.patch
 Patch0185: 0185-umdk-urma-fix-bondp_import_jetty-mem-leak.patch
 Patch0186: 0186-umdk-urma-support-link-recovery-under-active_backup-mode.patch
+Patch0187: 0187-umdk-add-umdk-main-package.patch
 
 %description
 A new system interconnect architecture
@@ -696,6 +697,8 @@ fi
 %endif
 
 %changelog
+* Fri May 22 2026 wujie <wujie66@huawei.com> - 25.12.0-B086
+- umdk: add umdk main package
 * Fri May 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B085
 - urma: fix bondp import jetty mem leak
 * Wed May 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B084
