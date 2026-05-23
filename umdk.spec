@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B086
+    %define rpm_release B087
 %endif
 
 Name          : umdk
@@ -265,6 +265,10 @@ Patch0184: 0184-umdk-urma-add-extended-interface-for-bondp_create_jfr.patch
 Patch0185: 0185-umdk-urma-fix-bondp_import_jetty-mem-leak.patch
 Patch0186: 0186-umdk-urma-support-link-recovery-under-active_backup-mode.patch
 Patch0187: 0187-umdk-add-umdk-main-package.patch
+Patch0188: 0188-umdk-urma-refactor-user-dfx.patch
+Patch0189: 0189-umdk-urma-fix-RM-jetty-import-requiring-drv_ext-in-active-backup-mode.patch
+Patch0190: 0190-umdk-urma-fix-bazel-compile-problems.patch
+Patch0191: 0191-umdk-urma-fix-copy_to_usr-failed-when-create-bonding-dev-context.patch
 
 %description
 A new system interconnect architecture
@@ -697,6 +701,8 @@ fi
 %endif
 
 %changelog
+* Tue May 26 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B087
+- urma: fix copy to user failed problems
 * Fri May 22 2026 wujie <wujie66@huawei.com> - 25.12.0-B086
 - umdk: add umdk main package
 * Fri May 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B085
