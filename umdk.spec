@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B087
+    %define rpm_release B088
 %endif
 
 Name          : umdk
@@ -269,6 +269,11 @@ Patch0188: 0188-umdk-urma-refactor-user-dfx.patch
 Patch0189: 0189-umdk-urma-fix-RM-jetty-import-requiring-drv_ext-in-active-backup-mode.patch
 Patch0190: 0190-umdk-urma-fix-bazel-compile-problems.patch
 Patch0191: 0191-umdk-urma-fix-copy_to_usr-failed-when-create-bonding-dev-context.patch
+Patch0192: 0192-umdk-urma-add-register-location-log-api.patch
+Patch0193: 0193-umdk-urma-support-get-jfce-fd-list-by-usr-ctl.patch
+Patch0194: 0194-umdk-urma-allow-disabling-of-msn-deduplication.patch
+Patch0195: 0195-umdk-urma-add-rate-limit-log-function-doc.patch
+Patch0196: 0196-umdk-urma-move-msn-to-the-end-of-imm-data.patch
 
 %description
 A new system interconnect architecture
@@ -701,6 +706,8 @@ fi
 %endif
 
 %changelog
+* Fri May 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B088
+- urma: add register location log API
 * Tue May 26 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B087
 - urma: fix copy to user failed problems
 * Fri May 22 2026 wujie <wujie66@huawei.com> - 25.12.0-B086

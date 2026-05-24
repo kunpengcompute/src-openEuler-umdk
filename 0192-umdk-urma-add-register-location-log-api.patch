@@ -1,0 +1,180 @@
+From 48e239f11b945f1fc5ad74671e924a57d128082b Mon Sep 17 00:00:00 2001
+From: chenyutao <chenyutao2@huawei.com>
+Date: Thu, 14 May 2026 20:24:22 +0800
+Subject: [PATCH] urma: add register location log API
+
+Signed-off-by: chenyutao <chenyutao2@huawei.com>
+(cherry picked from commit c17a35af17ecc1a3910f1bf1e1dc35b7f9153d22)
+---
+ src/urma/lib/urma/core/include/urma_api.h   |  9 ++++
+ src/urma/lib/urma/core/include/urma_types.h |  3 ++
+ src/urma/lib/urma/core/urma_log.c           | 59 +++++++++++++++++++++
+ src/urma/lib/urma/core/urma_log.h           | 13 +++--
+ 4 files changed, 81 insertions(+), 3 deletions(-)
+
+diff --git a/src/urma/lib/urma/core/include/urma_api.h b/src/urma/lib/urma/core/include/urma_api.h
+index d6263e6c..3f9a8442 100644
+--- a/src/urma/lib/urma/core/include/urma_api.h
++++ b/src/urma/lib/urma/core/include/urma_api.h
+@@ -987,6 +987,15 @@ urma_status_t urma_user_ctl(urma_context_t *ctx, urma_user_ctl_in_t *in, urma_us
+  */
+ urma_status_t urma_register_log_func(urma_log_cb_t func);
+ 
++/**
++ * User register location log function with file, function and line info.
++ * @param[in] func: location log callback function;
++ * Return: 0 on success, other value on error
++ * Note: If both urma_register_log_func and urma_register_loc_log_func are called,
++ *       the last registered function will be used.
++ */
++urma_status_t urma_register_loc_log_func(urma_loc_log_cb func);
++
+ /**
+  * User unregister own log function, use rsyslog.
+  * Return: 0 on success, other value on error
+diff --git a/src/urma/lib/urma/core/include/urma_types.h b/src/urma/lib/urma/core/include/urma_types.h
+index 8a469cfa..2402b7b9 100644
+--- a/src/urma/lib/urma/core/include/urma_types.h
++++ b/src/urma/lib/urma/core/include/urma_types.h
+@@ -1415,6 +1415,9 @@ typedef enum urma_vlog_level {
+ 
+ typedef void (*urma_log_cb_t)(int level, char *message);
+ 
++/* location log callback function definition */
++typedef void (*urma_loc_log_cb)(int level, const char *file, const char *function, int line, char *message);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/urma/lib/urma/core/urma_log.c b/src/urma/lib/urma/core/urma_log.c
+index 3ed95fa0..e3cde749 100644
+--- a/src/urma/lib/urma/core/urma_log.c
++++ b/src/urma/lib/urma/core/urma_log.c
+@@ -47,6 +47,9 @@ static void urma_default_log_func(int level, char *message)
+ }
+ 
+ static urma_log_cb_t g_urma_log_func = urma_default_log_func;
++static urma_loc_log_cb g_urma_loc_log_func = NULL;
++static bool g_use_loc_log = false;
++
+ urma_status_t urma_register_log_func(urma_log_cb_t func)
+ {
+     if (func == NULL) {
+@@ -55,6 +58,20 @@ urma_status_t urma_register_log_func(urma_log_cb_t func)
+     }
+     URMA_LOG_INFO("registered log successfully.\n");
+     g_urma_log_func = func;
++    g_urma_loc_log_func = NULL;
++    g_use_loc_log = false;
++    return URMA_SUCCESS;
++}
++
++urma_status_t urma_register_loc_log_func(urma_loc_log_cb func)
++{
++    if (func == NULL) {
++        URMA_LOG_ERR("Invalid parameter.\n");
++        return URMA_EINVAL;
++    }
++    g_urma_loc_log_func = func;
++    g_use_loc_log = true;
++    URMA_LOG_INFO("registered extended log successfully.\n");
+     return URMA_SUCCESS;
+ }
+ 
+@@ -67,6 +84,8 @@ urma_status_t urma_unregister_log_func(void)
+         __func__, __LINE__, g_urma_log_separator);
+     (*g_urma_log_func)((int)URMA_VLOG_LEVEL_INFO, logmsg);
+     g_urma_log_func = urma_default_log_func;
++    g_urma_loc_log_func = NULL;
++    g_use_loc_log = false;
+     return URMA_SUCCESS;
+ }
+ 
+@@ -228,6 +247,8 @@ static int urma_vlog(const char *function, int line, urma_vlog_level_t level, co
+         (void)printf("logmsg size exceeds MAX_LOG_LEN size :%d.\n", MAX_LOG_LEN);
+         return ret;
+     }
++
++    /* urma_vlog has no file parameter, only use original callback */
+     (*g_urma_log_func)((int)level, logmsg);
+ 
+     return ret;
+@@ -241,3 +262,41 @@ void urma_log(const char *function, int line, urma_vlog_level_t level, const cha
+     (void)urma_vlog(function, line, level, format, va);
+     va_end(va);
+ }
++
++static int urma_vlog_loc(const char *file, const char *function, int line, urma_vlog_level_t level,
++                         const char *format, va_list va)
++{
++    int ret;
++    char newformat[MAX_LOG_LEN + 1] = {0};
++    char logmsg[MAX_LOG_LEN + 1] = {0};
++
++    /* add log head info, "[URMA][liburma][thread_id=tid][thread_tag][file:function:line][format]" */
++    ret = snprintf(newformat, MAX_LOG_LEN, "[%s][%s][thread_id=%ld][%s][%s:%s:%d][%s]",
++                   URMA_LOG_TAG, LIBURMA_LOG, (long)syscall(__NR_gettid), g_thread_tag, file,
++                   function, line, format);
++    if (ret <= 0 || ret >= sizeof(newformat)) {
++        return ret;
++    }
++    ret = vsnprintf(logmsg, MAX_LOG_LEN, newformat, va);
++    if (ret == -1) {
++        (void)printf("logmsg size exceeds MAX_LOG_LEN size :%d.\n", MAX_LOG_LEN);
++        return ret;
++    }
++
++    if (g_use_loc_log && g_urma_loc_log_func != NULL) {
++        (*g_urma_loc_log_func)((int)level, file, function, line, logmsg);
++    } else {
++        (*g_urma_log_func)((int)level, logmsg);
++    }
++
++    return ret;
++}
++
++void urma_log_loc(const char *file, const char *function, int line, urma_vlog_level_t level, const char *format, ...)
++{
++    va_list va;
++
++    va_start(va, format);
++    (void)urma_vlog_loc(file, function, line, level, format, va);
++    va_end(va);
++}
+diff --git a/src/urma/lib/urma/core/urma_log.h b/src/urma/lib/urma/core/urma_log.h
+index a80c673a..755287cc 100644
+--- a/src/urma/lib/urma/core/urma_log.h
++++ b/src/urma/lib/urma/core/urma_log.h
+@@ -12,6 +12,7 @@
+ #define URMA_LOG_H
+ 
+ #include <stdbool.h>
++#include <string.h>
+ #include <urma_types.h>
+ 
+ #ifdef __cplusplus
+@@ -27,12 +28,18 @@ void urma_getenv_log_separator(void);
+ bool urma_log_drop(urma_vlog_level_t level);
+ void __attribute__((format(printf, LOG_FORMAT_IDX, LOG_VA_ARG_IDX)))
+ urma_log(const char *function, int line, urma_vlog_level_t level, const char *format, ...);
++void __attribute__((format(printf, LOG_FORMAT_IDX + 1, LOG_VA_ARG_IDX + 1)))
++urma_log_loc(const char *file, const char *function, int line, urma_vlog_level_t level, const char *format, ...);
+ const char *urma_get_level_print(urma_vlog_level_t level);
+ urma_vlog_level_t urma_log_get_level_from_string(const char *level_string);
+ 
+-#define URMA_LOG(l, ...)                                                                                               \
+-    if (!urma_log_drop(URMA_VLOG_LEVEL_##l)) {                                                                         \
+-        urma_log(__func__, __LINE__, URMA_VLOG_LEVEL_##l, __VA_ARGS__);                                                \
++#ifndef __FILE_NAME__
++#define __FILE_NAME__ (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
++#endif
++
++#define URMA_LOG(l, ...)                                                                                    \
++    if (!urma_log_drop(URMA_VLOG_LEVEL_##l)) {                                                              \
++        urma_log_loc(__FILE_NAME__, __func__, __LINE__, URMA_VLOG_LEVEL_##l, __VA_ARGS__);                  \
+     }
+ 
+ #define URMA_LOG_INFO(...) URMA_LOG(INFO, __VA_ARGS__)
+-- 
+2.43.0
+
