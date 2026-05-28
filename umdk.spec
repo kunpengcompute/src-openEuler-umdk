@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B002
+    %define rpm_release B003
 %endif
 
 Name          : umdk
@@ -389,7 +389,6 @@ fi
     %{_libdir}/libumq.so.*
     %{_libdir}/libumq_buf.so.*
     %{_libdir}/libumq_ub.so.*
-    %{_libdir}/libumq_ipc.so.*
     /etc/rsyslog.d/umq.conf
     /etc/logrotate.d/umq
 
@@ -408,7 +407,6 @@ fi
     %{_libdir}/libumq.so
     %{_libdir}/libumq_buf.so
     %{_libdir}/libumq_ub.so
-    %{_libdir}/libumq_ipc.so
     %dir %{_includedir}/ub
     %dir %{_includedir}/ub/umdk
     %dir %{_includedir}/ub/umdk/urpc
@@ -542,6 +540,22 @@ fi
 %endif
 
 %changelog
+* Thu May 28 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B003
+-urma: support get jfce fd list by usr ctl.
+-urma: add register log API and refactor user dfx.
+-urma: fix bonding dev context, jetty import and bondp_import_jetty mem leak.
+-urma: add bondp_create_jfc/jfr extended interface and port validation.
+-urma: fix bazel compile and rename liburma-udma.so output.
+-urpc: fetch umdk headers from gitcode when build.
+-umq: update imm data to 64bit and support ctp.
+-umq: improve buffer rollback, batch size, jfr/jfc port and IMM handling.
+-ums: implement secure UB token exchange via ums_agent.
+-ums: add netlink token exchange framework and agent fixes.
+-ums: improve token proxy and TLS connection handling.
+-dlock: fix peer_type, header len, batch lock and SSL buffer issues.
+-cam: fix mask calculation error in combine.
+-ub: udma support st64b_en function.
+-umdk: add umdk main package.
 * Wed May 20 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B002
 -urma: add Bazel build support.
 -urpc: enhance ums agent security proxy.
