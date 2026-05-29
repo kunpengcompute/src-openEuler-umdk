@@ -1,0 +1,325 @@
+From 32bb4dfab31824a26d746fc8c0a50f826e7dec60 Mon Sep 17 00:00:00 2001
+From: heyu_1014 <2507175370@qq.com>
+Date: Tue, 26 May 2026 21:39:41 +0800
+Subject: [PATCH] urma: allow disabling of msn deduplication
+
+(cherry picked from commit e7e1790d3983220b0341e731501e619d3f7ca981)
+---
+ src/urma/lib/urma/bond/bondp_api.c            | 48 ++++++++++++++++++-
+ src/urma/lib/urma/bond/bondp_datapath.c       |  6 +++
+ .../lib/urma/bond/bondp_datapath_convert.c    | 40 +++++++++++-----
+ src/urma/lib/urma/bond/bondp_provider_ops.c   |  2 +
+ src/urma/lib/urma/bond/bondp_segment.c        | 14 ++----
+ src/urma/lib/urma/bond/bondp_segment.h        |  2 -
+ src/urma/lib/urma/bond/bondp_types.h          |  2 +
+ src/urma/lib/urma/bond/include/urma_ubagg.h   |  1 +
+ 8 files changed, 88 insertions(+), 27 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 4e4d91db..fc129fef 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -1549,20 +1549,64 @@ static int bondp_user_ctl_get_jfce_fd_list(urma_context_t *ctx, urma_user_ctl_in
+     return 0;
+ }
+ 
++static int bondp_toggle_seg_cache(urma_context_t *ctx, bool enable)
++{
++    if (ctx == NULL) {
++        URMA_LOG_ERR("Urma context is NULL\n");
++        return -EINVAL;
++    }
++
++    uint64_t cnt = (uint64_t)atomic_load(&ctx->ref.atomic_cnt);
++    bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(ctx, bondp_context_t, v_ctx);
++
++    if (cnt > 1) {
++        URMA_LOG_WARN("Context already in use, atomic_cnt=%lu, dev_name=%s.\n",
++                      cnt, ctx->dev->name);
++        return URMA_EAGAIN;
++    }
++    bdp_ctx->seg_cache_enable = enable;
++    return 0;
++}
++
++static int bondp_toggle_msn(urma_context_t *ctx, bool enable)
++{
++    if (ctx == NULL) {
++        URMA_LOG_ERR("Urma context is NULL\n");
++        return -EINVAL;
++    }
++
++    uint64_t cnt = (uint64_t)atomic_load(&ctx->ref.atomic_cnt);
++    bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(ctx, bondp_context_t, v_ctx);
++
++    if (cnt > 1) {
++        URMA_LOG_WARN("Context already in use, atomic_cnt=%lu, dev_name=%s.\n",
++                      cnt, ctx->dev->name);
++        return URMA_EAGAIN;
++    }
++    bdp_ctx->msn_enable = enable;
++    return 0;
++}
++
+ int bondp_user_ctl(urma_context_t *ctx, urma_user_ctl_in_t *in, urma_user_ctl_out_t *out)
+ {
++    if (in == NULL) {
++        URMA_LOG_ERR("Input parameter is NULL\n");
++        return -EINVAL;
++    }
++
+     switch (in->opcode) {
+         case BONDP_USER_CTL_SET_BONDING_MODE_LEGACY:
+             return bondp_user_ctl_set_bonding_mode_legacy(ctx, in, out);
+         case BONDP_USER_CTL_ENABLE_SEG_CACHE:
+-            bondp_toggle_seg_cache(true);
+-            return 0;
++            return bondp_toggle_seg_cache(ctx, true);
+         case BONDP_USER_CTL_QUERY_PORT:
+             return bondp_user_ctl_query_port(ctx, in, out);
+         case BONDP_USER_CTL_SET_BONDING_MODE:
+             return bondp_user_ctl_set_bonding_mode(ctx, in, out);
+         case BONDP_USER_CTL_GET_JFCE_FD_LIST:
+             return bondp_user_ctl_get_jfce_fd_list(ctx, in, out);
++        case BONDP_USER_CTL_DISABLE_MSN:
++            return bondp_toggle_msn(ctx, false);
+         default: {
+             URMA_LOG_ERR("Unsupported opcode, opcode=%d\n", in->opcode);
+             return -EINVAL;
+diff --git a/src/urma/lib/urma/bond/bondp_datapath.c b/src/urma/lib/urma/bond/bondp_datapath.c
+index b473a497..2823f082 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath.c
++++ b/src/urma/lib/urma/bond/bondp_datapath.c
+@@ -905,6 +905,11 @@ static cr_convert_ret_t handle_recv_cr_with_store(bondp_context_t *bdp_ctx, int
+ 
+     post_comp->rqe_cnt[recv_idx] -= 1;
+ 
++    bool msn_enable = bdp_ctx->msn_enable;
++    if (!msn_enable) {
++        goto CONVERT_SUCCESS_OUT;
++    }
++
+     /* Do de-duplicating */
+     int ret = 0;
+     urma_jetty_id_t target_jetty_id = cr->remote_id;
+@@ -930,6 +935,7 @@ static cr_convert_ret_t handle_recv_cr_with_store(bondp_context_t *bdp_ctx, int
+ 
+     (void)bdp_slide_wnd_add(&v_conn->recv_wnd, msn);
+ 
++CONVERT_SUCCESS_OUT:
+     free_jfr_wr(&wr_entry->wr);
+     (void)pthread_spin_lock(recv_wr_lock);
+     jfr_wr_buf_release(wr_entry);
+diff --git a/src/urma/lib/urma/bond/bondp_datapath_convert.c b/src/urma/lib/urma/bond/bondp_datapath_convert.c
+index 2bc52d1b..fbb22f7b 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath_convert.c
++++ b/src/urma/lib/urma/bond/bondp_datapath_convert.c
+@@ -113,8 +113,8 @@ urma_status_t copy_jfr_wr(const urma_jfr_wr_t *src, urma_jfr_wr_t *dst,
+  *
+  *   Bits   | Field       | Bits | Description
+  *   -------|-------------|------|--------------------------------
+- *   0-15   | user_data   | 16   | User-defined custom data
+- *   16-21  | reserved    | 6    | Reserved
++ *   0-15   | user_data   | 20   | User-defined custom data
++ *   16-21  | reserved    | 2    | Reserved
+  *   22-37  | vjetty_id   | 16   | Virtual jetty identifier (0-65535)
+  *   38-61  | msn         | 24   | Message sequence number (0-16M)
+  *   62-63  | cr_opcode   | 2    | Operation code tag (0-3)
+@@ -122,8 +122,8 @@ urma_status_t copy_jfr_wr(const urma_jfr_wr_t *src, urma_jfr_wr_t *dst,
+  * Use encode_imm_data() and decode_imm_data() to pack/unpack fields.
+  */
+ 
+-#define IMM_USER_BITS      16
+-#define IMM_RESERVED_BITS  6
++#define IMM_USER_BITS      20
++#define IMM_RESERVED_BITS  2
+ #define IMM_VJETTY_ID_BITS 16
+ #define IMM_MSN_BITS       24
+ #define IMM_CR_OPCODE_BITS 2
+@@ -139,24 +139,33 @@ urma_status_t copy_jfr_wr(const urma_jfr_wr_t *src, urma_jfr_wr_t *dst,
+ #define IMM_MSN_MASK       ((1ULL << IMM_MSN_BITS) - 1)
+ #define IMM_CR_OPCODE_MASK ((1ULL << IMM_CR_OPCODE_BITS) - 1)
+ 
+-static inline uint64_t encode_imm_data(uint32_t cr_opcode, uint32_t msn, uint32_t vjetty_id, uint64_t user_data)
++static inline uint64_t encode_imm_data(uint32_t cr_opcode, uint32_t msn, uint32_t vjetty_id,
++                                       uint64_t user_data, bool msn_enable)
+ {
+     uint64_t imm_data = 0;
+ 
+     imm_data |= ((uint64_t)cr_opcode & IMM_CR_OPCODE_MASK) << IMM_CR_OPCODE_SHIFT;
+-    imm_data |= ((uint64_t)msn & IMM_MSN_MASK) << IMM_MSN_SHIFT;
++    if (msn_enable) {
++        imm_data |= ((uint64_t)msn & IMM_MSN_MASK) << IMM_MSN_SHIFT;
++    } else {
++        imm_data |= (((uint64_t)user_data >> IMM_MSN_SHIFT) & IMM_MSN_MASK) << IMM_MSN_SHIFT;
++    }
+     imm_data |= ((uint64_t)vjetty_id & IMM_VJETTY_ID_MASK) << IMM_VJETTY_ID_SHIFT;
+     imm_data |= ((uint64_t)user_data & IMM_USER_MASK) << IMM_USER_SHIFT;
+-
+     return imm_data;
+ }
+ 
+-static inline void decode_imm_data(uint64_t imm_data, uint32_t *cr_opcode, uint32_t *msn, uint32_t *vjetty_id, uint64_t *user_data)
++static inline void decode_imm_data(uint64_t imm_data, uint32_t *cr_opcode, uint32_t *msn,
++                                   uint32_t *vjetty_id, uint64_t *user_data, bool msn_enable)
+ {
+     *cr_opcode = (uint32_t)((imm_data >> IMM_CR_OPCODE_SHIFT) & IMM_CR_OPCODE_MASK);
+-    *msn = (uint32_t)((imm_data >> IMM_MSN_SHIFT) & IMM_MSN_MASK);
+     *vjetty_id = (uint32_t)((imm_data >> IMM_VJETTY_ID_SHIFT) & IMM_VJETTY_ID_MASK);
+     *user_data = (uint64_t)((imm_data >> IMM_USER_SHIFT) & IMM_USER_MASK);
++    if (msn_enable) {
++        *msn = (uint32_t)((imm_data >> IMM_MSN_SHIFT) & IMM_MSN_MASK);
++    } else {
++        *user_data |= (uint64_t)(((imm_data >> IMM_MSN_SHIFT) & IMM_MSN_MASK) << IMM_MSN_SHIFT);
++    }
+ }
+ 
+ static inline urma_target_jetty_t *get_p_tjetty(urma_target_jetty_t *tjetty, int send_idx, int target_idx)
+@@ -240,6 +249,7 @@ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target
+                                      bondp_comp_t *bdp_comp)
+ {
+     uint64_t opcode_tag = 0;
++    bool msn_enable = bdp_comp->bondp_ctx->msn_enable;
+ 
+     switch (wr->opcode) {
+         case URMA_OPC_SEND:
+@@ -257,7 +267,8 @@ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target
+                 opcode_tag,
+                 bdp_comp->msn,
+                 bdp_comp->v_jetty.jetty_id.id,
+-                wr->send.imm_data);
++                wr->send.imm_data,
++                msn_enable);
+             bdp_comp->msn = (bdp_comp->msn + 1) % BONDP_MAX_BITMAP_SIZE;
+ 
+             map_send_vwr_to_path(wr, send_idx, target_idx);
+@@ -271,7 +282,8 @@ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target
+                     opcode_tag,
+                     bdp_comp->msn,
+                     bdp_comp->v_jetty.jetty_id.id,
+-                    wr->rw.notify_data);
++                    wr->rw.notify_data,
++                    msn_enable);
+                 bdp_comp->msn = (bdp_comp->msn + 1) % BONDP_MAX_BITMAP_SIZE;
+             }
+             map_write_vwr_to_path(wr, send_idx, target_idx);
+@@ -401,8 +413,10 @@ urma_status_t convert_jfr_vwr_to_pwr(urma_jfr_wr_t *wr, int recv_idx)
+ 
+ void convert_pcr_to_vcr(urma_cr_t *cr, bondp_context_t *bdp_ctx, uint32_t *msn)
+ {
++    bool msn_enable = bdp_ctx->msn_enable;
++
+     if (is_recv_cr(cr)) {
+-        decode_imm_data(cr->imm_data, &cr->opcode, msn, &cr->remote_id.id, &cr->imm_data);
++        decode_imm_data(cr->imm_data, &cr->opcode, msn, &cr->remote_id.id, &cr->imm_data, msn_enable);
+ 
+         urma_eid_t target_eid;
+         (void)get_bonding_eid_by_target_eid(bdp_ctx->topo_map, &cr->remote_id.eid, &target_eid);
+@@ -413,6 +427,6 @@ void convert_pcr_to_vcr(urma_cr_t *cr, bondp_context_t *bdp_ctx, uint32_t *msn)
+          * However, for some reason, it is also valid for SEND CR.
+          * This unexpected behavior is intentionally used to convert SEND CR.
+          */
+-        decode_imm_data(cr->imm_data, &cr->opcode, msn, &cr->remote_id.id, &cr->imm_data);
++        decode_imm_data(cr->imm_data, &cr->opcode, msn, &cr->remote_id.id, &cr->imm_data, msn_enable);
+     }
+ }
+diff --git a/src/urma/lib/urma/bond/bondp_provider_ops.c b/src/urma/lib/urma/bond/bondp_provider_ops.c
+index 5a473103..0a3166c4 100644
+--- a/src/urma/lib/urma/bond/bondp_provider_ops.c
++++ b/src/urma/lib/urma/bond/bondp_provider_ops.c
+@@ -592,6 +592,8 @@ urma_context_t *bondp_create_context(urma_device_t *dev, uint32_t eid_index, int
+     }
+ 
+     bondp_health_check_ctx_init(bdp_ctx);
++    bdp_ctx->msn_enable = true;
++    bdp_ctx->seg_cache_enable = false;
+ 
+     int ret = 0;
+     ret = bondp_create_vcontext(bdp_ctx, dev, eid_index, dev_fd);
+diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
+index 7f39a011..dd2ae0f9 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.c
++++ b/src/urma/lib/urma/bond/bondp_segment.c
+@@ -21,8 +21,6 @@
+ 
+ #include "bondp_segment.h"
+ 
+-static bool g_seg_cache_enable = false;
+-
+ typedef struct bondp_udata_import_seg {
+     urma_seg_t peer_p_seg[URMA_UBAGG_DEV_MAX_NUM];
+     bool connected[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
+@@ -324,11 +322,6 @@ static int bondp_add_v2p_token_id(bondp_context_t *bdp_ctx, bondp_v2p_token_id_t
+     return 0;
+ }
+ 
+-void bondp_toggle_seg_cache(bool enable)
+-{
+-    g_seg_cache_enable = enable;
+-}
+-
+ static void bondp_fill_v_tseg(urma_target_seg_t *tseg, urma_seg_t *seg, uint64_t addr,
+                               uint64_t handle, urma_context_t *ctx)
+ {
+@@ -458,8 +451,9 @@ urma_target_seg_t *bondp_import_seg(urma_context_t *ctx, urma_seg_t *seg,
+     atomic_init(&bdp_tseg->use_cnt.atomic_cnt, 1);
+ 
+     bondp_udata_import_seg_t udata_out = {0};
+-    URMA_LOG_DEBUG("g_seg_cache_enable is %d.\n", g_seg_cache_enable);
+-    if (g_seg_cache_enable) {
++    bool seg_cache_enable = bdp_ctx->seg_cache_enable;
++    URMA_LOG_DEBUG("seg_cache_enable is %d.\n", seg_cache_enable);
++    if (seg_cache_enable) {
+         bondp_v2p_token_id_t v2p_token_id = {0};
+         ret = bdp_r_v2p_token_id_tabl_lookup(&bdp_ctx->remote_v2p_token_id_table, seg->token_id,
+                                                  seg->ubva.eid, &v2p_token_id);
+@@ -498,7 +492,7 @@ urma_target_seg_t *bondp_import_seg(urma_context_t *ctx, urma_seg_t *seg,
+         goto unimport_pseg;
+     }
+ 
+-    if (g_seg_cache_enable && !bdp_tseg->is_reused) {
++    if (seg_cache_enable && !bdp_tseg->is_reused) {
+         bondp_v2p_token_id_t v2p_token_id = {0};
+         v2p_token_id.key.v_remote_eid = seg->ubva.eid;
+         v2p_token_id.key.v_token_id = seg->token_id;
+diff --git a/src/urma/lib/urma/bond/bondp_segment.h b/src/urma/lib/urma/bond/bondp_segment.h
+index 7d17fda2..56e2bbe1 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.h
++++ b/src/urma/lib/urma/bond/bondp_segment.h
+@@ -28,8 +28,6 @@ urma_target_seg_t *bondp_import_seg(urma_context_t *ctx, urma_seg_t *seg,
+ 
+ urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg);
+ 
+-void bondp_toggle_seg_cache(bool enable);
+-
+ void bondp_tseg_get(urma_target_seg_t *target_seg);
+ 
+ void bondp_tseg_put(urma_target_seg_t *target_seg);
+diff --git a/src/urma/lib/urma/bond/bondp_types.h b/src/urma/lib/urma/bond/bondp_types.h
+index eb8f1228..ab32acbf 100644
+--- a/src/urma/lib/urma/bond/bondp_types.h
++++ b/src/urma/lib/urma/bond/bondp_types.h
+@@ -157,6 +157,8 @@ typedef struct bondp_context {
+     int real_async_fd; /* vcontex async_fd */
+     bondp_heath_check_ctx_t bondp_heath_check_ctx;
+     bondp_hash_table_t remote_v2p_token_id_table;
++    bool msn_enable;
++    bool seg_cache_enable;
+ #ifndef __cplusplus
+     atomic_ulong token_id_cnt;
+ #else
+diff --git a/src/urma/lib/urma/bond/include/urma_ubagg.h b/src/urma/lib/urma/bond/include/urma_ubagg.h
+index 6d02d8df..489d7cf2 100644
+--- a/src/urma/lib/urma/bond/include/urma_ubagg.h
++++ b/src/urma/lib/urma/bond/include/urma_ubagg.h
+@@ -31,6 +31,7 @@ typedef enum bondp_user_ctl_opcode {
+     BONDP_USER_CTL_QUERY_PORT,
+     BONDP_USER_CTL_SET_BONDING_MODE,
+     BONDP_USER_CTL_GET_JFCE_FD_LIST,
++    BONDP_USER_CTL_DISABLE_MSN,
+ } bondp_user_ctl_opcode_t;
+ 
+ // URMA_USER_CTL_BOND_SET_BONDING_MODE,
+-- 
+2.43.0
+

@@ -1,0 +1,57 @@
+From c42ebe196794d286edad884c7753748c23da2703 Mon Sep 17 00:00:00 2001
+From: heyu_1014 <2507175370@qq.com>
+Date: Fri, 29 May 2026 11:18:58 +0800
+Subject: [PATCH] urma: move msn to the end of imm_data
+
+(cherry picked from commit ad734e26dd4419c48d08ae93c3dafc43c2997927)
+---
+ src/urma/lib/urma/bond/bondp_datapath_convert.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_datapath_convert.c b/src/urma/lib/urma/bond/bondp_datapath_convert.c
+index fbb22f7b..00053a93 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath_convert.c
++++ b/src/urma/lib/urma/bond/bondp_datapath_convert.c
+@@ -113,11 +113,11 @@ urma_status_t copy_jfr_wr(const urma_jfr_wr_t *src, urma_jfr_wr_t *dst,
+  *
+  *   Bits   | Field       | Bits | Description
+  *   -------|-------------|------|--------------------------------
+- *   0-15   | user_data   | 20   | User-defined custom data
+- *   16-21  | reserved    | 2    | Reserved
++ *   0-19   | user_data   | 20   | User-defined custom data
++ *   20-21  | reserved    | 2    | Reserved
+  *   22-37  | vjetty_id   | 16   | Virtual jetty identifier (0-65535)
+- *   38-61  | msn         | 24   | Message sequence number (0-16M)
+- *   62-63  | cr_opcode   | 2    | Operation code tag (0-3)
++ *   38-39  | cr_opcode   | 2    | Operation code tag (0-3)
++ *   40-63  | msn         | 24   | Message sequence number (0-16M)
+  *
+  * Use encode_imm_data() and decode_imm_data() to pack/unpack fields.
+  */
+@@ -125,19 +125,19 @@ urma_status_t copy_jfr_wr(const urma_jfr_wr_t *src, urma_jfr_wr_t *dst,
+ #define IMM_USER_BITS      20
+ #define IMM_RESERVED_BITS  2
+ #define IMM_VJETTY_ID_BITS 16
+-#define IMM_MSN_BITS       24
+ #define IMM_CR_OPCODE_BITS 2
++#define IMM_MSN_BITS       24
+ 
+ #define IMM_USER_SHIFT      0
+ #define IMM_RESERVED_SHIFT  (IMM_USER_SHIFT + IMM_USER_BITS)
+ #define IMM_VJETTY_ID_SHIFT (IMM_RESERVED_SHIFT + IMM_RESERVED_BITS)
+-#define IMM_MSN_SHIFT       (IMM_VJETTY_ID_SHIFT + IMM_VJETTY_ID_BITS)
+-#define IMM_CR_OPCODE_SHIFT (IMM_MSN_SHIFT + IMM_MSN_BITS)
++#define IMM_CR_OPCODE_SHIFT (IMM_VJETTY_ID_SHIFT + IMM_VJETTY_ID_BITS)
++#define IMM_MSN_SHIFT       (IMM_CR_OPCODE_SHIFT + IMM_CR_OPCODE_BITS)
+ 
+ #define IMM_USER_MASK      ((1ULL << IMM_USER_BITS) - 1)
+ #define IMM_VJETTY_ID_MASK ((1ULL << IMM_VJETTY_ID_BITS) - 1)
+-#define IMM_MSN_MASK       ((1ULL << IMM_MSN_BITS) - 1)
+ #define IMM_CR_OPCODE_MASK ((1ULL << IMM_CR_OPCODE_BITS) - 1)
++#define IMM_MSN_MASK       ((1ULL << IMM_MSN_BITS) - 1)
+ 
+ static inline uint64_t encode_imm_data(uint32_t cr_opcode, uint32_t msn, uint32_t vjetty_id,
+                                        uint64_t user_data, bool msn_enable)
+-- 
+2.43.0
+
