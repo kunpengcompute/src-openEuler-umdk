@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B088
+    %define rpm_release B089
 %endif
 
 Name          : umdk
@@ -274,6 +274,7 @@ Patch0193: 0193-umdk-urma-support-get-jfce-fd-list-by-usr-ctl.patch
 Patch0194: 0194-umdk-urma-allow-disabling-of-msn-deduplication.patch
 Patch0195: 0195-umdk-urma-add-rate-limit-log-function-doc.patch
 Patch0196: 0196-umdk-urma-move-msn-to-the-end-of-imm-data.patch
+Patch0197: 0197-umdk-urpc-fix-tp-bugs.patch
 
 %description
 A new system interconnect architecture
@@ -578,7 +579,6 @@ fi
     %{_libdir}/libumq.so.*
     %{_libdir}/libumq_buf.so.*
     %{_libdir}/libumq_ub.so.*
-    %{_libdir}/libumq_ipc.so.*
     /etc/rsyslog.d/umq.conf
     /etc/logrotate.d/umq
 
@@ -597,7 +597,6 @@ fi
     %{_libdir}/libumq.so
     %{_libdir}/libumq_buf.so
     %{_libdir}/libumq_ub.so
-    %{_libdir}/libumq_ipc.so
     %dir %{_includedir}/ub
     %dir %{_includedir}/ub/umdk
     %dir %{_includedir}/ub/umdk/urpc
@@ -706,6 +705,8 @@ fi
 %endif
 
 %changelog
+* Sat May 30 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B089
+- urpc: fix tp bugs
 * Fri May 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B088
 - urma: add register location log API
 * Tue May 26 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B087
