@@ -1,0 +1,1008 @@
+From 481a762e06ca8112ecd4c550b9d32b082ae8c2a8 Mon Sep 17 00:00:00 2001
+From: liweijie2000 <liweijie39@huawei.com>
+Date: Fri, 15 May 2026 17:25:17 +0800
+Subject: [PATCH] urma: build main_primary_eid table entries from topology
+
+To avoid repeated main_primary_eid topology traversal, build the EID to main_primary_eid mapping during topology configuration and program the result to ubcore before setting the ubcore topology.
+
+- Keep public insert, batch insert, delete, lookup and flush APIs for the main_primary_eid table.
+- Add a topology helper that counts valid endpoint groups, builds a temporary hash table keyed by node index, entity id and chip id to choose the minimum primary EID, and records each valid primary and port EID under that group.
+- Pack mappings as group-batch payloads using group metadata plus a contiguous prefixes array, and split requests by the 4096-prefix ioctl limit.
+- Add internal UVS ubcore ioctl and TLV support for group-batch programming and topo deletion.
+
+(cherry picked from commit 186cac687904a42f43cb64c3e5c3f424fbe44891)
+---
+ src/urma/lib/uvs/core/include/uvs_api.h  |  22 ++
+ src/urma/lib/uvs/core/tpsa_api.c         |  85 ++++-
+ src/urma/lib/uvs/core/tpsa_ioctl.h       |  42 ++-
+ src/urma/lib/uvs/core/tpsa_topo_helper.c | 426 +++++++++++++++++++++++
+ src/urma/lib/uvs/core/tpsa_topo_helper.h |  15 +
+ src/urma/lib/uvs/core/uvs_cmd_tlv.c      |  56 +++
+ src/urma/lib/uvs/core/uvs_cmd_tlv.h      |  22 ++
+ src/urma/lib/uvs/core/uvs_ubagg_ioctl.c  | 136 ++++++++
+ src/urma/lib/uvs/core/uvs_ubagg_ioctl.h  |  13 +-
+ 9 files changed, 812 insertions(+), 5 deletions(-)
+ create mode 100644 src/urma/lib/uvs/core/tpsa_topo_helper.c
+ create mode 100644 src/urma/lib/uvs/core/tpsa_topo_helper.h
+
+diff --git a/src/urma/lib/uvs/core/include/uvs_api.h b/src/urma/lib/uvs/core/include/uvs_api.h
+index 7b4ab18a..ac9f86f0 100644
+--- a/src/urma/lib/uvs/core/include/uvs_api.h
++++ b/src/urma/lib/uvs/core/include/uvs_api.h
+@@ -29,6 +29,7 @@ extern "C" {
+ #define CHIP_NUM           (2)
+ #define DEV_NUM            (256)
+ #define IODIE_NUM          (2)
++#define UVS_MAIN_UE_EID_BATCH_EID_MAX 128U
+ 
+ typedef enum uvs_tp_type {
+     UVS_RTP,
+@@ -125,6 +126,17 @@ struct urma_topo_node {
+     struct urma_topo_agg_dev agg_devs[DEV_NUM];
+ };
+ 
++typedef struct uvs_main_ue_eid_entry {
++    uvs_eid_t eid;
++    uvs_eid_t main_ue_eid;
++} uvs_main_ue_eid_entry_t;
++
++typedef struct uvs_main_ue_eid_batch_entry {
++    uvs_eid_t main_ue_eid;
++    uint32_t eid_num;
++    uvs_eid_t eids[UVS_MAIN_UE_EID_BATCH_EID_MAX];
++} uvs_main_ue_eid_batch_entry_t;
++
+ /**
+  * Create an aggregation device in UVS.
+  * @param[in] agg_eid  EID of the aggregation device to be created.
+@@ -157,6 +169,16 @@ int uvs_get_device_name_by_eid(uvs_eid_t *eid, char *buf, size_t len);
+  */
+ int uvs_set_topo_info(void *topo_buf, uint32_t node_size, uint32_t node_num);
+ 
++int uvs_insert_main_ue_eid(const uvs_main_ue_eid_entry_t *entry);
++
++int uvs_insert_main_ue_eid_batch(const uvs_main_ue_eid_batch_entry_t *entry);
++
++int uvs_delete_main_ue_eid(const uvs_eid_t *eid);
++
++int uvs_lookup_main_ue_eid(const uvs_eid_t *eid, uvs_eid_t *main_ue_eid);
++
++int uvs_flush_main_ue_eid(void);
++
+ /**
+  * UVS get topo info.
+  * @param[out] topo: topo map
+diff --git a/src/urma/lib/uvs/core/tpsa_api.c b/src/urma/lib/uvs/core/tpsa_api.c
+index bd525c20..6415762d 100644
+--- a/src/urma/lib/uvs/core/tpsa_api.c
++++ b/src/urma/lib/uvs/core/tpsa_api.c
+@@ -9,11 +9,13 @@
+  */
+ 
+ #include "tpsa_ioctl.h"
++#include "tpsa_topo_helper.h"
+ #include "uvs_api.h"
+ #include "uvs_cmd_tlv.h"
+ #include "uvs_private_api.h"
+ #include "uvs_ubagg_ioctl.h"
+ #include <errno.h>
++#include <string.h>
+ #include <sys/syscall.h>
+ 
+ #define UVS_MAX_TOPO_NUM 64
+@@ -84,7 +86,78 @@ int uvs_get_device_name_by_eid(uvs_eid_t *eid, char *buf, size_t len)
+     return 0;
+ }
+ 
+-static int uvs_set_topo_info_inner(void *topo, uint32_t topo_num)
++int uvs_insert_main_ue_eid(const uvs_main_ue_eid_entry_t *entry)
++{
++    int ret;
++
++    if (entry == NULL) {
++        TPSA_LOG_ERR("Invalid main ue eid entry.\n");
++        return -EINVAL;
++    }
++
++    uvs_get_api_rdlock();
++    ret = uvs_ubcore_ioctl_insert_main_ue_eid(entry);
++    put_uvs_lock();
++    return ret;
++}
++
++int uvs_insert_main_ue_eid_batch(const uvs_main_ue_eid_batch_entry_t *entry)
++{
++    int ret;
++
++    if (entry == NULL || entry->eid_num == 0 ||
++        entry->eid_num > UVS_MAIN_UE_EID_BATCH_EID_MAX) {
++        TPSA_LOG_ERR("Invalid main ue eid batch entry.\n");
++        return -EINVAL;
++    }
++
++    uvs_get_api_rdlock();
++    ret = uvs_ubcore_ioctl_insert_main_ue_eid_batch(entry);
++    put_uvs_lock();
++    return ret;
++}
++
++int uvs_delete_main_ue_eid(const uvs_eid_t *eid)
++{
++    int ret;
++
++    if (eid == NULL) {
++        TPSA_LOG_ERR("Invalid main ue eid.\n");
++        return -EINVAL;
++    }
++
++    uvs_get_api_rdlock();
++    ret = uvs_ubcore_ioctl_delete_main_ue_eid(eid);
++    put_uvs_lock();
++    return ret;
++}
++
++int uvs_lookup_main_ue_eid(const uvs_eid_t *eid, uvs_eid_t *main_ue_eid)
++{
++    int ret;
++
++    if (eid == NULL || main_ue_eid == NULL) {
++        TPSA_LOG_ERR("Invalid main ue eid lookup param.\n");
++        return -EINVAL;
++    }
++
++    uvs_get_api_rdlock();
++    ret = uvs_ubcore_ioctl_lookup_main_ue_eid(eid, main_ue_eid);
++    put_uvs_lock();
++    return ret;
++}
++
++int uvs_flush_main_ue_eid(void)
++{
++    int ret;
++
++    uvs_get_api_rdlock();
++    ret = uvs_ubcore_ioctl_flush_main_ue_eid();
++    put_uvs_lock();
++    return ret;
++}
++
++static int uvs_set_topo_info_inner(struct urma_topo_node *topo, uint32_t topo_num)
+ {
+     int ret;
+ 
+@@ -101,9 +174,16 @@ static int uvs_set_topo_info_inner(void *topo, uint32_t topo_num)
+         TPSA_LOG_INFO("successfully setted topo info in ubagg\n");
+     }
+ 
++    ret = uvs_update_main_ue_eid_table_by_topo(topo, topo_num);
++    if (ret != 0) {
++        TPSA_LOG_ERR("failed to update main ue eid table by topo, ret = %d.\n", ret);
++        return ret;
++    }
++
+     ret = uvs_ubcore_ioctl_set_topo(topo, (int)topo_num);
+     if (ret != 0) {
+         TPSA_LOG_ERR("failed to set topo info in ubcore, ret = %d.\n", ret);
++        return ret;
+     } else {
+         TPSA_LOG_INFO("successfully setted topo info in ubcore\n");
+     }
+@@ -134,6 +214,7 @@ static int uvs_get_topo_info_inner(void *topo)
+ int uvs_set_topo_info(void *topo_buf, uint32_t node_size, uint32_t node_num)
+ {
+     uint32_t size = sizeof(struct urma_topo_node);
++    int ret;
+ 
+     if (size != node_size) {
+         TPSA_LOG_ERR("node size not match, urma=%u, ubse=%u\n", size, node_size);
+@@ -141,7 +222,7 @@ int uvs_set_topo_info(void *topo_buf, uint32_t node_size, uint32_t node_num)
+     }
+ 
+     uvs_get_api_rdlock();
+-    int ret = uvs_set_topo_info_inner(topo_buf, node_num);
++    ret = uvs_set_topo_info_inner(topo_buf, node_num);
+     put_uvs_lock();
+     return ret;
+ }
+diff --git a/src/urma/lib/uvs/core/tpsa_ioctl.h b/src/urma/lib/uvs/core/tpsa_ioctl.h
+index d06d18fc..4faabc1c 100644
+--- a/src/urma/lib/uvs/core/tpsa_ioctl.h
++++ b/src/urma/lib/uvs/core/tpsa_ioctl.h
+@@ -46,6 +46,11 @@ typedef enum uvs_global_cmd {
+     UVS_CMD_GET_TOPO_EID = 2,
+     UVS_CMD_GET_TOPO = 3,
+     UVS_CMD_GET_TOPO_PATH_EID = 4,
++    UVS_CMD_INSERT_MAIN_UE_EID = 5,
++    UVS_CMD_DELETE_MAIN_UE_EID = 6,
++    UVS_CMD_LOOKUP_MAIN_UE_EID = 7,
++    UVS_CMD_FLUSH_MAIN_UE_EID = 8,
++    UVS_CMD_INSERT_MAIN_UE_EID_BATCH = 9,
+     UVS_CMD_GLOBAL_LAST
+ } uvs_global_cmd_t;
+ 
+@@ -62,6 +67,33 @@ typedef struct uvs_get_topo {
+     } out;
+ } uvs_get_topo_t;
+ 
++typedef struct uvs_cmd_main_ue_eid_entry {
++    struct {
++        uvs_main_ue_eid_entry_t entry;
++    } in;
++} uvs_cmd_main_ue_eid_entry_t;
++
++typedef struct uvs_cmd_main_ue_eid_delete {
++    struct {
++        uvs_eid_t eid;
++    } in;
++} uvs_cmd_main_ue_eid_delete_t;
++
++typedef struct uvs_cmd_main_ue_eid_lookup {
++    struct {
++        uvs_eid_t eid;
++    } in;
++    struct {
++        uvs_eid_t main_ue_eid;
++    } out;
++} uvs_cmd_main_ue_eid_lookup_t;
++
++typedef struct uvs_cmd_main_ue_eid_batch {
++    struct {
++        uvs_main_ue_eid_batch_entry_t entry;
++    } in;
++} uvs_cmd_main_ue_eid_batch_t;
++
+ typedef struct uvs_cmd_get_route_list {
+     uvs_route_t in;
+     uvs_route_list_t out;
+@@ -82,7 +114,15 @@ int uvs_ioctl_set_topo(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_set_topo_t *arg);
+ int uvs_ioctl_get_topo(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_get_topo_t *arg);
+ int uvs_ioctl_get_route_list(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_cmd_get_route_list_t *arg);
+ int uvs_ioctl_get_path_set(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_cmd_get_path_set_t *arg);
+-
++int uvs_ioctl_insert_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_entry_t *arg);
++int uvs_ioctl_delete_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_delete_t *arg);
++int uvs_ioctl_lookup_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_lookup_t *arg);
++int uvs_ioctl_flush_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx);
++int uvs_ioctl_insert_main_ue_eid_batch(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_batch_t *arg);
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/urma/lib/uvs/core/tpsa_topo_helper.c b/src/urma/lib/uvs/core/tpsa_topo_helper.c
+new file mode 100644
+index 00000000..48a6392a
+--- /dev/null
++++ b/src/urma/lib/uvs/core/tpsa_topo_helper.c
+@@ -0,0 +1,426 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: tpsa topo internal helpers
++ */
++
++#include <errno.h>
++#include <limits.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include "tpsa_log.h"
++#include "uvs_ubagg_ioctl.h"
++#include "tpsa_topo_helper.h"
++
++#define UVS_MAIN_UE_EID_INVALID_INDEX UINT32_MAX
++
++typedef struct uvs_main_ue_eid_topo_range {
++    uint32_t min_entity_id;
++    uint32_t max_entity_id;
++    uint32_t min_chip_id;
++    uint32_t max_chip_id;
++} uvs_main_ue_eid_topo_range_t;
++
++typedef struct uvs_main_ue_eid_batch_table {
++    uvs_main_ue_eid_batch_entry_t *batches;
++    uint32_t *batch_index;
++    uint32_t batch_num;
++    uint32_t batch_max;
++    uint32_t eid_num;
++    uvs_main_ue_eid_topo_range_t range;
++} uvs_main_ue_eid_batch_table_t;
++
++typedef struct uvs_main_ue_eid_topo_count {
++    uint32_t endpoint_num;
++    uint32_t eid_num;
++    uvs_main_ue_eid_topo_range_t range;
++} uvs_main_ue_eid_topo_count_t;
++
++static inline bool uvs_topo_eid_is_valid(const char *eid)
++{
++    const char empty_eid[EID_LEN] = {0};
++
++    return eid != NULL && memcmp(eid, empty_eid, EID_LEN) != 0;
++}
++
++static bool uvs_main_ue_eid_mul_overflow(size_t count, size_t item_size)
++{
++    return count != 0 && item_size > SIZE_MAX / count;
++}
++
++static void uvs_update_main_ue_eid_topo_range(
++    uvs_main_ue_eid_topo_count_t *count,
++    const struct urma_topo_ue *endpoint)
++{
++    uvs_main_ue_eid_topo_range_t *range = &count->range;
++
++    if (count->endpoint_num == 0) {
++        range->min_entity_id = endpoint->entity_id;
++        range->max_entity_id = endpoint->entity_id;
++        range->min_chip_id = endpoint->chip_id;
++        range->max_chip_id = endpoint->chip_id;
++        return;
++    }
++
++    if (endpoint->entity_id < range->min_entity_id) {
++        range->min_entity_id = endpoint->entity_id;
++    }
++    if (endpoint->entity_id > range->max_entity_id) {
++        range->max_entity_id = endpoint->entity_id;
++    }
++    if (endpoint->chip_id < range->min_chip_id) {
++        range->min_chip_id = endpoint->chip_id;
++    }
++    if (endpoint->chip_id > range->max_chip_id) {
++        range->max_chip_id = endpoint->chip_id;
++    }
++}
++
++static int uvs_count_main_ue_eid_topo_item(
++    uvs_main_ue_eid_topo_count_t *count,
++    const struct urma_topo_ue *endpoint)
++{
++    uint32_t port_idx;
++
++    if (!uvs_topo_eid_is_valid(endpoint->primary_eid)) {
++        return 0;
++    }
++    if (count->endpoint_num == UINT32_MAX || count->eid_num == UINT32_MAX) {
++        return -EOVERFLOW;
++    }
++
++    uvs_update_main_ue_eid_topo_range(count, endpoint);
++    count->endpoint_num++;
++    count->eid_num++;
++    for (port_idx = 0; port_idx < PORT_NUM; port_idx++) {
++        if (!uvs_topo_eid_is_valid(endpoint->port_eid[port_idx])) {
++            continue;
++        }
++        if (count->eid_num == UINT32_MAX) {
++            return -EOVERFLOW;
++        }
++        count->eid_num++;
++    }
++    return 0;
++}
++
++static int uvs_main_ue_eid_batch_table_init(
++    uvs_main_ue_eid_batch_table_t *table,
++    const uvs_main_ue_eid_topo_count_t *count)
++{
++    uint64_t entity_span;
++    uint64_t chip_span;
++    size_t index_num;
++    size_t batch_size;
++    size_t index_size;
++
++    if (table == NULL || count == NULL || count->endpoint_num == 0) {
++        return -EINVAL;
++    }
++
++    entity_span = (uint64_t)count->range.max_entity_id -
++                  count->range.min_entity_id + 1;
++    chip_span = (uint64_t)count->range.max_chip_id -
++                count->range.min_chip_id + 1;
++    if (entity_span > UINT32_MAX || chip_span > UINT32_MAX ||
++        uvs_main_ue_eid_mul_overflow((size_t)entity_span, (size_t)chip_span) ||
++        uvs_main_ue_eid_mul_overflow((size_t)count->endpoint_num, sizeof(*table->batches))) {
++        TPSA_LOG_ERR("main ue eid batch table size is too large.\n");
++        return -EOVERFLOW;
++    }
++
++    index_num = (size_t)entity_span * (size_t)chip_span;
++    if (uvs_main_ue_eid_mul_overflow(index_num, sizeof(*table->batch_index))) {
++        TPSA_LOG_ERR("main ue eid batch index size is too large.\n");
++        return -EOVERFLOW;
++    }
++
++    batch_size = (size_t)count->endpoint_num * sizeof(*table->batches);
++    index_size = index_num * sizeof(*table->batch_index);
++
++    (void)memset(table, 0, sizeof(*table));
++    table->batches = malloc(batch_size);
++    if (table->batches == NULL) {
++        return -ENOMEM;
++    }
++
++    table->batch_index = malloc(index_size);
++    if (table->batch_index == NULL) {
++        free(table->batches);
++        table->batches = NULL;
++        return -ENOMEM;
++    }
++    (void)memset(table->batches, 0, batch_size);
++    (void)memset(table->batch_index, UINT8_MAX, index_size);
++
++    table->batch_max = count->endpoint_num;
++    table->range = count->range;
++    return 0;
++}
++
++static void uvs_main_ue_eid_batch_table_uninit(
++    uvs_main_ue_eid_batch_table_t *table)
++{
++    if (table == NULL) {
++        return;
++    }
++
++    free(table->batch_index);
++    free(table->batches);
++    (void)memset(table, 0, sizeof(*table));
++}
++
++static uint32_t *uvs_main_ue_eid_batch_index(
++    uvs_main_ue_eid_batch_table_t *table, uint32_t entity_id,
++    uint32_t chip_id)
++{
++    const uvs_main_ue_eid_topo_range_t *range;
++    uint32_t chip_span;
++    size_t index;
++
++    if (table == NULL || table->batch_index == NULL ||
++        entity_id < table->range.min_entity_id ||
++        chip_id < table->range.min_chip_id) {
++        return NULL;
++    }
++
++    range = &table->range;
++    if (entity_id > range->max_entity_id || chip_id > range->max_chip_id) {
++        return NULL;
++    }
++
++    chip_span = range->max_chip_id - range->min_chip_id + 1;
++    index = (size_t)(entity_id - range->min_entity_id) * chip_span +
++            (chip_id - range->min_chip_id);
++    return &table->batch_index[index];
++}
++
++static int uvs_get_main_ue_eid_batch(uvs_main_ue_eid_batch_table_t *table,
++    const struct urma_topo_ue *endpoint,
++    uvs_main_ue_eid_batch_entry_t **out_batch)
++{
++    uvs_main_ue_eid_batch_entry_t *batch;
++    uint32_t *batch_idx;
++
++    if (out_batch == NULL) {
++        return -EINVAL;
++    }
++    *out_batch = NULL;
++
++    batch_idx = uvs_main_ue_eid_batch_index(table, endpoint->entity_id,
++                                            endpoint->chip_id);
++    if (table == NULL || table->batches == NULL || batch_idx == NULL) {
++        return -ENOSPC;
++    }
++    if (*batch_idx != UVS_MAIN_UE_EID_INVALID_INDEX) {
++        if (*batch_idx >= table->batch_num) {
++            return -EINVAL;
++        }
++        batch = &table->batches[*batch_idx];
++        if (memcmp(batch->main_ue_eid.raw, endpoint->primary_eid,
++                   EID_LEN) > 0) {
++            (void)memcpy(batch->main_ue_eid.raw,
++                         endpoint->primary_eid, EID_LEN);
++        }
++        *out_batch = batch;
++        return 0;
++    }
++
++    if (table->batch_num >= table->batch_max) {
++        return -ENOSPC;
++    }
++
++    batch = &table->batches[table->batch_num];
++    batch->eid_num = 0;
++    (void)memcpy(batch->main_ue_eid.raw, endpoint->primary_eid,
++                 EID_LEN);
++    *batch_idx = table->batch_num;
++    table->batch_num++;
++    *out_batch = batch;
++    return 0;
++}
++
++static int uvs_append_main_ue_eid_eid(uvs_main_ue_eid_batch_table_t *table,
++    uvs_main_ue_eid_batch_entry_t *batch, const char *eid)
++{
++    if (table == NULL || batch == NULL || eid == NULL) {
++        return -EINVAL;
++    }
++    if (batch->eid_num >= UVS_MAIN_UE_EID_BATCH_EID_MAX ||
++        table->eid_num == UINT32_MAX) {
++        return -ENOSPC;
++    }
++
++    (void)memcpy(batch->eids[batch->eid_num].raw, eid, EID_LEN);
++    batch->eid_num++;
++    table->eid_num++;
++    return 0;
++}
++
++static int uvs_collect_main_ue_eid_endpoint(
++    uvs_main_ue_eid_batch_table_t *table,
++    const struct urma_topo_ue *endpoint)
++{
++    uvs_main_ue_eid_batch_entry_t *batch;
++    uint32_t port_idx;
++    int ret;
++
++    if (!uvs_topo_eid_is_valid(endpoint->primary_eid)) {
++        return 0;
++    }
++
++    ret = uvs_get_main_ue_eid_batch(table, endpoint, &batch);
++    if (ret != 0) {
++        return ret;
++    }
++
++    ret = uvs_append_main_ue_eid_eid(table, batch, endpoint->primary_eid);
++    if (ret != 0) {
++        return ret;
++    }
++    for (port_idx = 0; port_idx < PORT_NUM; port_idx++) {
++        if (!uvs_topo_eid_is_valid(endpoint->port_eid[port_idx])) {
++            continue;
++        }
++        ret = uvs_append_main_ue_eid_eid(table, batch,
++                                         endpoint->port_eid[port_idx]);
++        if (ret != 0) {
++            return ret;
++        }
++    }
++    return 0;
++}
++
++static int uvs_count_main_ue_eid_node(const struct urma_topo_node *node,
++    uvs_main_ue_eid_topo_count_t *count)
++{
++    uint32_t dev_idx;
++
++    for (dev_idx = 0; dev_idx < DEV_NUM; dev_idx++) {
++        uint32_t iodie_idx;
++
++        for (iodie_idx = 0; iodie_idx < IODIE_NUM; iodie_idx++) {
++            const struct urma_topo_ue *endpoint =
++                &node->agg_devs[dev_idx].ues[iodie_idx];
++            int ret = uvs_count_main_ue_eid_topo_item(count, endpoint);
++            if (ret != 0) {
++                return ret;
++            }
++        }
++    }
++
++    return 0;
++}
++
++static int uvs_collect_main_ue_eid_node(const struct urma_topo_node *node,
++    uvs_main_ue_eid_batch_table_t *table)
++{
++    uint32_t dev_idx;
++
++    for (dev_idx = 0; dev_idx < DEV_NUM; dev_idx++) {
++        uint32_t iodie_idx;
++
++        for (iodie_idx = 0; iodie_idx < IODIE_NUM; iodie_idx++) {
++            const struct urma_topo_ue *endpoint =
++                &node->agg_devs[dev_idx].ues[iodie_idx];
++            int ret = uvs_collect_main_ue_eid_endpoint(table, endpoint);
++            if (ret != 0) {
++                return ret;
++            }
++        }
++    }
++
++    return 0;
++}
++
++static int uvs_build_main_ue_eid_batches_from_node(
++    const struct urma_topo_node *node,
++    uvs_main_ue_eid_batch_table_t *table)
++{
++    uvs_main_ue_eid_topo_count_t count = {0};
++    int ret;
++
++    (void)memset(table, 0, sizeof(*table));
++    ret = uvs_count_main_ue_eid_node(node, &count);
++    if (ret != 0 || count.endpoint_num == 0) {
++        return ret;
++    }
++
++    ret = uvs_main_ue_eid_batch_table_init(table, &count);
++    if (ret != 0) {
++        return ret;
++    }
++
++    ret = uvs_collect_main_ue_eid_node(node, table);
++    if (ret == 0 && table->eid_num != count.eid_num) {
++        ret = -EFAULT;
++    }
++    if (ret != 0) {
++        uvs_main_ue_eid_batch_table_uninit(table);
++    }
++
++    return ret;
++}
++
++static int uvs_insert_main_ue_eid_batches_inner(
++    const uvs_main_ue_eid_batch_table_t *table)
++{
++    uint32_t batch_idx;
++    int ret = 0;
++
++    if (table == NULL) {
++        TPSA_LOG_ERR("Invalid main ue eid batch table.\n");
++        return -EINVAL;
++    }
++    if (table->batch_num == 0) {
++        return 0;
++    }
++
++    for (batch_idx = 0; batch_idx < table->batch_num && ret == 0; batch_idx++) {
++        ret = uvs_ubcore_ioctl_insert_main_ue_eid_batch(
++            &table->batches[batch_idx]);
++    }
++
++    return ret;
++}
++
++int uvs_update_main_ue_eid_table_by_topo(const struct urma_topo_node *topo,
++    uint32_t topo_num)
++{
++    uvs_main_ue_eid_batch_table_t table;
++    uint32_t total_batch_num = 0;
++    uint32_t total_eid_num = 0;
++    uint32_t node_idx;
++    int ret = 0;
++
++    for (node_idx = 0; node_idx < topo_num; node_idx++) {
++        ret = uvs_build_main_ue_eid_batches_from_node(&topo[node_idx],
++                                                      &table);
++        if (ret != 0) {
++            return ret;
++        }
++
++        ret = uvs_insert_main_ue_eid_batches_inner(&table);
++        if (ret != 0) {
++            TPSA_LOG_ERR("failed to update main ue eid batch entries, ret = %d.\n",
++                         ret);
++            uvs_main_ue_eid_batch_table_uninit(&table);
++            return ret;
++        }
++        if (total_batch_num > UINT32_MAX - table.batch_num ||
++            total_eid_num > UINT32_MAX - table.eid_num) {
++            uvs_main_ue_eid_batch_table_uninit(&table);
++            return -EOVERFLOW;
++        }
++        total_batch_num += table.batch_num;
++        total_eid_num += table.eid_num;
++        uvs_main_ue_eid_batch_table_uninit(&table);
++    }
++
++    TPSA_LOG_INFO("successfully updated main ue eid entries by batch, "
++                  "batch_num = %u, eid_num = %u.\n",
++                  total_batch_num, total_eid_num);
++    return 0;
++}
+diff --git a/src/urma/lib/uvs/core/tpsa_topo_helper.h b/src/urma/lib/uvs/core/tpsa_topo_helper.h
+new file mode 100644
+index 00000000..083b9f4a
+--- /dev/null
++++ b/src/urma/lib/uvs/core/tpsa_topo_helper.h
+@@ -0,0 +1,15 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: tpsa topo internal helpers
++ */
++
++#ifndef TPSA_TOPO_HELPER_H
++#define TPSA_TOPO_HELPER_H
++
++#include "uvs_api.h"
++
++int uvs_update_main_ue_eid_table_by_topo(const struct urma_topo_node *topo,
++    uint32_t topo_num);
++
++#endif
+diff --git a/src/urma/lib/uvs/core/uvs_cmd_tlv.c b/src/urma/lib/uvs/core/uvs_cmd_tlv.c
+index 017fb088..11ca53a6 100644
+--- a/src/urma/lib/uvs/core/uvs_cmd_tlv.c
++++ b/src/urma/lib/uvs/core/uvs_cmd_tlv.c
+@@ -88,3 +88,59 @@ int uvs_ioctl_get_path_set(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_cmd_get_path_set_t *
+ 
+     return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_GET_TOPO_PATH_EID, (void *)attrs, sizeof(attrs));
+ }
++
++int uvs_ioctl_insert_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_entry_t *arg)
++{
++    uvs_cmd_attr_t attrs[INSERT_MAIN_UE_EID_IN_NUM] = {0};
++    uvs_cmd_attr_t *a = attrs;
++
++    ATTR(a++, INSERT_MAIN_UE_EID_IN_ENTRY, arg->in.entry);
++
++    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_INSERT_MAIN_UE_EID,
++                               (void *)attrs, sizeof(attrs));
++}
++
++int uvs_ioctl_delete_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_delete_t *arg)
++{
++    uvs_cmd_attr_t attrs[DELETE_MAIN_UE_EID_IN_NUM] = {0};
++    uvs_cmd_attr_t *a = attrs;
++
++    ATTR(a++, DELETE_MAIN_UE_EID_IN_EID, arg->in.eid);
++
++    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_DELETE_MAIN_UE_EID,
++                               (void *)attrs, sizeof(attrs));
++}
++
++int uvs_ioctl_lookup_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_lookup_t *arg)
++{
++    uvs_cmd_attr_t attrs[LOOKUP_MAIN_UE_EID_IN_NUM +
++                         LOOKUP_MAIN_UE_EID_OUT_NUM - UVS_CMD_OUT_TYPE_INIT] = {0};
++    uvs_cmd_attr_t *a = attrs;
++
++    ATTR(a++, LOOKUP_MAIN_UE_EID_IN_EID, arg->in.eid);
++    ATTR(a++, LOOKUP_MAIN_UE_EID_OUT_MAIN_UE_EID, arg->out.main_ue_eid);
++
++    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_LOOKUP_MAIN_UE_EID,
++                               (void *)attrs, sizeof(attrs));
++}
++
++int uvs_ioctl_flush_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx)
++{
++    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_FLUSH_MAIN_UE_EID,
++                               NULL, 0);
++}
++
++int uvs_ioctl_insert_main_ue_eid_batch(tpsa_ioctl_ctx_t *ioctl_ctx,
++    uvs_cmd_main_ue_eid_batch_t *arg)
++{
++    uvs_cmd_attr_t attrs[INSERT_MAIN_UE_EID_BATCH_IN_NUM] = {0};
++    uvs_cmd_attr_t *a = attrs;
++
++    ATTR(a++, INSERT_MAIN_UE_EID_BATCH_IN_ENTRY, arg->in.entry);
++
++    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_INSERT_MAIN_UE_EID_BATCH,
++                               (void *)attrs, sizeof(attrs));
++}
+diff --git a/src/urma/lib/uvs/core/uvs_cmd_tlv.h b/src/urma/lib/uvs/core/uvs_cmd_tlv.h
+index 0ab30830..29829939 100644
+--- a/src/urma/lib/uvs/core/uvs_cmd_tlv.h
++++ b/src/urma/lib/uvs/core/uvs_cmd_tlv.h
+@@ -65,6 +65,28 @@ typedef enum uvs_cmd_set_path_set_type {
+     GET_PATH_SET_OUT_NUM
+ } uvs_cmd_set_path_set_type_t;
+ 
++typedef enum uvs_cmd_insert_main_ue_eid_type {
++    INSERT_MAIN_UE_EID_IN_ENTRY,
++    INSERT_MAIN_UE_EID_IN_NUM
++} uvs_cmd_insert_main_ue_eid_type_t;
++
++typedef enum uvs_cmd_delete_main_ue_eid_type {
++    DELETE_MAIN_UE_EID_IN_EID,
++    DELETE_MAIN_UE_EID_IN_NUM
++} uvs_cmd_delete_main_ue_eid_type_t;
++
++typedef enum uvs_cmd_lookup_main_ue_eid_type {
++    LOOKUP_MAIN_UE_EID_IN_EID,
++    LOOKUP_MAIN_UE_EID_IN_NUM,
++    LOOKUP_MAIN_UE_EID_OUT_MAIN_UE_EID = UVS_CMD_OUT_TYPE_INIT,
++    LOOKUP_MAIN_UE_EID_OUT_NUM
++} uvs_cmd_lookup_main_ue_eid_type_t;
++
++typedef enum uvs_cmd_insert_main_ue_eid_batch_type {
++    INSERT_MAIN_UE_EID_BATCH_IN_ENTRY,
++    INSERT_MAIN_UE_EID_BATCH_IN_NUM
++} uvs_cmd_insert_main_ue_eid_batch_type_t;
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c
+index 54fdf0a4..59d83a6c 100644
+--- a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c
++++ b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c
+@@ -205,6 +205,142 @@ int uvs_ubcore_ioctl_set_topo(void *topo_info, int topo_num)
+     return 0;
+ }
+ 
++int uvs_ubcore_ioctl_insert_main_ue_eid(const uvs_main_ue_eid_entry_t *entry)
++{
++    tpsa_ioctl_ctx_t ioctl_ctx = {0};
++    uvs_cmd_main_ue_eid_entry_t arg = {0};
++    int ret = 0;
++
++    int dev_fd = open(UVS_UBCORE_DEVICE_PATH, O_RDWR);
++    if (dev_fd == -1) {
++        TPSA_LOG_ERR("Failed to open dev_fd err: %s.\n", ub_strerror(errno));
++        return -1;
++    }
++
++    ioctl_ctx.ubcore_fd = dev_fd;
++    arg.in.entry = *entry;
++
++    ret = uvs_ioctl_insert_main_ue_eid(&ioctl_ctx, &arg);
++    if (ret != 0) {
++        TPSA_LOG_ERR("uvs_ubcore_ioctl_insert_main_ue_eid fail\n");
++        close(dev_fd);
++        return ret;
++    }
++
++    close(dev_fd);
++    return 0;
++}
++
++int uvs_ubcore_ioctl_delete_main_ue_eid(const uvs_eid_t *eid)
++{
++    tpsa_ioctl_ctx_t ioctl_ctx = {0};
++    uvs_cmd_main_ue_eid_delete_t arg = {0};
++    int ret = 0;
++
++    int dev_fd = open(UVS_UBCORE_DEVICE_PATH, O_RDWR);
++    if (dev_fd == -1) {
++        TPSA_LOG_ERR("Failed to open dev_fd err: %s.\n", ub_strerror(errno));
++        return -1;
++    }
++
++    ioctl_ctx.ubcore_fd = dev_fd;
++    arg.in.eid = *eid;
++
++    ret = uvs_ioctl_delete_main_ue_eid(&ioctl_ctx, &arg);
++    if (ret != 0) {
++        TPSA_LOG_ERR("uvs_ubcore_ioctl_delete_main_ue_eid fail\n");
++        close(dev_fd);
++        return ret;
++    }
++
++    close(dev_fd);
++    return 0;
++}
++
++int uvs_ubcore_ioctl_lookup_main_ue_eid(const uvs_eid_t *eid,
++    uvs_eid_t *main_ue_eid)
++{
++    tpsa_ioctl_ctx_t ioctl_ctx = {0};
++    uvs_cmd_main_ue_eid_lookup_t arg = {0};
++    int ret = 0;
++
++    int dev_fd = open(UVS_UBCORE_DEVICE_PATH, O_RDWR);
++    if (dev_fd == -1) {
++        TPSA_LOG_ERR("Failed to open dev_fd err: %s.\n", ub_strerror(errno));
++        return -1;
++    }
++
++    ioctl_ctx.ubcore_fd = dev_fd;
++    arg.in.eid = *eid;
++
++    ret = uvs_ioctl_lookup_main_ue_eid(&ioctl_ctx, &arg);
++    if (ret != 0) {
++        TPSA_LOG_ERR("uvs_ubcore_ioctl_lookup_main_ue_eid fail\n");
++        close(dev_fd);
++        return ret;
++    }
++
++    *main_ue_eid = arg.out.main_ue_eid;
++    close(dev_fd);
++    return 0;
++}
++
++int uvs_ubcore_ioctl_flush_main_ue_eid(void)
++{
++    tpsa_ioctl_ctx_t ioctl_ctx = {0};
++    int ret = 0;
++
++    int dev_fd = open(UVS_UBCORE_DEVICE_PATH, O_RDWR);
++    if (dev_fd == -1) {
++        TPSA_LOG_ERR("Failed to open dev_fd err: %s.\n", ub_strerror(errno));
++        return -1;
++    }
++
++    ioctl_ctx.ubcore_fd = dev_fd;
++
++    ret = uvs_ioctl_flush_main_ue_eid(&ioctl_ctx);
++    if (ret != 0) {
++        TPSA_LOG_ERR("uvs_ubcore_ioctl_flush_main_ue_eid fail\n");
++        close(dev_fd);
++        return ret;
++    }
++
++    close(dev_fd);
++    return 0;
++}
++
++int uvs_ubcore_ioctl_insert_main_ue_eid_batch(
++    const uvs_main_ue_eid_batch_entry_t *entry)
++{
++    tpsa_ioctl_ctx_t ioctl_ctx = {0};
++    uvs_cmd_main_ue_eid_batch_t arg = {0};
++    int ret = 0;
++    int dev_fd;
++
++    if (entry == NULL) {
++        return -EINVAL;
++    }
++
++    dev_fd = open(UVS_UBCORE_DEVICE_PATH, O_RDWR);
++    if (dev_fd == -1) {
++        TPSA_LOG_ERR("Failed to open dev_fd err: %s.\n", ub_strerror(errno));
++        return -1;
++    }
++
++    ioctl_ctx.ubcore_fd = dev_fd;
++    arg.in.entry = *entry;
++
++    ret = uvs_ioctl_insert_main_ue_eid_batch(&ioctl_ctx, &arg);
++    if (ret != 0) {
++        TPSA_LOG_ERR("uvs_ubcore_ioctl_insert_main_ue_eid_batch fail\n");
++        close(dev_fd);
++        return ret;
++    }
++
++    close(dev_fd);
++    return 0;
++}
++
+ int uvs_ubcore_ioctl_get_route_list(const uvs_route_t *route, uvs_route_list_t *route_list)
+ {
+     tpsa_ioctl_ctx_t ioctl_ctx = {0};
+diff --git a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h
+index 2bd63592..7bf43fde 100644
+--- a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h
++++ b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h
+@@ -9,12 +9,14 @@
+  */
+ #ifndef UVS_UBAGG_IOCTL_H
+ #define UVS_UBAGG_IOCTL_H
+-#include "uvs_api.h"
+-#include "uvs_types.h"
+ #include <stddef.h>
+ #include <stdint.h>
+ #include <sys/ioctl.h>
+ 
++#include "tpsa_ioctl.h"
++#include "uvs_api.h"
++#include "uvs_types.h"
++
+ #define UVS_MAX_DEV_NAME_LEN 64
+ 
+ typedef enum uvs_ubagg_cmd {
+@@ -70,6 +72,13 @@ int uvs_ubagg_ioctl_get_dev_name_by_eid(uvs_eid_t *eid, char *buf, size_t len);
+ int uvs_ubagg_ioctl_set_topo(void *topo_info, int topo_num);
+ int uvs_ubcore_ioctl_get_topo(void *topo_map);
+ int uvs_ubcore_ioctl_set_topo(void *topo_info, int topo_num);
++int uvs_ubcore_ioctl_insert_main_ue_eid(const uvs_main_ue_eid_entry_t *entry);
++int uvs_ubcore_ioctl_delete_main_ue_eid(const uvs_eid_t *eid);
++int uvs_ubcore_ioctl_lookup_main_ue_eid(const uvs_eid_t *eid,
++    uvs_eid_t *main_ue_eid);
++int uvs_ubcore_ioctl_flush_main_ue_eid(void);
++int uvs_ubcore_ioctl_insert_main_ue_eid_batch(
++    const uvs_main_ue_eid_batch_entry_t *entry);
+ int uvs_ubcore_ioctl_get_route_list(const uvs_route_t *route, uvs_route_list_t *route_list);
+ int uvs_ubcore_ioctl_get_path_set(const uvs_eid_t *src_bondind_eid,
+                                   const uvs_eid_t *dst_bonding_eid,
+-- 
+2.43.0
+

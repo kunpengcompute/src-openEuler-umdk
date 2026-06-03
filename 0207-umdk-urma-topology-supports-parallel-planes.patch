@@ -1,0 +1,332 @@
+From 2a8c426db32561731af9334506b20917b1181294 Mon Sep 17 00:00:00 2001
+From: Bi Shulei <bishulei@huawei.com>
+Date: Thu, 28 May 2026 15:51:21 +0800
+Subject: [PATCH] urma: topology supports parallel planes
+
+(cherry picked from commit 7189c2de42bbe0d09ef8006fe1ae2bcc715bb6de)
+---
+ src/urma/lib/urma/bond/utils/topo_info.c     |  5 ---
+ src/urma/lib/urma/bond/utils/topo_info.h     | 10 +-----
+ src/urma/lib/uvs/core/include/uvs_api.h      | 21 +++++++-----
+ src/urma/lib/uvs/core/tpsa_api.c             | 35 ++------------------
+ src/urma/lib/uvs/core/tpsa_ioctl.h           |  2 +-
+ src/urma/lib/uvs/core/uvs_cmd_tlv.c          |  2 +-
+ src/urma/lib/uvs/core/uvs_cmd_tlv.h          |  2 +-
+ src/urma/lib/uvs/core/uvs_ubagg_ioctl.c      |  4 +--
+ src/urma/lib/uvs/core/uvs_ubagg_ioctl.h      |  2 +-
+ src/urma/tools/urma_admin/admin_cmd_show.c   | 25 ++++++++++----
+ src/urma/tools/urma_admin/admin_parameters.h |  8 +----
+ src/urma/tools/urma_ping/ping_run.h          |  8 +----
+ 12 files changed, 43 insertions(+), 81 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/utils/topo_info.c b/src/urma/lib/urma/bond/utils/topo_info.c
+index b5af2214..fd204716 100644
+--- a/src/urma/lib/urma/bond/utils/topo_info.c
++++ b/src/urma/lib/urma/bond/utils/topo_info.c
+@@ -15,11 +15,6 @@
+ 
+ #define DIRECT_DEV_HASH_BASIS (9819876)
+ 
+-static inline bool is_topo_map_idx_equal(bondp_topo_link_t *map_idx, bondp_topo_link_t* target_map_idx)
+-{
+-    return !memcmp(map_idx, target_map_idx, sizeof(bondp_topo_link_t));
+-}
+-
+ static inline bool is_empty_eid(urma_eid_t *eid)
+ {
+     return eid->in6.interface_id == 0 && eid->in6.subnet_prefix == 0;
+diff --git a/src/urma/lib/urma/bond/utils/topo_info.h b/src/urma/lib/urma/bond/utils/topo_info.h
+index 5de95b99..477bdf22 100644
+--- a/src/urma/lib/urma/bond/utils/topo_info.h
++++ b/src/urma/lib/urma/bond/utils/topo_info.h
+@@ -39,14 +39,6 @@ typedef struct bondp_topo_ue {
+     char port_eid[PORT_NUM][EID_LEN];
+ } bondp_topo_ue_t;
+ 
+-/* Locate a specific port in topo_infos */
+-/* All params set to -1 means doesn't exist */
+-typedef struct bondp_topo_link {
+-    uint32_t peer_node;
+-    uint32_t peer_iodie;
+-    uint32_t peer_port;
+-} bondp_topo_link_t;
+-
+ typedef struct bondp_topo_agg_dev {
+     char agg_eid[EID_LEN];
+     bondp_topo_ue_t ues[IODIE_NUM];
+@@ -57,7 +49,7 @@ typedef struct bondp_topo_node {
+     uint32_t super_node_id;
+     uint32_t node_id;
+     uint32_t is_current;
+-    bondp_topo_link_t links[IODIE_NUM][PORT_NUM];
++    bool links[IODIE_NUM * PORT_NUM][IODIE_NUM * PORT_NUM];
+     bondp_topo_agg_dev_t agg_devs[DEV_NUM];
+ } bondp_topo_node_t;
+ 
+diff --git a/src/urma/lib/uvs/core/include/uvs_api.h b/src/urma/lib/uvs/core/include/uvs_api.h
+index 7b4ab18a..c99d70ff 100644
+--- a/src/urma/lib/uvs/core/include/uvs_api.h
++++ b/src/urma/lib/uvs/core/include/uvs_api.h
+@@ -109,19 +109,13 @@ struct urma_topo_agg_dev {
+     struct urma_topo_ue ues[IODIE_NUM];
+ };
+ 
+-struct urma_topo_link {
+-    uint32_t peer_node;  // node id
+-    uint32_t peer_iodie; // iodie idx
+-    uint32_t peer_port;  // port idx, UINT32_MAX indicates no connection
+-};
+-
+ struct urma_topo_node {
+     uint32_t type; // 0:1D-fullmesh, 1: Clos topology with parallel planes
+     uint32_t super_node_id;
+     uint32_t node_id;
+     uint32_t is_current;
+-    struct urma_topo_link links[IODIE_NUM][PORT_NUM]; /*Links[i] represents the destination
+-            information connected to the current node's port[i]. It is not filled in Clos topology and relies on preset information.*/
++    bool links[IODIE_NUM * PORT_NUM][IODIE_NUM * PORT_NUM]; /* links[local_idx][remote_idx] represents
++            connectivity between this node's port local_idx and node i's port remote_idx. */
+     struct urma_topo_agg_dev agg_devs[DEV_NUM];
+ };
+ 
+@@ -174,9 +168,18 @@ int uvs_get_topo_info(void *topo);
+  */
+ int uvs_get_route_list(const uvs_route_t *route, uvs_route_list_t *route_list);
+ 
++/**
++ * UVS get path set between two bonding devices.
++ * @param[in] src_bondind_eid: eid of the source bonding device.
++ * @param[in] dst_bonding_eid: eid of the destination bonding device.
++ * @param[in] tp_type: transport path type, refers to enum uvs_tp_type.
++ * @param[in] iodie_level: true for iodie-level paths, false for port-level paths.
++ * @param[out] uvs_path_set: a buffer containing the returned path set.
++ * Return: 0 on success, other value on error
++ */
+ int uvs_get_path_set(const uvs_eid_t *src_bondind_eid,
+                      const uvs_eid_t *dst_bonding_eid,
+-                     enum uvs_tp_type tp_type, bool multi_path,
++                     enum uvs_tp_type tp_type, bool iodie_level,
+                      uvs_path_set_t *uvs_path_set);
+ 
+ #ifdef __cplusplus
+diff --git a/src/urma/lib/uvs/core/tpsa_api.c b/src/urma/lib/uvs/core/tpsa_api.c
+index bd525c20..b31faabb 100644
+--- a/src/urma/lib/uvs/core/tpsa_api.c
++++ b/src/urma/lib/uvs/core/tpsa_api.c
+@@ -169,34 +169,9 @@ int uvs_get_route_list(const uvs_route_t *route, uvs_route_list_t *route_list)
+     return ret;
+ }
+ 
+-static void uvs_filter_path_set(uvs_path_set_t *uvs_path_set, bool multi_path)
+-{
+-    uvs_path_set_t filtered = *uvs_path_set;
+-    uint32_t i, j;
+-
+-    filtered.path_count = 0;
+-    for (i = 0, j = 0; i < uvs_path_set->path_count; i++) {
+-        uvs_path_t *path_src = &uvs_path_set->paths[i];
+-        uvs_path_t *path_dst = &filtered.paths[j];
+-
+-        if (multi_path && path_src->src_port.port_idx != 255) {
+-            continue;
+-        }
+-
+-        if (!multi_path && path_src->src_port.port_idx == 255) {
+-            continue;
+-        }
+-
+-        *path_dst = *path_src;
+-        j++;
+-    }
+-    filtered.path_count = j;
+-    *uvs_path_set = filtered;
+-}
+-
+ int uvs_get_path_set(const uvs_eid_t *src_bondind_eid,
+                      const uvs_eid_t *dst_bonding_eid,
+-                     enum uvs_tp_type tp_type, bool multi_path,
++                     enum uvs_tp_type tp_type, bool iodie_level,
+                      uvs_path_set_t *uvs_path_set)
+ {
+     int ret = 0;
+@@ -218,15 +193,11 @@ int uvs_get_path_set(const uvs_eid_t *src_bondind_eid,
+         return -EINVAL;
+     }
+     ret = uvs_ubcore_ioctl_get_path_set(src_bondind_eid,
+-                                        dst_bonding_eid, tp_type, multi_path, uvs_path_set);
++                                        dst_bonding_eid, tp_type, iodie_level, uvs_path_set);
+     if (ret != 0) {
+         TPSA_LOG_ERR("Failed to get path set, ret = %d.\n", ret);
+         return ret;
+     }
+-    // Temporary fix for the issue where kernel FULLMESH_1D returns all eids
+-    if (uvs_path_set->topo_type == UVS_TOPO_TYPE_FULLMESH_1D) {
+-        uvs_filter_path_set(uvs_path_set, multi_path);
+-        TPSA_LOG_DEBUG("Filtered path set for FULLMESH_1D\n");
+-    }
++
+     return ret;
+ }
+diff --git a/src/urma/lib/uvs/core/tpsa_ioctl.h b/src/urma/lib/uvs/core/tpsa_ioctl.h
+index d06d18fc..c1b8b74f 100644
+--- a/src/urma/lib/uvs/core/tpsa_ioctl.h
++++ b/src/urma/lib/uvs/core/tpsa_ioctl.h
+@@ -72,7 +72,7 @@ typedef struct uvs_cmd_get_path_set {
+         uvs_eid_t src_bonding_eid;
+         uvs_eid_t dst_bonding_eid;
+         uvs_tp_type_t tp_type;
+-        bool multi_path;
++        bool iodie_level;
+     } in;
+     uvs_path_set_t out;
+ } uvs_cmd_get_path_set_t;
+diff --git a/src/urma/lib/uvs/core/uvs_cmd_tlv.c b/src/urma/lib/uvs/core/uvs_cmd_tlv.c
+index 017fb088..fc0ad20a 100644
+--- a/src/urma/lib/uvs/core/uvs_cmd_tlv.c
++++ b/src/urma/lib/uvs/core/uvs_cmd_tlv.c
+@@ -83,7 +83,7 @@ int uvs_ioctl_get_path_set(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_cmd_get_path_set_t *
+     ATTR(a++, GET_PATH_SET_IN_SRC_BONDING_EID, arg->in.src_bonding_eid);
+     ATTR(a++, GET_PATH_SET_IN_DST_BONDING_EID, arg->in.dst_bonding_eid);
+     ATTR(a++, GET_PATH_SET_IN_TP_TYPE, arg->in.tp_type);
+-    ATTR(a++, GET_PATH_SET_IN_MULTI_PATH, arg->in.multi_path);
++    ATTR(a++, GET_PATH_SET_IN_IODIE_LEVEL, arg->in.iodie_level);
+     ATTR(a++, GET_PATH_LIST_OUT_PATH_SET, arg->out);
+ 
+     return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_GET_TOPO_PATH_EID, (void *)attrs, sizeof(attrs));
+diff --git a/src/urma/lib/uvs/core/uvs_cmd_tlv.h b/src/urma/lib/uvs/core/uvs_cmd_tlv.h
+index 0ab30830..2d27ba51 100644
+--- a/src/urma/lib/uvs/core/uvs_cmd_tlv.h
++++ b/src/urma/lib/uvs/core/uvs_cmd_tlv.h
+@@ -59,7 +59,7 @@ typedef enum uvs_cmd_set_path_set_type {
+     GET_PATH_SET_IN_SRC_BONDING_EID,
+     GET_PATH_SET_IN_DST_BONDING_EID,
+     GET_PATH_SET_IN_TP_TYPE,
+-    GET_PATH_SET_IN_MULTI_PATH,
++    GET_PATH_SET_IN_IODIE_LEVEL,
+     GET_PATH_SET_IN_NUM,
+     GET_PATH_LIST_OUT_PATH_SET = UVS_CMD_OUT_TYPE_INIT,
+     GET_PATH_SET_OUT_NUM
+diff --git a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c
+index 54fdf0a4..efc9ec76 100644
+--- a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c
++++ b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.c
+@@ -236,7 +236,7 @@ int uvs_ubcore_ioctl_get_route_list(const uvs_route_t *route, uvs_route_list_t *
+ 
+ int uvs_ubcore_ioctl_get_path_set(const uvs_eid_t *src_bondind_eid,
+                                   const uvs_eid_t *dst_bonding_eid,
+-                                  enum uvs_tp_type tp_type, bool multi_path,
++                                  enum uvs_tp_type tp_type, bool iodie_level,
+                                   uvs_path_set_t *uvs_path_set)
+ {
+     tpsa_ioctl_ctx_t ioctl_ctx = {0};
+@@ -253,7 +253,7 @@ int uvs_ubcore_ioctl_get_path_set(const uvs_eid_t *src_bondind_eid,
+     memcpy(&arg.in.src_bonding_eid, src_bondind_eid, sizeof(uvs_eid_t));
+     memcpy(&arg.in.dst_bonding_eid, dst_bonding_eid, sizeof(uvs_eid_t));
+     arg.in.tp_type = tp_type;
+-    arg.in.multi_path = multi_path;
++    arg.in.iodie_level = iodie_level;
+ 
+     ret = uvs_ioctl_get_path_set(&ioctl_ctx, &arg);
+     if (ret != 0) {
+diff --git a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h
+index 2bd63592..055958fd 100644
+--- a/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h
++++ b/src/urma/lib/uvs/core/uvs_ubagg_ioctl.h
+@@ -73,7 +73,7 @@ int uvs_ubcore_ioctl_set_topo(void *topo_info, int topo_num);
+ int uvs_ubcore_ioctl_get_route_list(const uvs_route_t *route, uvs_route_list_t *route_list);
+ int uvs_ubcore_ioctl_get_path_set(const uvs_eid_t *src_bondind_eid,
+                                   const uvs_eid_t *dst_bonding_eid,
+-                                  enum uvs_tp_type tp_type, bool multi_path,
++                                  enum uvs_tp_type tp_type, bool iodie_level,
+                                   uvs_path_set_t *uvs_path_set);
+ 
+ #endif // UVS_UBAGG_IOCTL_H
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index a9ef6143..48354dd1 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -1023,14 +1023,27 @@ static int admin_print_topo_map(tool_topo_map_t *topo_map, uint32_t node_id, con
+     for (uint32_t iodie_idx = 0; iodie_idx < IODIE_NUM; iodie_idx++) {
+         (void)printf("IODie %d:\n", iodie_idx);
+         for (uint32_t port_idx = 0; port_idx < PORT_NUM; port_idx++) {
+-            if (cur_node_info->links[iodie_idx][port_idx].peer_node >= MAX_NODE_NUM) {
++            uint32_t idx = iodie_idx * PORT_NUM + port_idx;
++            bool has_connection = false;
++            bool first_line = true;
++            for (uint32_t remote_idx = 0; remote_idx < IODIE_NUM * PORT_NUM; remote_idx++) {
++                if (cur_node_info->links[idx][remote_idx]) {
++                    uint32_t remote_iodie = remote_idx / PORT_NUM;
++                    uint32_t remote_port = remote_idx % PORT_NUM;
++                    if (first_line) {
++                        (void)printf("Port %d: Connected to IODie %d, Port %d\n",
++                                     port_idx, remote_iodie, remote_port);
++                        first_line = false;
++                    } else {
++                        (void)printf("        Connected to IODie %d, Port %d\n",
++                                     remote_iodie, remote_port);
++                    }
++                    has_connection = true;
++                }
++            }
++            if (!has_connection) {
+                 (void)printf("Port %d: Not connected\n", port_idx);
+-                continue;
+             }
+-            (void)printf("Port %d: Connected to Node %d, IODie %d, Port %d\n", port_idx,
+-                         cur_node_info->links[iodie_idx][port_idx].peer_node,
+-                         cur_node_info->links[iodie_idx][port_idx].peer_iodie,
+-                         cur_node_info->links[iodie_idx][port_idx].peer_port);
+         }
+         (void)printf("\n");
+     }
+diff --git a/src/urma/tools/urma_admin/admin_parameters.h b/src/urma/tools/urma_admin/admin_parameters.h
+index 5685fae1..bfad9156 100644
+--- a/src/urma/tools/urma_admin/admin_parameters.h
++++ b/src/urma/tools/urma_admin/admin_parameters.h
+@@ -233,18 +233,12 @@ typedef struct tool_topo_agg_dev {
+     tool_topo_ue_t ues[IODIE_NUM];
+ } tool_topo_agg_dev_t;
+ 
+-typedef struct tool_topo_link {
+-    uint32_t peer_node;
+-    uint32_t peer_iodie;
+-    uint32_t peer_port;
+-} tool_topo_link_t;
+-
+ typedef struct tool_topo_info {
+     uint32_t type;
+     uint32_t super_node_id;
+     uint32_t node_id;
+     uint32_t is_current;
+-    tool_topo_link_t links[IODIE_NUM][PORT_NUM];
++    bool links[IODIE_NUM * PORT_NUM][IODIE_NUM * PORT_NUM];
+     tool_topo_agg_dev_t agg_devs[DEV_NUM];
+ } tool_topo_info_t;
+ 
+diff --git a/src/urma/tools/urma_ping/ping_run.h b/src/urma/tools/urma_ping/ping_run.h
+index 8c435a4f..314f422d 100644
+--- a/src/urma/tools/urma_ping/ping_run.h
++++ b/src/urma/tools/urma_ping/ping_run.h
+@@ -35,18 +35,12 @@ struct urma_ping_ubcore_topo_agg_dev {
+     struct urma_ping_ubcore_topo_ue ues[IODIE_NUM];
+ };
+ 
+-struct urma_ping_ubcore_topo_link {
+-    uint32_t peer_node;  // node id
+-    uint32_t peer_iodie; // iodie idx
+-    uint32_t peer_port;  // port idx, UINT32_MAX indicates no connection
+-};
+-
+ struct urma_ping_ubcore_topo_node {
+     uint32_t type;
+     uint32_t super_node_id;
+     uint32_t node_id;
+     uint32_t is_current;
+-    struct urma_ping_ubcore_topo_link links[IODIE_NUM][PORT_NUM];
++    bool links[IODIE_NUM * PORT_NUM][IODIE_NUM * PORT_NUM];
+     struct urma_ping_ubcore_topo_agg_dev agg_devs[DEV_NUM];
+ };
+ 
+-- 
+2.43.0
+

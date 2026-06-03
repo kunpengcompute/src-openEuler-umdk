@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B089
+    %define rpm_release B090
 %endif
 
 Name          : umdk
@@ -275,6 +275,25 @@ Patch0194: 0194-umdk-urma-allow-disabling-of-msn-deduplication.patch
 Patch0195: 0195-umdk-urma-add-rate-limit-log-function-doc.patch
 Patch0196: 0196-umdk-urma-move-msn-to-the-end-of-imm-data.patch
 Patch0197: 0197-umdk-urpc-fix-tp-bugs.patch
+Patch0198: 0198-umdk-urma-format-urma_perftest.patch
+Patch0199: 0199-umdk-urma-urma_perftest-add-bond-mode-and-level-options.patch
+Patch0200: 0200-umdk-urma-set-jetty_id-as-zero-in-jetty_cfg-when-create-jetty.patch
+Patch0201: 0201-umdk-urma-fix-import_jetty-trans_mode-check.patch
+Patch0202: 0202-umdk-urma-fix-bazel-compile-problem-workspace.patch
+Patch0203: 0203-umdk-urma-disable-share-tp.patch
+Patch0204: 0204-umdk-urma-fix-log-format.patch
+Patch0205: 0205-umdk-urma-fix-core-dump-in-health-check.patch
+Patch0206: 0206-umdk-urma-fix-jetty_grp-count-boundary-check-and-pass-opt_mask-to-urma_check_opt_valid.patch
+Patch0207: 0207-umdk-urma-topology-supports-parallel-planes.patch
+Patch0208: 0208-umdk-urma-urma_perftest-support-verbose-log-level.patch
+Patch0209: 0209-umdk-urma-build-main_primary_eid-table-entries-from-topology.patch
+Patch0210: 0210-umdk-urma-fit-move-of-capability-of-querying-physical-devices-in-kernel.patch
+Patch0211: 0211-umdk-urma-fix-main_ue_eid-flush-ioctl-argument.patch
+Patch0212: 0212-umdk-urma-fix-perftest-prioriy-check-in-unsupported-envs.patch
+Patch0213: 0213-umdk-urma-switch-urma_perftest-prints-to-log-macros.patch
+Patch0214: 0214-umdk-urma-add-dfx-log-for-bondp-implement.patch
+Patch0215: 0215-umdk-urma-add-main_ue_eid-admin-command-support.patch
+Patch0216: 0216-umdk-urma-refactored-the-urma-bazel-build-to-emit-layered-shared-libraries.patch
 
 %description
 A new system interconnect architecture
@@ -705,6 +724,8 @@ fi
 %endif
 
 %changelog
+* Wed Jun 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B090
+- urma: sync SP3 patches (!2144-!2229), perftest/log/bazel/topo/main_ue_eid
 * Sat May 30 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B089
 - urpc: fix tp bugs
 * Fri May 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B088
