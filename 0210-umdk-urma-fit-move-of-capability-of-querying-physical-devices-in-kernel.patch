@@ -1,0 +1,594 @@
+From e9bfbcf975ea96b1d86ecff3d824c054966a6cb7 Mon Sep 17 00:00:00 2001
+From: chenchongyu2026 <chenchongyu2@huawei.com>
+Date: Wed, 13 May 2026 14:32:30 +0800
+Subject: [PATCH] urma: fit move of capability of querying physical devices in kernel
+ kernel
+
+(cherry picked from commit d3ef427b984a67289ea64c1c8b3bca3048b94643)
+---
+ src/urma/lib/urma/core/include/urma_cmd.h  |   5 +-
+ src/urma/tools/urma_admin/admin_cmd.h      |  15 ++-
+ src/urma/tools/urma_admin/admin_cmd_dev.c  |  20 ++--
+ src/urma/tools/urma_admin/admin_cmd_eid.c  |  16 +--
+ src/urma/tools/urma_admin/admin_cmd_res.c  |  12 +--
+ src/urma/tools/urma_admin/admin_cmd_show.c |  10 +-
+ src/urma/tools/urma_admin/admin_netlink.c  | 120 +++++++++++++++------
+ src/urma/tools/urma_admin/admin_netlink.h  |  16 +--
+ 8 files changed, 142 insertions(+), 72 deletions(-)
+
+diff --git a/src/urma/lib/urma/core/include/urma_cmd.h b/src/urma/lib/urma/core/include/urma_cmd.h
+index e14cbe9a..960094c6 100644
+--- a/src/urma/lib/urma/core/include/urma_cmd.h
++++ b/src/urma/lib/urma/core/include/urma_cmd.h
+@@ -43,10 +43,13 @@ typedef enum urma_core_cmd {
+     URMA_CORE_UNEXPOSE_DEV_NS,
+     URMA_CORE_SET_DEV_EID_NS,
+     URMA_CORE_GET_TOPO_INFO,
+-    URMA_CORE_GET_TOPO_BONDING_DEV = 33,
+     URMA_CORE_SET_SL,
+ } urma_core_cmd_t;
+ 
++typedef enum uram_ubagg_cmd {
++    UBAGG_NL_GET_PHYSICAL_DEVICE = 4,
++} uram_ubagg_cmd_t;
++
+ /* only for uburma device ioctl */
+ #define URMA_CMD_MAGIC 'U'
+ #define URMA_CMD       _IOWR(URMA_CMD_MAGIC, 1, urma_cmd_hdr_t)
+diff --git a/src/urma/tools/urma_admin/admin_cmd.h b/src/urma/tools/urma_admin/admin_cmd.h
+index a23f5c1e..f02c207b 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.h
++++ b/src/urma/tools/urma_admin/admin_cmd.h
+@@ -116,7 +116,14 @@ typedef struct admin_core_cmd_sl_info {
+ } admin_core_cmd_sl_info_t;
+ 
+ #define UBCORE_GENL_FAMILY_NAME    "UBCORE_GENL"
+-#define UBCORE_GENL_FAMILY_VERSION 1
++#define UBAGG_GENL_FAMILY_NAME     "UBAGG_GENL"
++#define GENL_FAMILY_VERSION  1
++
++typedef enum genl_family_enum {
++    UBCORE_GENL,
++    UBAGG_GENL,
++    GENL_FAMILY_COUNT
++} genl_family_t;
+ 
+ enum {
+     UBCORE_ATTR_UNSPEC,
+@@ -130,6 +137,12 @@ enum {
+     UBCORE_ATTR_AFTER_LAST
+ };
+ 
++typedef enum ubagg_genl_attr {
++    UBAGG_ATTR_UNSPEC,
++    UBAGG_HDR_ARGS_ADDR = 4,
++    UBAGG_ATTR_AFTER_LAST
++} ubagg_genl_attr_t;
++
+ enum {
+     UBCORE_RES_TPG_TP_CNT,
+     UBCORE_RES_TPG_DSCP,
+diff --git a/src/urma/tools/urma_admin/admin_cmd_dev.c b/src/urma/tools/urma_admin/admin_cmd_dev.c
+index ce33dca2..cc605329 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_dev.c
++++ b/src/urma/tools/urma_admin/admin_cmd_dev.c
+@@ -18,55 +18,55 @@
+ 
+ static int admin_nl_set_dev_sharing(bool enabled)
+ {
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_NS_MODE, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_NS_MODE, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+ 
+     admin_nl_put_u8(msg, UBCORE_ATTR_NS_MODE, (uint8_t)enabled);
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+ 
+ static int admin_nl_set_dev_ns(const char *dev_name, int ns_fd)
+ {
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_NS, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_NS, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+ 
+     admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
+     admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, (uint32_t)ns_fd);
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+ 
+ int admin_nl_expose_dev_ns(const char *dev_name, int ns_fd)
+ {
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_EXPOSE_DEV_NS, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_EXPOSE_DEV_NS, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+ 
+     admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
+     admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, (uint32_t)ns_fd);
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+ 
+ int admin_nl_unexpose_dev_ns(const char *dev_name, int ns_fd)
+ {
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_UNEXPOSE_DEV_NS, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_UNEXPOSE_DEV_NS, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+ 
+     admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
+     admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, (uint32_t)ns_fd);
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+@@ -127,14 +127,14 @@ static int cmd_dev_set_sl(admin_config_t *cfg)
+     arg.in.SL = cfg->SL;
+     (void)memcpy(arg.in.dev_name, cfg->dev_name, URMA_ADMIN_MAX_DEV_NAME);
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_SL, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_SL, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+ 
+     admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_core_cmd_sl_info_t));
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+-    ret = admin_nl_send_recv_msg_default(msg);
++    ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     if (ret < 0) {
+         (void)printf("set_sl fail, please check input, ret:%d, errno:%d.\n", ret, errno);
+diff --git a/src/urma/tools/urma_admin/admin_cmd_eid.c b/src/urma/tools/urma_admin/admin_cmd_eid.c
+index 9198cd0d..637d91d9 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_eid.c
++++ b/src/urma/tools/urma_admin/admin_cmd_eid.c
+@@ -22,7 +22,7 @@ static int admin_nl_set_eid_mode(const char *dev_name, bool is_dynamic)
+     (void)memcpy(arg.in.dev_name, dev_name, URMA_ADMIN_MAX_DEV_NAME);
+     arg.in.eid_mode = is_dynamic;
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_SET_EID_MODE, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_SET_EID_MODE, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -30,14 +30,14 @@ static int admin_nl_set_eid_mode(const char *dev_name, bool is_dynamic)
+     admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_core_cmd_set_eid_mode_t));
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+ 
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+ 
+ int admin_nl_set_eid_ns(const char *dev_name, uint32_t eid_idx, int ns_fd)
+ {
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_EID_NS, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_EID_NS, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -49,7 +49,7 @@ int admin_nl_set_eid_ns(const char *dev_name, uint32_t eid_idx, int ns_fd)
+     admin_nl_put_u16(msg, UBCORE_ATTR_EID_IDX, (uint16_t)eid_idx);
+     admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, (uint32_t)ns_fd);
+ 
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+@@ -88,7 +88,7 @@ static int nl_add_eid(const admin_config_t *cfg)
+         return -1;
+     }
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_ADD_EID, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_ADD_EID, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -97,7 +97,7 @@ static int nl_add_eid(const admin_config_t *cfg)
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+ 
+     int cb_ret = 0;
+-    int ret = admin_nl_send_recv_msg(msg, cb_update_eid_handler, &cb_ret);
++    int ret = admin_nl_send_recv_msg(msg, cb_update_eid_handler, &cb_ret, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return (ret < 0) ? ret : cb_ret;
+ }
+@@ -109,7 +109,7 @@ static int nl_del_eid(const admin_config_t *cfg)
+     arg.in.eid_index = cfg->idx;
+     arg.in.ns_fd = -1;
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_DEL_EID, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_DEL_EID, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -118,7 +118,7 @@ static int nl_del_eid(const admin_config_t *cfg)
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+ 
+     int cb_ret = 0;
+-    int ret = admin_nl_send_recv_msg(msg, cb_update_eid_handler, &cb_ret);
++    int ret = admin_nl_send_recv_msg(msg, cb_update_eid_handler, &cb_ret, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return (ret < 0) ? ret : cb_ret;
+ }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_res.c b/src/urma/tools/urma_admin/admin_cmd_res.c
+index 308461cf..c315f0c7 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_res.c
++++ b/src/urma/tools/urma_admin/admin_cmd_res.c
+@@ -45,7 +45,7 @@ int admin_cmd_show_stats_legacy(admin_config_t *cfg)
+     arg.in.key = cfg->key.key;
+     arg.in.type = (uint32_t)cfg->key.type;
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_QUERY_STATS, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_QUERY_STATS, 0, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -53,7 +53,7 @@ int admin_cmd_show_stats_legacy(admin_config_t *cfg)
+     admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_cmd_query_stats_t));
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+ 
+-    int ret = admin_nl_send_recv_msg_default(msg);
++    int ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+ 
+     if (ret == 0) {
+@@ -525,7 +525,7 @@ int admin_cmd_show_res_legacy(admin_config_t *cfg)
+     }
+     (void)memcpy(arg.in.dev_name, cfg->dev_name, strlen(cfg->dev_name));
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_QUERY_RES, NLM_F_DUMP);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_QUERY_RES, NLM_F_DUMP, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -533,7 +533,7 @@ int admin_cmd_show_res_legacy(admin_config_t *cfg)
+     admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_cmd_query_res_t));
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+ 
+-    int ret = admin_nl_send_recv_msg(msg, cb_handler, cfg);
++    int ret = admin_nl_send_recv_msg(msg, cb_handler, cfg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+@@ -557,7 +557,7 @@ int admin_cmd_list_res_legacy(admin_config_t *cfg)
+     arg.in.key_cnt = cfg->key.key_cnt;
+     (void)memcpy(arg.in.dev_name, cfg->dev_name, strlen(cfg->dev_name));
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_QUERY_RES, NLM_F_DUMP);
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_QUERY_RES, NLM_F_DUMP, UBCORE_GENL);
+     if (msg == NULL) {
+         return -ENOMEM;
+     }
+@@ -565,7 +565,7 @@ int admin_cmd_list_res_legacy(admin_config_t *cfg)
+     admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_cmd_query_res_t));
+     admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)&arg);
+ 
+-    int ret = admin_nl_send_recv_msg(msg, cb_handler_list, cfg);
++    int ret = admin_nl_send_recv_msg(msg, cb_handler_list, cfg, UBCORE_GENL);
+     admin_nl_free_msg(msg);
+     return ret;
+ }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index 48354dd1..384b798f 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -1130,7 +1130,7 @@ int admin_cmd_get_topo_info(tool_topo_map_t *topo_map)
+         }
+         arg->in.node_idx = i;
+ 
+-        struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_GET_TOPO_INFO, 0);
++        struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_GET_TOPO_INFO, 0, UBCORE_GENL);
+         if (msg == NULL) {
+             ret = -ENOMEM;
+             goto free_topo;
+@@ -1138,7 +1138,7 @@ int admin_cmd_get_topo_info(tool_topo_map_t *topo_map)
+ 
+         admin_nl_put_u32(msg, UBCORE_HDR_ARGS_LEN, (uint32_t)sizeof(admin_core_cmd_topo_info_t));
+         admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)arg);
+-        ret = admin_nl_send_recv_msg_default(msg);
++        ret = admin_nl_send_recv_msg_default(msg, UBCORE_GENL);
+         admin_nl_free_msg(msg);
+         if (ret < 0) {
+             goto free_topo;
+@@ -1171,13 +1171,13 @@ int admin_cmd_get_topo_bonding_dev_by_eid(const urma_eid_t *agg_eid,
+     }
+     arg->in.agg_eid = *agg_eid;
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_GET_TOPO_BONDING_DEV, 0);
++    struct nl_msg *msg = admin_nl_alloc_msg(UBAGG_NL_GET_PHYSICAL_DEVICE, 0, UBAGG_GENL);
+     if (msg == NULL) {
+         free(arg);
+         return -ENOMEM;
+     }
+-    admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)arg);
+-    ret = admin_nl_send_recv_msg_default_silent_errno(msg, -NLE_OBJ_NOTFOUND);
++    admin_nl_put_u64(msg, UBAGG_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)arg);
++    ret = admin_nl_send_recv_msg_default_silent_errno(msg, -NLE_OBJ_NOTFOUND, UBAGG_GENL);
+     if (ret == 0) {
+         memcpy(out, &arg->out.bonding_dev, sizeof(admin_urma_topo_bonding_dev_t));
+     }
+diff --git a/src/urma/tools/urma_admin/admin_netlink.c b/src/urma/tools/urma_admin/admin_netlink.c
+index a4496c1b..a37d6e43 100644
+--- a/src/urma/tools/urma_admin/admin_netlink.c
++++ b/src/urma/tools/urma_admin/admin_netlink.c
+@@ -26,24 +26,63 @@
+ 
+ static struct nl_sock *sock = NULL;
+ static int genl_id = 0;
+-static int init_sock_and_genl_id(void);
+ 
+-static int admin_nl_recv_msg_inner(int (*cb)(struct nl_msg *msg, void *arg), void *arg, int silent_errno)
++static struct nl_sock *sock_ubagg = NULL;
++static int genl_id_ubagg = 0;
++
++typedef struct genl_info {
++    genl_family_t genl_family;
++    struct nl_sock **sock_ptr;
++    int *genl_id_ptr;
++    const char *family_name;
++} genl_info_t;
++
++static const genl_info_t genl_info_table[GENL_FAMILY_COUNT] = {
++    { UBCORE_GENL, &sock,       &genl_id,       UBCORE_GENL_FAMILY_NAME },
++    { UBAGG_GENL,  &sock_ubagg, &genl_id_ubagg, UBAGG_GENL_FAMILY_NAME  },
++};
++
++static struct nl_sock *get_nl_sock_by_family(genl_family_t family)
++{
++    if (family >= GENL_FAMILY_COUNT || family < 0) {
++        return NULL;
++    }
++    return *genl_info_table[family].sock_ptr;
++}
++
++static int get_genl_id_by_family(genl_family_t family)
++{
++    if (family >= GENL_FAMILY_COUNT || family < 0) {
++        return -1;
++    }
++    return *genl_info_table[family].genl_id_ptr;
++}
++
++static int init_sock_and_genl_id(genl_family_t family);
++
++static int admin_nl_recv_msg_inner(int (*cb)(struct nl_msg *msg, void *arg),
++    void *arg, int silent_errno, genl_family_t family)
+ {
+     int ret;
+ 
+-    ret = init_sock_and_genl_id();
++    ret = init_sock_and_genl_id(family);
+     if (ret != 0) {
+         return ret;
+     }
+ 
+-    ret = nl_socket_modify_cb(sock, NL_CB_MSG_IN, NL_CB_CUSTOM, cb, arg);
++    struct nl_sock *target_sock = get_nl_sock_by_family(family);
++    if (target_sock == NULL) {
++        printf("Invalid sock\n");
++        return -EINVAL;
++    }
++
++    ret = nl_socket_modify_cb(target_sock, NL_CB_MSG_IN, NL_CB_CUSTOM, cb, arg);
+     if (ret < 0) {
+         printf("Failed to set netlink callback, ret:%d\n", ret);
+         return ret;
+     }
+ 
+-    ret = nl_recvmsgs_default(sock);
++    ret = nl_recvmsgs_default(target_sock);
+     if (ret < 0) {
+         if (!(silent_errno != 0 && ret == silent_errno)) {
+             printf("Failed to recv netlink msg, ret:%d\n", ret);
+@@ -51,7 +90,7 @@ static int admin_nl_recv_msg_inner(int (*cb)(struct nl_msg *msg, void *arg), voi
+         return ret;
+     }
+ 
+-    ret = nl_socket_modify_cb(sock, NL_CB_MSG_IN, NL_CB_CUSTOM, NULL, arg);
++    ret = nl_socket_modify_cb(target_sock, NL_CB_MSG_IN, NL_CB_CUSTOM, NULL, arg);
+     if (ret < 0) {
+         printf("Failed to reset netlink callback, ret:%d\n", ret);
+         return ret;
+@@ -60,9 +99,10 @@ static int admin_nl_recv_msg_inner(int (*cb)(struct nl_msg *msg, void *arg), voi
+     return 0;
+ }
+ 
+-static int init_sock_and_genl_id(void)
++static int init_sock_and_genl_id(genl_family_t family)
+ {
+-    if (sock != NULL) {
++    const genl_info_t *info = &genl_info_table[family];
++    if (*info->sock_ptr != NULL) {
+         return 0;
+     }
+ 
+@@ -72,21 +112,19 @@ static int init_sock_and_genl_id(void)
+         return -ENOMEM;
+     }
+ 
+-    int ret;
+-
+-    ret = genl_connect(new_sock);
++    int ret = genl_connect(new_sock);
+     if (ret < 0) {
+-        printf("Failed to connect netlink socket, ret:%d\n", ret);
++        printf("Failed to connect netlink socket for \"%s\", ret=%d\n", info->family_name, ret);
+         goto free_sock;
+     }
+ 
+-    ret = genl_ctrl_resolve(new_sock, UBCORE_GENL_FAMILY_NAME);
++    ret = genl_ctrl_resolve(new_sock, info->family_name);
+     if (ret < 0) {
+-        printf("Resolving of \"%s\" failed, ret:%d\n", UBCORE_GENL_FAMILY_NAME, ret);
++        printf("Resolving of \"%s\" failed, ret=%d\n", info->family_name, ret);
+         goto close_sock;
+     }
+-    genl_id = ret;
+-    sock = new_sock;
++    *info->genl_id_ptr = ret;
++    *info->sock_ptr = new_sock;
+     return 0;
+ 
+ close_sock:
+@@ -96,16 +134,22 @@ free_sock:
+     return ret;
+ }
+ 
+-int admin_nl_send_msg(struct nl_msg *msg)
++int admin_nl_send_msg(struct nl_msg *msg, genl_family_t family)
+ {
+     int ret;
+ 
+-    ret = init_sock_and_genl_id();
++    ret = init_sock_and_genl_id(family);
+     if (ret != 0) {
+         return ret;
+     }
+ 
+-    ret = nl_send_auto(sock, msg);
++    struct nl_sock *target_sock = get_nl_sock_by_family(family);
++    if (target_sock == NULL) {
++        printf("Invalid sock\n");
++        return -EINVAL;
++    }
++
++    ret = nl_send_auto(target_sock, msg);
+     if (ret < 0) {
+         printf("Failed to send netlink msg, ret:%d\n", ret);
+         return ret;
+@@ -113,21 +157,22 @@ int admin_nl_send_msg(struct nl_msg *msg)
+     return 0;
+ }
+ 
+-int admin_nl_recv_msg(int (*cb)(struct nl_msg *msg, void *arg), void *arg)
++int admin_nl_recv_msg(int (*cb)(struct nl_msg *msg, void *arg), void *arg, genl_family_t family)
+ {
+-    return admin_nl_recv_msg_inner(cb, arg, 0);
++    return admin_nl_recv_msg_inner(cb, arg, 0, family);
+ }
+ 
+-int admin_nl_send_recv_msg(struct nl_msg *msg, int (*cb)(struct nl_msg *msg, void *arg), void *arg)
++int admin_nl_send_recv_msg(struct nl_msg *msg, int (*cb)(struct nl_msg *msg, void *arg),
++    void *arg, genl_family_t family)
+ {
+     int ret;
+ 
+-    ret = admin_nl_send_msg(msg);
++    ret = admin_nl_send_msg(msg, family);
+     if (ret != 0) {
+         return ret;
+     }
+ 
+-    ret = admin_nl_recv_msg(cb, arg);
++    ret = admin_nl_recv_msg(cb, arg, family);
+     if (ret != 0) {
+         return ret;
+     }
+@@ -142,32 +187,33 @@ static int nl_default_cb(struct nl_msg *msg, void *arg)
+     return NL_OK;
+ }
+ 
+-int admin_nl_send_recv_msg_default(struct nl_msg *msg)
++int admin_nl_send_recv_msg_default(struct nl_msg *msg, genl_family_t family)
+ {
+-    return admin_nl_send_recv_msg(msg, nl_default_cb, NULL);
++    return admin_nl_send_recv_msg(msg, nl_default_cb, NULL, family);
+ }
+ 
+-int admin_nl_send_recv_msg_default_silent_errno(struct nl_msg *msg, int silent_errno)
++int admin_nl_send_recv_msg_default_silent_errno(struct nl_msg *msg,
++    int silent_errno, genl_family_t family)
+ {
+     int ret;
+ 
+-    ret = admin_nl_send_msg(msg);
++    ret = admin_nl_send_msg(msg, family);
+     if (ret != 0) {
+         return ret;
+     }
+-    return admin_nl_recv_msg_inner(nl_default_cb, NULL, silent_errno);
++    return admin_nl_recv_msg_inner(nl_default_cb, NULL, silent_errno, family);
+ }
+ 
+-int admin_nl_send_recv_msg_default_silent_notfound(struct nl_msg *msg)
++int admin_nl_send_recv_msg_default_silent_notfound(struct nl_msg *msg, genl_family_t family)
+ {
+-    return admin_nl_send_recv_msg_default_silent_errno(msg, -NLE_OBJ_NOTFOUND);
++    return admin_nl_send_recv_msg_default_silent_errno(msg, -NLE_OBJ_NOTFOUND, family);
+ }
+ 
+-struct nl_msg *admin_nl_alloc_msg(uint8_t cmd, int flags)
++struct nl_msg *admin_nl_alloc_msg(uint8_t cmd, int flags, genl_family_t family)
+ {
+     int ret;
+ 
+-    ret = init_sock_and_genl_id();
++    ret = init_sock_and_genl_id(family);
+     if (ret != 0) {
+         return NULL;
+     }
+@@ -178,7 +224,13 @@ struct nl_msg *admin_nl_alloc_msg(uint8_t cmd, int flags)
+         return NULL;
+     }
+ 
+-    void *msg_hdr = genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, genl_id, 0, flags, cmd, UBCORE_GENL_FAMILY_VERSION);
++    int target_genl_id = get_genl_id_by_family(family);
++    if (target_genl_id <= 0) {
++        printf("Invalid genl_id\n");
++        return NULL;
++    }
++
++    void *msg_hdr = genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, target_genl_id, 0, flags, cmd, GENL_FAMILY_VERSION);
+     if (msg_hdr == NULL) {
+         printf("Failed to put genl header\n");
+         nlmsg_free(msg);
+diff --git a/src/urma/tools/urma_admin/admin_netlink.h b/src/urma/tools/urma_admin/admin_netlink.h
+index 2a520cd0..0661a10c 100644
+--- a/src/urma/tools/urma_admin/admin_netlink.h
++++ b/src/urma/tools/urma_admin/admin_netlink.h
+@@ -12,15 +12,17 @@
+ #define ADMIN_NETLINK
+ 
+ #include <netlink/msg.h>
++#include "admin_cmd.h"
+ 
+-int admin_nl_send_msg(struct nl_msg *msg);
+-int admin_nl_recv_msg(int (*cb)(struct nl_msg *msg, void *arg), void *arg);
+-int admin_nl_send_recv_msg(struct nl_msg *msg, int (*cb)(struct nl_msg *msg, void *arg), void *arg);
+-int admin_nl_send_recv_msg_default(struct nl_msg *msg);
+-int admin_nl_send_recv_msg_default_silent_errno(struct nl_msg *msg, int silent_errno);
+-int admin_nl_send_recv_msg_default_silent_notfound(struct nl_msg *msg);
++int admin_nl_send_msg(struct nl_msg *msg, genl_family_t family);
++int admin_nl_recv_msg(int (*cb)(struct nl_msg *msg, void *arg), void *arg, genl_family_t family);
++int admin_nl_send_recv_msg(struct nl_msg *msg, int (*cb)(struct nl_msg *msg, void *arg),
++                           void *arg, genl_family_t family);
++int admin_nl_send_recv_msg_default(struct nl_msg *msg, genl_family_t family);
++int admin_nl_send_recv_msg_default_silent_errno(struct nl_msg *msg, int silent_errno, genl_family_t family);
++int admin_nl_send_recv_msg_default_silent_notfound(struct nl_msg *msg, genl_family_t family);
+ 
+-struct nl_msg *admin_nl_alloc_msg(uint8_t cmd, int flags);
++struct nl_msg *admin_nl_alloc_msg(uint8_t cmd, int flags, genl_family_t family);
+ void admin_nl_free_msg(struct nl_msg *msg);
+ 
+ static inline int admin_nl_put_string(struct nl_msg *msg, int attr, const char *str)
+-- 
+2.43.0
+

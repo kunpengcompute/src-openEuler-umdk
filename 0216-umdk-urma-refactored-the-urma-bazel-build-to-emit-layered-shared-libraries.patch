@@ -1,0 +1,355 @@
+From 5bd3e4c5d2cd3ea6d9fd23b606e360cf11243d56 Mon Sep 17 00:00:00 2001
+From: duelu <luyizhou1@huawei.com>
+Date: Wed, 3 Jun 2026 10:19:04 +0800
+Subject: [PATCH] urma: Refactored the URMA Bazel build to emit layered shared libraries.
+ libraries.
+
+(cherry picked from commit 04d1d5ec557d0139a83ee4764081e20bdc945091)
+---
+ src/urma/BUILD.bazel           | 106 +++++++++++++++++++-------
+ src/urma/bazel/BUILD.bazel     |   1 +
+ src/urma/bazel/urma_shared.bzl | 135 +++++++++++++++++++++++++++++++++
+ 3 files changed, 213 insertions(+), 29 deletions(-)
+ create mode 100644 src/urma/bazel/BUILD.bazel
+ create mode 100644 src/urma/bazel/urma_shared.bzl
+
+diff --git a/src/urma/BUILD.bazel b/src/urma/BUILD.bazel
+index 571c9185..779092ce 100644
+--- a/src/urma/BUILD.bazel
++++ b/src/urma/BUILD.bazel
+@@ -1,5 +1,8 @@
+ package(default_visibility = ["//visibility:public"])
+ 
++load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
++load("//bazel:urma_shared.bzl", "urma_dynamic_linkopts", "urma_linklib_inputs", "urma_shared_library", "urma_shared_library_static_dep")
++
+ config_setting(
+     name = "perf_cycle_enabled",
+     values = {"define": "perf_cycle=true"},
+@@ -18,19 +21,41 @@ URMA_COMMON_SRCS = glob(
+     "//conditions:default": [],
+ })
+ 
++URMA_COMMON_LINKOPTS = ["-ldl", "-lrt"] + select({
++    ":perf_cycle_enabled": ["-lm"],
++    "//conditions:default": [],
++})
++
+ cc_library(
++    name = "urma_common_headers",
++    hdrs = glob(["common/include/**/*.h"]),
++    includes = ["common/include"],
++)
++
++urma_shared_library(
+     name = "urma_common",
+     srcs = URMA_COMMON_SRCS,
+     hdrs = glob(["common/include/**/*.h"]),
+     includes = ["common/include"],
+     copts = ["-std=gnu99"],
+-    linkopts = ["-ldl", "-lrt"] + select({
+-        ":perf_cycle_enabled": ["-lm"],
+-        "//conditions:default": [],
+-    }),
++    linkopts = URMA_COMMON_LINKOPTS,
+ )
+ 
+ cc_library(
++    name = "urma_headers",
++    hdrs = glob([
++        "lib/urma/core/include/**/*.h",
++        "lib/urma/core/*.h",
++    ]),
++    includes = [
++        "common/include",
++        "lib/urma/core",
++        "lib/urma/core/include",
++    ],
++    deps = [":urma_common_headers"],
++)
++
++urma_shared_library(
+     name = "urma",
+     srcs = glob(["lib/urma/core/*.c"]),
+     hdrs = glob([
+@@ -43,11 +68,12 @@ cc_library(
+         "lib/urma/core/include",
+     ],
+     copts = ["-std=gnu99"],
+-    deps = [":urma_common"],
++    compile_deps = [":urma_common_headers"],
++    dynamic_lib_names = ["urma_common"],
+     linkopts = ["-ldl", "-lrt"],
+ )
+ 
+-cc_library(
++urma_shared_library(
+     name = "urma_ubagg",
+     srcs = glob([
+         "lib/urma/bond/*.c",
+@@ -64,14 +90,15 @@ cc_library(
+         "-std=gnu99",
+         "-I/usr/include/libnl3",
+     ],
+-    deps = [
+-        ":urma",
+-        ":urma_common",
++    compile_deps = [
++        ":urma_common_headers",
++        ":urma_headers",
+     ],
++    dynamic_lib_names = ["urma"],
+     linkopts = ["-lnl-genl-3", "-lnl-3"],
+ )
+ 
+-cc_library(
++urma_shared_library_static_dep(
+     name = "tpsa",
+     srcs = glob(["lib/uvs/core/*.c"]),
+     hdrs = glob([
+@@ -88,16 +115,15 @@ cc_library(
+         "-std=gnu99",
+         "-I/usr/include/libnl3",
+     ],
+-    deps = [
+-        ":urma",
+-        ":urma_common",
++    static_deps = [
++        ":urma_common_internal",
++        ":urma_headers",
+     ],
++    # No -lssl/-lcrypto: avoid DT_NEEDED on libssl.so.1.1 (OpenSSL 3-only targets).
+     linkopts = [
+         "-lnl-genl-3",
+         "-lnl-3",
+         "-lz",
+-        "-lssl",
+-        "-lcrypto",
+     ],
+ )
+ 
+@@ -111,8 +137,10 @@ alias(
+     actual = ":tpsa",
+ )
+ 
++_UMMU_LINKLIB_DIR = "-L$(GENDIR)/external/libummu/linklib"
++
+ cc_library(
+-    name = "urma-udma",
++    name = "urma_udma_internal",
+     srcs = select({
+         ":build_udma_enabled": glob(["hw/udma/*.c"]),
+         "//conditions:default": [],
+@@ -130,28 +158,48 @@ cc_library(
+         "lib/urma/core/include",
+     ],
+     copts = ["-std=gnu99"],
+-    deps = [
+-        ":urma",
+-        ":urma_common",
+-    ] + select({
+-        ":build_udma_enabled": ["@libummu//:ummu_api"],
+-        "//conditions:default": [],
++    deps = select({
++        ":build_udma_enabled": [
++            ":urma_common_headers",
++            ":urma_headers",
++            "@libummu//:ummu_api",
++        ],
++        "//conditions:default": [
++            ":urma_common_headers",
++            ":urma_headers",
++        ],
+     }),
++    linkstatic = True,
++    alwayslink = True,
++)
++
++cc_binary(
++    name = "urma-udma",
++    linkshared = True,
++    deps = [":urma_udma_internal"],
+     additional_linker_inputs = select({
+-        ":build_udma_enabled": ["@libummu//:ummu_linklib"],
++        ":build_udma_enabled": urma_linklib_inputs(["urma", "urma_common"]) + [
++            "@libummu//:ummu_linklib",
++        ],
+         "//conditions:default": [],
+     }),
+     linkopts = select({
+-        ":build_udma_enabled": [
+-            "-Wl,--no-as-needed",
+-            "-L$(GENDIR)/external/libummu/linklib",
+-            "-lummu",
+-            "-Wl,--as-needed",
+-        ],
++        ":build_udma_enabled": urma_dynamic_linkopts(
++            ["urma", "urma_common"],
++            extra_dirs = [_UMMU_LINKLIB_DIR],
++            extra_libs = ["-lummu"],
++        ),
+         "//conditions:default": [],
+     }),
+ )
+ 
++genrule(
++    name = "urma-udma_linklib",
++    srcs = [":urma-udma"],
++    outs = ["linklib/liburma-udma.so"],
++    cmd = "mkdir -p $(@D) && cp $(location :urma-udma) $@",
++)
++
+ alias(
+     name = "hw_udma",
+     actual = ":urma-udma",
+diff --git a/src/urma/bazel/BUILD.bazel b/src/urma/bazel/BUILD.bazel
+new file mode 100644
+index 00000000..03bdae4e
+--- /dev/null
++++ b/src/urma/bazel/BUILD.bazel
+@@ -0,0 +1 @@
++# Bazel package for Starlark helpers (no CMake).
+diff --git a/src/urma/bazel/urma_shared.bzl b/src/urma/bazel/urma_shared.bzl
+new file mode 100644
+index 00000000..afacbd00
+--- /dev/null
++++ b/src/urma/bazel/urma_shared.bzl
+@@ -0,0 +1,135 @@
++"""Helpers to build URMA shared libraries with correct DT_NEEDED (no CMake)."""
++
++load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
++
++_LINK_NO_AS_NEEDED = ["-Wl,--no-as-needed"]
++_LINK_AS_NEEDED = ["-Wl,--as-needed"]
++_URMA_LINKLIB_DIR = "-L$(GENDIR)/linklib"
++
++def urma_dynamic_linkopts(lib_names, extra_dirs = None, extra_libs = None):
++    """Build linkopts that record peer .so files and system libs in DT_NEEDED.
++
++    Args:
++        lib_names: Base names without ``lib`` prefix, e.g. ``["urma_common", "urma"]``.
++        extra_dirs: Optional extra ``-L`` directories (e.g. external libummu linklib).
++        extra_libs: Extra ``-l`` flags kept inside ``--no-as-needed`` (e.g. ``-lummu``).
++    """
++    opts = _LINK_NO_AS_NEEDED
++    if lib_names:
++        opts = opts + [_URMA_LINKLIB_DIR]
++    if extra_dirs:
++        opts = opts + extra_dirs
++    for name in lib_names:
++        opts = opts + ["-l" + name]
++    if extra_libs:
++        opts = opts + extra_libs
++    return opts + _LINK_AS_NEEDED
++
++def urma_linklib_inputs(lib_names):
++    """Return additional_linker_inputs labels for urma_dynamic_linkopts."""
++    return [":" + name + "_linklib" for name in lib_names]
++
++def urma_shared_library(
++        name,
++        srcs,
++        hdrs = [],
++        includes = [],
++        copts = [],
++        cxxopts = [],
++        compile_deps = [],
++        linkopts = [],
++        dynamic_lib_names = [],
++        extra_link_dirs = None,
++        visibility = None):
++    """Emit ``{name}_internal``, ``{name}`` (.so), and ``{name}_linklib``."""
++    internal = name + "_internal"
++    vis = visibility if visibility != None else ["//visibility:public"]
++
++    cc_library(
++        name = internal,
++        srcs = srcs,
++        hdrs = hdrs,
++        includes = includes,
++        copts = copts,
++        cxxopts = cxxopts,
++        deps = compile_deps,
++        linkstatic = True,
++        alwayslink = True,
++        visibility = vis,
++    )
++
++    shared_linkopts = linkopts
++    shared_inputs = []
++    if dynamic_lib_names:
++        shared_inputs = urma_linklib_inputs(dynamic_lib_names)
++        shared_linkopts = urma_dynamic_linkopts(
++            dynamic_lib_names,
++            extra_dirs = extra_link_dirs,
++            extra_libs = linkopts,
++        )
++    elif linkopts:
++        shared_linkopts = _LINK_NO_AS_NEEDED + linkopts + _LINK_AS_NEEDED
++
++    cc_binary(
++        name = name,
++        linkshared = True,
++        deps = [":" + internal],
++        additional_linker_inputs = shared_inputs,
++        linkopts = shared_linkopts,
++        visibility = vis,
++    )
++
++    native.genrule(
++        name = name + "_linklib",
++        srcs = [":" + name],
++        outs = ["linklib/lib" + name + ".so"],
++        cmd = "mkdir -p $(@D) && cp $(location :" + name + ") $@",
++        visibility = vis,
++    )
++
++def urma_shared_library_static_dep(
++        name,
++        srcs,
++        hdrs = [],
++        includes = [],
++        copts = [],
++        cxxopts = [],
++        static_deps = [],
++        linkopts = [],
++        visibility = None):
++    """Shared library that statically links ``static_deps`` (e.g. tpsa + urma_common)."""
++    internal = name + "_internal"
++    vis = visibility if visibility != None else ["//visibility:public"]
++
++    cc_library(
++        name = internal,
++        srcs = srcs,
++        hdrs = hdrs,
++        includes = includes,
++        copts = copts,
++        cxxopts = cxxopts,
++        deps = static_deps,
++        linkstatic = True,
++        alwayslink = True,
++        visibility = vis,
++    )
++
++    static_linkopts = linkopts
++    if linkopts:
++        static_linkopts = _LINK_NO_AS_NEEDED + linkopts + _LINK_AS_NEEDED
++
++    cc_binary(
++        name = name,
++        linkshared = True,
++        deps = [":" + internal],
++        linkopts = static_linkopts,
++        visibility = vis,
++    )
++
++    native.genrule(
++        name = name + "_linklib",
++        srcs = [":" + name],
++        outs = ["linklib/lib" + name + ".so"],
++        cmd = "mkdir -p $(@D) && cp $(location :" + name + ") $@",
++        visibility = vis,
++    )
+-- 
+2.43.0
+

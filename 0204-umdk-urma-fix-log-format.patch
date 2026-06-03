@@ -1,0 +1,28 @@
+From 246128498166907c10513d0681a1c2b9894f29f7 Mon Sep 17 00:00:00 2001
+From: heyu_1014 <2507175370@qq.com>
+Date: Fri, 29 May 2026 21:25:47 +0800
+Subject: [PATCH] urma: fix log format
+
+(cherry picked from commit 77b7c1f0e940f32a3bd26caf163f6950899635f5)
+---
+ src/urma/lib/urma/core/urma_log.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/urma/lib/urma/core/urma_log.c b/src/urma/lib/urma/core/urma_log.c
+index be7062b0..3df38d5d 100644
+--- a/src/urma/lib/urma/core/urma_log.c
++++ b/src/urma/lib/urma/core/urma_log.c
+@@ -270,8 +270,8 @@ static int urma_vlog_loc(const char *file, const char *function, int line, urma_
+     char newformat[MAX_LOG_LEN + 1] = {0};
+     char logmsg[MAX_LOG_LEN + 1] = {0};
+ 
+-    /* add log head info, "[URMA][liburma][thread_id=tid][thread_tag][file:function:line][format]" */
+-    ret = snprintf(newformat, MAX_LOG_LEN, "[%s][%s][thread_id=%ld][%s][%s:%s:%d][%s]",
++    /* add log head info, "[URMA][liburma][thread_id=tid][thread_tag][file:function:line]format" */
++    ret = snprintf(newformat, MAX_LOG_LEN, "[%s][%s][thread_id=%ld][%s][%s:%s:%d]%s",
+                    URMA_LOG_TAG, LIBURMA_LOG, (long)syscall(__NR_gettid), g_thread_tag, file,
+                    function, line, format);
+     if (ret <= 0 || ret >= sizeof(newformat)) {
+-- 
+2.43.0
+

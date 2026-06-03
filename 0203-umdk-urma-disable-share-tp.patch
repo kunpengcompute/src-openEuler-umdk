@@ -1,0 +1,41 @@
+From fa7a4753787b1b647d52567797258411496be7bf Mon Sep 17 00:00:00 2001
+From: heyu_1014 <2507175370@qq.com>
+Date: Fri, 29 May 2026 21:22:22 +0800
+Subject: [PATCH] urma: disable share tp
+
+(cherry picked from commit a5ecc4c2a2d7b75ed67d5d9bcde987cbf2cbd5be)
+---
+ src/urma/lib/urma/core/urma_cp_api.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/urma/lib/urma/core/urma_cp_api.c b/src/urma/lib/urma/core/urma_cp_api.c
+index b1fa77bf..a3a59ad9 100644
+--- a/src/urma/lib/urma/core/urma_cp_api.c
++++ b/src/urma/lib/urma/core/urma_cp_api.c
+@@ -1195,6 +1195,11 @@ static urma_target_jetty_t *urma_import_jfr_compat(urma_context_t *ctx, urma_rjf
+ 
+     URMA_CHECK_OP_INVALID_RETURN_POINTER(ctx, ops, import_jfr_ex);
+ 
++    if (rjfr->flag.bs.share_tp != 0) {
++        URMA_LOG_ERR("Share TP is not supported.\n");
++        return NULL;
++    }
++
+     atomic_fetch_add(&ctx->ref.atomic_cnt, 1);
+     urma_target_jetty_t *tjetty = ops->import_jfr_ex(ctx, rjfr, token_value, &active_tp_cfg);
+     if (tjetty == NULL) {
+@@ -1886,6 +1891,11 @@ static urma_target_jetty_t *urma_import_jetty_compat(urma_context_t *ctx, urma_r
+ 
+     URMA_CHECK_OP_INVALID_RETURN_POINTER(ctx, ops, import_jetty_ex);
+ 
++    if (rjetty->flag.bs.share_tp != 0) {
++        URMA_LOG_ERR("Share TP is not supported.\n");
++        return NULL;
++    }
++
+     atomic_fetch_add(&ctx->ref.atomic_cnt, 1);
+     urma_target_jetty_t *tjetty = ops->import_jetty_ex(ctx, rjetty, token_value, &active_tp_cfg);
+     if (tjetty == NULL) {
+-- 
+2.43.0
+

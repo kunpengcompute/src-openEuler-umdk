@@ -1,0 +1,29 @@
+From 246316153229d852e790c15c1d98ac8a3e45da86 Mon Sep 17 00:00:00 2001
+From: heyu_1014 <2507175370@qq.com>
+Date: Sat, 30 May 2026 10:14:15 +0800
+Subject: [PATCH] urma: fix core dump in health check
+
+(cherry picked from commit b171b440fdb2d8cfe1040ec88fa0d8475d11affc)
+---
+ src/urma/lib/urma/bond/bondp_health_check.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/urma/lib/urma/bond/bondp_health_check.c b/src/urma/lib/urma/bond/bondp_health_check.c
+index 6198567a..432b1d4b 100644
+--- a/src/urma/lib/urma/bond/bondp_health_check.c
++++ b/src/urma/lib/urma/bond/bondp_health_check.c
+@@ -993,6 +993,11 @@ static void *bondp_health_check_thread(void *arg)
+             bondp_health_task_t *task = NULL;
+             HMAP_FOR_EACH(task, hmap_node, &health->task_table.hmap) {
+                 bool is_balance = (task->bondp_jetty->bondp_ctx->bonding_mode == BONDP_BONDING_MODE_BALANCE);
++
++                if (task->bdp_tjetty->v_tjetty.trans_mode == URMA_TM_RC) {
++                    URMA_LOG_DEBUG("Skip RC mode\n");
++                    continue;
++                }
+                 if (!is_balance) {
+                     bondp_health_task_check_mode(task, cfg, now_us);
+                 }
+-- 
+2.43.0
+

@@ -1,0 +1,199 @@
+From 991d105e03f3afe46b113836103683f93c9bcd70 Mon Sep 17 00:00:00 2001
+From: wanghang73 <wanghang73@huawei.com>
+Date: Sat, 30 May 2026 15:50:58 +0800
+Subject: [PATCH] urma: urma_perftest support verbose log level
+
+(cherry picked from commit 8d7af679906b736bce5340fa5e4636ffa094d755)
+---
+ src/urma/tools/urma_perftest/CMakeLists.txt   |  1 +
+ src/urma/tools/urma_perftest/perftest_log.c   | 13 +++++
+ src/urma/tools/urma_perftest/perftest_log.h   | 55 +++++++++++++++++++
+ .../tools/urma_perftest/perftest_parameters.c | 13 +++--
+ .../tools/urma_perftest/perftest_parameters.h |  2 +-
+ .../tools/urma_perftest/perftest_resources.c  |  2 +-
+ 6 files changed, 80 insertions(+), 6 deletions(-)
+ create mode 100644 src/urma/tools/urma_perftest/perftest_log.c
+ create mode 100644 src/urma/tools/urma_perftest/perftest_log.h
+
+diff --git a/src/urma/tools/urma_perftest/CMakeLists.txt b/src/urma/tools/urma_perftest/CMakeLists.txt
+index 24880e13..afb7f760 100644
+--- a/src/urma/tools/urma_perftest/CMakeLists.txt
++++ b/src/urma/tools/urma_perftest/CMakeLists.txt
+@@ -3,6 +3,7 @@
+ 
+ add_executable(urma_perftest
+     urma_perftest.c
++    perftest_log.c
+     perftest_parameters.c
+     perftest_communication.c
+     perftest_resources.c
+diff --git a/src/urma/tools/urma_perftest/perftest_log.c b/src/urma/tools/urma_perftest/perftest_log.c
+new file mode 100644
+index 00000000..cf4be1da
+--- /dev/null
++++ b/src/urma/tools/urma_perftest/perftest_log.c
+@@ -0,0 +1,13 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: urma_perftest log implementation file
++ * Author: Wang Hang
++ * Create: 2026-05-29
++ * Note:
++ * History: 2026-05-29 Create file
++ */
++
++#include "perftest_log.h"
++
++perftest_vlog_level_t verbose_level = VLOG_LEVEL_INFO;
+diff --git a/src/urma/tools/urma_perftest/perftest_log.h b/src/urma/tools/urma_perftest/perftest_log.h
+new file mode 100644
+index 00000000..756dc3ed
+--- /dev/null
++++ b/src/urma/tools/urma_perftest/perftest_log.h
+@@ -0,0 +1,55 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: urma_perftest log head file
++ * Author: Wang Hang
++ * Create: 2026-05-29
++ * Note:
++ * History: 2026-05-29 Create file
++ */
++
++#ifndef PERFTEST_LOG_H
++#define PERFTEST_LOG_H
++
++#include <stdarg.h>
++#include <stdio.h>
++
++typedef enum perftest_vlog_level {
++    VLOG_LEVEL_QUIET = 0,
++    VLOG_LEVEL_INFO = 1,
++    VLOG_LEVEL_VERBOSE = 2,
++    VLOG_LEVEL_VVERBOSE = 3,
++} perftest_vlog_level_t;
++
++extern perftest_vlog_level_t verbose_level;
++
++static inline void verbose_set_level(perftest_vlog_level_t level)
++{
++    verbose_level = level;
++}
++
++static inline perftest_vlog_level_t verbose_get_level(void)
++{
++    return verbose_level;
++}
++
++static inline void verbose_print(FILE *stream, perftest_vlog_level_t level,
++                                 const char *fmt, ...)
++{
++    if (verbose_level < level) {
++        return;
++    }
++
++    va_list va;
++    va_start(va, fmt);
++    (void)vfprintf(stream, fmt, va);
++    va_end(va);
++}
++
++#define LOG_QUIET(...)    verbose_print(stdout, VLOG_LEVEL_QUIET, __VA_ARGS__)
++#define LOG_INFO(...)     verbose_print(stdout, VLOG_LEVEL_INFO, __VA_ARGS__)
++#define LOG_VERBOSE(...)  verbose_print(stdout, VLOG_LEVEL_VERBOSE, __VA_ARGS__)
++#define LOG_VVERBOSE(...) verbose_print(stdout, VLOG_LEVEL_VVERBOSE, __VA_ARGS__)
++#define LOG_ERROR(...)    verbose_print(stderr, VLOG_LEVEL_QUIET, __VA_ARGS__)
++
++#endif
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.c b/src/urma/tools/urma_perftest/perftest_parameters.c
+index 49556e85..aadfc83f 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.c
++++ b/src/urma/tools/urma_perftest/perftest_parameters.c
+@@ -366,7 +366,6 @@ static void init_cfg(perftest_config_t *cfg)
+     cfg->enable_bond_mode = false;
+     cfg->bond_mode = BONDP_BONDING_MODE_STANDALONE;
+     cfg->bond_level = BONDP_BONDING_LEVEL_IODIE;
+-    cfg->enable_stdout = false;
+ }
+ 
+ void print_cfg(const perftest_config_t *cfg)
+@@ -578,6 +577,7 @@ int perftest_parse_args(int argc, char *argv[], perftest_config_t *cfg)
+         {"uboe",                no_argument,       NULL, 'u'},
+         {"warm_up",             no_argument,       NULL, 'w'},
+         {"infinite",            optional_argument, NULL, 'y'},
++        {"verbose",             no_argument,       NULL, 'v'},
+         {"use_bonding",         no_argument,       NULL, 'z'},
+         {"single_path",         no_argument,       NULL, PERFTEST_OPT_SINGLE_PATH},
+         {"eid_idx",             required_argument, NULL, PERFTEST_OPT_EID_IDX},
+@@ -630,10 +630,10 @@ int perftest_parse_args(int argc, char *argv[], perftest_config_t *cfg)
+     /* Second parse the options */
+     while (1) {
+ #ifdef UB_AGG
+-        int c = getopt_long(argc, argv, "a::A:bBcC:d:t:D:eE:fFhI:j:J:K:n:Nl:Lo:O:p:P:Q:r:R:s:S:T:uwy::z",
++        int c = getopt_long(argc, argv, "a::A:bBcC:d:t:D:eE:fFhI:j:J:K:n:Nl:Lo:O:p:P:Q:r:R:s:S:T:uvwy::z",
+                             long_options, NULL);
+ #else
+-        int c = getopt_long(argc, argv, "a::A:bBcC:d:t:D:eE:fFhI:j:J:K:n:Nl:LO:p:P:Q:r:R:s:S:T:uwy::",
++        int c = getopt_long(argc, argv, "a::A:bBcC:d:t:D:eE:fFhI:j:J:K:n:Nl:LO:p:P:Q:r:R:s:S:T:uvwy::",
+                             long_options, NULL);
+ #endif // #ifdef UB_AGG
+         if (c == -1) {
+@@ -795,6 +795,11 @@ int perftest_parse_args(int argc, char *argv[], perftest_config_t *cfg)
+             case 'w':
+                 cfg->warm_up = true;
+                 break;
++            case 'v':
++                if (verbose_get_level() < VLOG_LEVEL_VVERBOSE) {
++                    verbose_set_level(verbose_get_level() + 1);
++                }
++                break;
+             case 'y':
+                 cfg->time_type.bs.infinite = 1;
+                 if (optarg != NULL) {
+@@ -979,7 +984,7 @@ int perftest_parse_args(int argc, char *argv[], perftest_config_t *cfg)
+                 }
+                 break;
+             case PERFTEST_OPT_STDOUT:
+-                cfg->enable_stdout = true;
++                verbose_set_level(VLOG_LEVEL_VVERBOSE);
+                 break;
+             default:
+                 usage(argv[0]);
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.h b/src/urma/tools/urma_perftest/perftest_parameters.h
+index 3f63a8b3..40edc4ae 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.h
++++ b/src/urma/tools/urma_perftest/perftest_parameters.h
+@@ -18,6 +18,7 @@
+ #include "urma_types.h"
+ 
+ #include "perftest_communication.h"
++#include "perftest_log.h"
+ 
+ /* Default Values of perftest parameters */
+ #define PERFTEST_DEF_JFC_DEPTH_LAT   (512)
+@@ -313,7 +314,6 @@ typedef struct perftest_config {
+     bool enable_bond_mode;
+     uint32_t bond_mode;
+     uint32_t bond_level;
+-    bool enable_stdout;
+     bool uboe;
+     perftest_net_addr_t sip;
+     bool uboe_sip;
+diff --git a/src/urma/tools/urma_perftest/perftest_resources.c b/src/urma/tools/urma_perftest/perftest_resources.c
+index 375d3c6e..c7316dd2 100644
+--- a/src/urma/tools/urma_perftest/perftest_resources.c
++++ b/src/urma/tools/urma_perftest/perftest_resources.c
+@@ -162,7 +162,7 @@ static int init_device(perftest_context_t *ctx, perftest_config_t *cfg)
+         return -1;
+     }
+ 
+-    if (cfg->enable_stdout == true) {
++    if (verbose_get_level() >= VLOG_LEVEL_VVERBOSE) {
+         status = urma_register_log_func(print_log);
+         if (status != URMA_SUCCESS) {
+             (void)fprintf(stderr, "Failed to register log func, status:%d!\n", (int)status);
+-- 
+2.43.0
+

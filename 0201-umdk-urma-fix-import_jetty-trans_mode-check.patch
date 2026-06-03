@@ -1,0 +1,30 @@
+From 2c0bceabbea45cbea29741e979652343ad3bdd42 Mon Sep 17 00:00:00 2001
+From: luozihang_33 <luozihang2@huawei.com>
+Date: Thu, 28 May 2026 21:30:51 +0800
+Subject: [PATCH] urma: fix import_jetty trans_mode check.
+
+(cherry picked from commit 8441742f29ea58df5eb0dedb680b18e13e53ffe3)
+---
+ src/urma/lib/urma/core/urma_cp_api.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/urma/lib/urma/core/urma_cp_api.c b/src/urma/lib/urma/core/urma_cp_api.c
+index 7f3ab0a4..b1fa77bf 100644
+--- a/src/urma/lib/urma/core/urma_cp_api.c
++++ b/src/urma/lib/urma/core/urma_cp_api.c
+@@ -1902,6 +1902,12 @@ urma_target_jetty_t *urma_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjett
+         return NULL;
+     }
+ 
++    if (urma_check_trans_mode_valid(rjetty->trans_mode) != true) {
++        URMA_LOG_ERR("Invalid parameter, trans_mode=%d.\n", (int)rjetty->trans_mode);
++        errno = EINVAL;
++        return NULL;
++    }
++
+     if (urma_check_order_type(rjetty->trans_mode, rjetty->flag.bs.order_type) != 0) {
+         URMA_LOG_ERR("Invalid parameter.\n");
+         return NULL;
+-- 
+2.43.0
+

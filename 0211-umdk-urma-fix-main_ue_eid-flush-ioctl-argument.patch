@@ -1,0 +1,76 @@
+From 102dc0c40a686c5e3e80e41fb9353663debe0d04 Mon Sep 17 00:00:00 2001
+From: liweijie2000 <liweijie39@huawei.com>
+Date: Mon, 1 Jun 2026 16:21:03 +0800
+Subject: [PATCH] urma: fix main_ue_eid flush ioctl argument
+
+(cherry picked from commit 603b88b16e0cfb8be4536991edb0cac869978ebb)
+---
+ src/urma/lib/uvs/core/tpsa_ioctl.h  |  6 ++++++
+ src/urma/lib/uvs/core/uvs_cmd_tlv.c | 17 +++++++++++++++--
+ src/urma/lib/uvs/core/uvs_cmd_tlv.h |  5 +++++
+ 3 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/src/urma/lib/uvs/core/tpsa_ioctl.h b/src/urma/lib/uvs/core/tpsa_ioctl.h
+index 8d2728cc..264ddaa8 100644
+--- a/src/urma/lib/uvs/core/tpsa_ioctl.h
++++ b/src/urma/lib/uvs/core/tpsa_ioctl.h
+@@ -88,6 +88,12 @@ typedef struct uvs_cmd_main_ue_eid_lookup {
+     } out;
+ } uvs_cmd_main_ue_eid_lookup_t;
+ 
++typedef struct uvs_cmd_main_ue_eid_flush {
++    struct {
++        int status;
++    } out;
++} uvs_cmd_main_ue_eid_flush_t;
++
+ typedef struct uvs_cmd_main_ue_eid_batch {
+     struct {
+         uvs_main_ue_eid_batch_entry_t entry;
+diff --git a/src/urma/lib/uvs/core/uvs_cmd_tlv.c b/src/urma/lib/uvs/core/uvs_cmd_tlv.c
+index f9f80c55..7a16eafd 100644
+--- a/src/urma/lib/uvs/core/uvs_cmd_tlv.c
++++ b/src/urma/lib/uvs/core/uvs_cmd_tlv.c
+@@ -129,8 +129,21 @@ int uvs_ioctl_lookup_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
+ 
+ int uvs_ioctl_flush_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx)
+ {
+-    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_FLUSH_MAIN_UE_EID,
+-                               NULL, 0);
++    uvs_cmd_main_ue_eid_flush_t arg = {0};
++    uvs_cmd_attr_t attrs[FLUSH_MAIN_UE_EID_OUT_NUM - UVS_CMD_OUT_TYPE_INIT] = {0};
++    uvs_cmd_attr_t *a = attrs;
++    int ret;
++
++    arg.out.status = -1;
++    ATTR(a++, FLUSH_MAIN_UE_EID_OUT_STATUS, arg.out.status);
++
++    ret = uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_FLUSH_MAIN_UE_EID,
++                              (void *)attrs, sizeof(attrs));
++    if (ret != 0) {
++        return ret;
++    }
++
++    return arg.out.status;
+ }
+ 
+ int uvs_ioctl_insert_main_ue_eid_batch(tpsa_ioctl_ctx_t *ioctl_ctx,
+diff --git a/src/urma/lib/uvs/core/uvs_cmd_tlv.h b/src/urma/lib/uvs/core/uvs_cmd_tlv.h
+index a9817f46..58671eeb 100644
+--- a/src/urma/lib/uvs/core/uvs_cmd_tlv.h
++++ b/src/urma/lib/uvs/core/uvs_cmd_tlv.h
+@@ -82,6 +82,11 @@ typedef enum uvs_cmd_lookup_main_ue_eid_type {
+     LOOKUP_MAIN_UE_EID_OUT_NUM
+ } uvs_cmd_lookup_main_ue_eid_type_t;
+ 
++typedef enum uvs_cmd_flush_main_ue_eid_type {
++    FLUSH_MAIN_UE_EID_OUT_STATUS = UVS_CMD_OUT_TYPE_INIT,
++    FLUSH_MAIN_UE_EID_OUT_NUM
++} uvs_cmd_flush_main_ue_eid_type_t;
++
+ typedef enum uvs_cmd_insert_main_ue_eid_batch_type {
+     INSERT_MAIN_UE_EID_BATCH_IN_ENTRY,
+     INSERT_MAIN_UE_EID_BATCH_IN_NUM
+-- 
+2.43.0
+

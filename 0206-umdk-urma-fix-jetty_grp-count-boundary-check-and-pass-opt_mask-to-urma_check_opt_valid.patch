@@ -1,0 +1,37 @@
+From 0de3e89bde974761f909429c4dd6d6cec6b440f4 Mon Sep 17 00:00:00 2001
+From: Bi Shulei <bishulei@huawei.com>
+Date: Fri, 29 May 2026 10:17:02 +0800
+Subject: [PATCH] urma: fix jetty_grp count boundary check and pass opt_mask to urma_check_opt_valid
+ urma_check_opt_valid
+
+(cherry picked from commit 9e8090e3fc7b840e47e1d4886899f449818a6dfc)
+---
+ src/urma/lib/urma/core/urma_cp_api.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/urma/lib/urma/core/urma_cp_api.c b/src/urma/lib/urma/core/urma_cp_api.c
+index a3a59ad9..393724c9 100644
+--- a/src/urma/lib/urma/core/urma_cp_api.c
++++ b/src/urma/lib/urma/core/urma_cp_api.c
+@@ -1529,7 +1529,7 @@ static int urma_create_jetty_check_dev_cap(urma_context_t *ctx, urma_jetty_cfg_t
+ 
+     if (jetty_cfg->jetty_grp != NULL) {
+         (void)pthread_mutex_lock(&jetty_cfg->jetty_grp->list_mutex);
+-        if (jetty_cfg->jetty_grp->jetty_cnt >= cap->max_jetty_in_jetty_grp) {
++        if (jetty_cfg->jetty_grp->jetty_cnt > cap->max_jetty_in_jetty_grp) {
+             (void)pthread_mutex_unlock(&jetty_cfg->jetty_grp->list_mutex);
+             URMA_LOG_ERR("jetty_grp jetty cnt=%u, max_jetty in grp=%u.\n", jetty_cfg->jetty_grp->jetty_cnt,
+                 cap->max_jetty_in_jetty_grp);
+@@ -2282,7 +2282,8 @@ urma_status_t urma_set_jetty_opt(urma_jetty_t *jetty, uint64_t opt, void *buf, u
+     urma_status_t status;
+     int ret;
+ 
+-    status = urma_check_opt_valid(NULL, JETTY_OPT_TABLE, JETTY_OPT_MAP_COUNT, opt, len);
++    status = urma_check_opt_valid(&jetty->urma_jetty_opt.jfs_opt.jfs_opt_mask.value,
++                                  JETTY_OPT_TABLE, JETTY_OPT_MAP_COUNT, opt, len);
+     if (status != URMA_SUCCESS) {
+         URMA_LOG_ERR("invalid opt id or opt len\n");
+         return status;
+-- 
+2.43.0
+
