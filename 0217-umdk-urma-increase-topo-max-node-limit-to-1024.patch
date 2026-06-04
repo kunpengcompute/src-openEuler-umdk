@@ -1,0 +1,280 @@
+From 44193412bbfc3fba0269b8c3077770fd01d916ed Mon Sep 17 00:00:00 2001
+From: Bi Shulei <bishulei@huawei.com>
+Date: Tue, 2 Jun 2026 16:53:04 +0800
+Subject: [PATCH] urma: increase topo max node limit to 1024
+
+(cherry picked from commit 8f9708e65c1834b286df76e56ef93fa3a8975d92)
+---
+ src/urma/lib/urma/bond/utils/topo_info.h     |  4 +-
+ src/urma/lib/uvs/core/include/uvs_api.h      |  2 +-
+ src/urma/lib/uvs/core/tpsa_api.c             |  4 +-
+ src/urma/tools/urma_admin/admin_parameters.h |  2 +-
+ src/urma/tools/urma_ping/ping_run.c          | 74 +++++++++++++-------
+ src/urma/tools/urma_ping/ping_run.h          |  2 +-
+ 6 files changed, 54 insertions(+), 34 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/utils/topo_info.h b/src/urma/lib/urma/bond/utils/topo_info.h
+index 477bdf22..b70e4b60 100644
+--- a/src/urma/lib/urma/bond/utils/topo_info.h
++++ b/src/urma/lib/urma/bond/utils/topo_info.h
+@@ -21,7 +21,7 @@
+ #define EID_LEN            (16)
+ #define PORT_NUM           (9)
+ #define MAX_ALL_PORT_NUM   (18)
+-#define MAX_NODE_NUM       (64)
++#define MAX_NODE_NUM       (1024)
+ #define IODIE_NUM_PER_CHIP (1)
+ #define CHIP_NUM           (2)
+ #define IODIE_NUM          (2)
+@@ -76,7 +76,7 @@ void delete_topo_map(topo_map_t *topo_map);
+ 
+ /**
+  * This function requires traversing all EIDS in the topo_map to return a result,
+- * with a maximum time complexity of O(MAX_NODE_NUM(16) * (BONDING_EID_NUM(1) +
++ * with a maximum time complexity of O(MAX_NODE_NUM(1024) * (BONDING_EID_NUM(1) +
+  * IODIE_NUM(2) * (PRIMARY_EID_NUM(1) + PORT_NUM(9)))) = O(336).
+  * @return 0 for success, other for error or not found
+  */
+diff --git a/src/urma/lib/uvs/core/include/uvs_api.h b/src/urma/lib/uvs/core/include/uvs_api.h
+index 9e2e1e54..40eb54e7 100644
+--- a/src/urma/lib/uvs/core/include/uvs_api.h
++++ b/src/urma/lib/uvs/core/include/uvs_api.h
+@@ -23,7 +23,7 @@ extern "C" {
+ #define UVS_MAX_ROUTES     (16)
+ #define EID_LEN            (16)
+ #define MAX_PORT_NUM       (9)
+-#define MAX_NODE_NUM       (64)
++#define MAX_NODE_NUM       (1024)
+ #define IODIE_NUM_PER_CHIP (1)
+ #define PORT_NUM           (9)
+ #define CHIP_NUM           (2)
+diff --git a/src/urma/lib/uvs/core/tpsa_api.c b/src/urma/lib/uvs/core/tpsa_api.c
+index ddad4385..8b6e6f3f 100644
+--- a/src/urma/lib/uvs/core/tpsa_api.c
++++ b/src/urma/lib/uvs/core/tpsa_api.c
+@@ -18,8 +18,6 @@
+ #include <string.h>
+ #include <sys/syscall.h>
+ 
+-#define UVS_MAX_TOPO_NUM 64
+-
+ static inline bool uvs_eid_is_valid(const uvs_eid_t *eid)
+ {
+     return !(eid->in6.interface_id == 0 && eid->in6.subnet_prefix == 0);
+@@ -161,7 +159,7 @@ static int uvs_set_topo_info_inner(struct urma_topo_node *topo, uint32_t topo_nu
+ {
+     int ret;
+ 
+-    if (!topo || topo_num > UVS_MAX_TOPO_NUM || topo_num == 0) {
++    if (!topo || topo_num > MAX_NODE_NUM || topo_num == 0) {
+         TPSA_LOG_ERR("topo is NULL or topo_num is invalid.\n");
+         return -EINVAL;
+     }
+diff --git a/src/urma/tools/urma_admin/admin_parameters.h b/src/urma/tools/urma_admin/admin_parameters.h
+index bfad9156..5c32ec37 100644
+--- a/src/urma/tools/urma_admin/admin_parameters.h
++++ b/src/urma/tools/urma_admin/admin_parameters.h
+@@ -23,7 +23,7 @@
+ #include "urma_types.h"
+ #include "urma_types_str.h"
+ 
+-#define MAX_NODE_NUM            (64)
++#define MAX_NODE_NUM            (1024)
+ #define EID_LEN                 (16)
+ #define PORT_NUM                (9)
+ #define CHIP_NUM                (2)
+diff --git a/src/urma/tools/urma_ping/ping_run.c b/src/urma/tools/urma_ping/ping_run.c
+index 61595721..1b3a98d9 100644
+--- a/src/urma/tools/urma_ping/ping_run.c
++++ b/src/urma/tools/urma_ping/ping_run.c
+@@ -53,11 +53,16 @@ static void log_eid_verbose(uint8_t *eid)
+ static void primary_eid_to_main_primary_eid(urma_eid_t *primary_eid)
+ {
+     int ret;
+-    urma_ping_ubcore_topo_map_t topo_map;
++    urma_ping_ubcore_topo_map_t *topo_map = calloc(1, sizeof(*topo_map));
++    if (topo_map == NULL) {
++        LOG_ERROR("Failed to alloc topo map buffer\n");
++        return;
++    }
+ 
+-    ret = uvs_get_topo_info(&topo_map);
++    ret = uvs_get_topo_info(topo_map);
+     if (ret != 0) {
+         LOG_ERROR("Failed to get ubagg topo, ret:%d\n", ret);
++        free(topo_map);
+         return;
+     }
+ 
+@@ -65,11 +70,11 @@ static void primary_eid_to_main_primary_eid(urma_eid_t *primary_eid)
+     uint32_t target_entity_id;
+     int target_node_id;
+ 
+-    for (int i = 0; i < (int)topo_map.node_num; i++) {
++    for (int i = 0; i < (int)topo_map->node_num; i++) {
+         for (int j = 0; j < DEV_NUM; j++) {
+             for (int k = 0; k < IODIE_NUM; k++) {
+-                if (memcmp(topo_map.topo_infos[i].agg_devs[j].ues[k].primary_eid, primary_eid->raw, EID_LEN) == 0) {
+-                    target_entity_id = topo_map.topo_infos[i].agg_devs[j].ues[k].entity_id;
++                if (memcmp(topo_map->topo_infos[i].agg_devs[j].ues[k].primary_eid, primary_eid->raw, EID_LEN) == 0) {
++                    target_entity_id = topo_map->topo_infos[i].agg_devs[j].ues[k].entity_id;
+                     target_node_id = i;
+                     find_entity_id = true;
+                 }
+@@ -79,6 +84,7 @@ static void primary_eid_to_main_primary_eid(urma_eid_t *primary_eid)
+ 
+     if (!find_entity_id) {
+         LOG_ERROR("Failed to get entity id\n");
++        free(topo_map);
+         return;
+     }
+ 
+@@ -86,22 +92,23 @@ static void primary_eid_to_main_primary_eid(urma_eid_t *primary_eid)
+ 
+     for (int j = 0; j < DEV_NUM; j++) {
+         for (int k = 0; k < IODIE_NUM; k++) {
+-            if (topo_map.topo_infos[target_node_id].agg_devs[j].ues[k].entity_id == target_entity_id) {
+-                if (memcmp(topo_map.topo_infos[target_node_id].agg_devs[j].ues[k].primary_eid,
++            if (topo_map->topo_infos[target_node_id].agg_devs[j].ues[k].entity_id == target_entity_id) {
++                if (memcmp(topo_map->topo_infos[target_node_id].agg_devs[j].ues[k].primary_eid,
+                     empty_eid.raw,
+                     EID_LEN) == 0) {
+                     continue;
+                 }
+                 if (memcmp(primary_eid->raw,
+-                    topo_map.topo_infos[target_node_id].agg_devs[j].ues[k].primary_eid,
++                    topo_map->topo_infos[target_node_id].agg_devs[j].ues[k].primary_eid,
+                     EID_LEN) > 0) {
+                     memcpy(primary_eid->raw,
+-                           topo_map.topo_infos[target_node_id].agg_devs[j].ues[k].primary_eid,
++                           topo_map->topo_infos[target_node_id].agg_devs[j].ues[k].primary_eid,
+                            EID_LEN);
+                 }
+             }
+         }
+     }
++    free(topo_map);
+ }
+ 
+ static bool is_primary_eid(urma_eid_t *eid, urma_ping_ubcore_topo_map_t *topo_map)
+@@ -135,65 +142,79 @@ static uint32_t get_chip_id_by_primary_eid(urma_eid_t *eid, urma_ping_ubcore_top
+ static bool get_primary_eid_and_chip_id_by_bonding(urma_eid_t *original_eid, urma_eid_t *primary_eid, uint32_t *chip_id)
+ {
+     int ret;
+-    urma_ping_ubcore_topo_map_t topo_map;
+-
+-    ret = uvs_get_topo_info(&topo_map);
+-    if (ret != 0) {
+-        LOG_ERROR("Failed to get ubagg topo, ret:%d\n", ret);
++    urma_ping_ubcore_topo_map_t *topo_map = calloc(1, sizeof(*topo_map));
++    if (topo_map == NULL) {
++        LOG_ERROR("Failed to alloc topo map buffer\n");
+         return false;
+     }
+ 
+-    if (is_primary_eid(original_eid, &topo_map)) {
++    ret = uvs_get_topo_info(topo_map);
++    if (ret != 0) {
++        LOG_ERROR("Failed to get ubagg topo, ret:%d\n", ret);
++        free(topo_map);
++        return false;
++    }
++
++    if (is_primary_eid(original_eid, topo_map)) {
+         memcpy(primary_eid->raw, original_eid->raw, EID_LEN);
+-        (*chip_id) = get_chip_id_by_primary_eid(original_eid, &topo_map);
++        (*chip_id) = get_chip_id_by_primary_eid(original_eid, topo_map);
+         LOG_VERBOSE("Input dest eid is primary eid: ");
+         log_eid_verbose(primary_eid->raw);
+         LOG_VERBOSE("Chip id = %u.\n", (*chip_id));
++        free(topo_map);
+         return true;
+     }
+ 
+     LOG_VERBOSE("Dest Bonding eid: ");
+     log_eid_verbose(original_eid->raw);
+ 
+-    for (int i = 0; i < (int)topo_map.node_num; i++) {
++    for (int i = 0; i < (int)topo_map->node_num; i++) {
+         for (int j = 0; j < DEV_NUM; j++) {
+-            if (memcmp(topo_map.topo_infos[i].agg_devs[j].agg_eid, original_eid->raw, EID_LEN) == 0) {
+-                memcpy(primary_eid->raw, topo_map.topo_infos[i].agg_devs[j].ues[0].primary_eid, EID_LEN);
+-                (*chip_id) = topo_map.topo_infos[i].agg_devs[j].ues[0].chip_id;
++            if (memcmp(topo_map->topo_infos[i].agg_devs[j].agg_eid, original_eid->raw, EID_LEN) == 0) {
++                memcpy(primary_eid->raw, topo_map->topo_infos[i].agg_devs[j].ues[0].primary_eid, EID_LEN);
++                (*chip_id) = topo_map->topo_infos[i].agg_devs[j].ues[0].chip_id;
+                 LOG_VERBOSE("Successful find dest primary eid: ");
+                 log_eid_verbose(primary_eid->raw);
+                 LOG_VERBOSE("Chip id = %u.\n", (*chip_id));
++                free(topo_map);
+                 return true;
+             }
+         }
+     }
+ 
+     LOG_ERROR("Failed to find dest primary eid.\n");
++    free(topo_map);
+     return false;
+ }
+ 
+ static bool get_source_eid_by_bonding_eid_and_chip_id(urma_eid_t *eid, uint32_t chip_id)
+ {
+     int ret;
+-    urma_ping_ubcore_topo_map_t topo_map;
++    urma_ping_ubcore_topo_map_t *topo_map = calloc(1, sizeof(*topo_map));
++    if (topo_map == NULL) {
++        LOG_ERROR("Failed to alloc topo map buffer\n");
++        return false;
++    }
+ 
+-    ret = uvs_get_topo_info(&topo_map);
++    ret = uvs_get_topo_info(topo_map);
+     if (ret != 0) {
+         LOG_ERROR("Failed to get ubagg topo, ret:%d\n", ret);
++        free(topo_map);
+         return false;
+     }
+ 
+     LOG_VERBOSE("Source Bonding eid: ");
+     log_eid_verbose(eid->raw);
+ 
+-    for (int i = 0; i < (int)topo_map.node_num; i++) {
++    for (int i = 0; i < (int)topo_map->node_num; i++) {
+         for (int j = 0; j < DEV_NUM; j++) {
+-            if (memcmp(topo_map.topo_infos[i].agg_devs[j].agg_eid, eid->raw, EID_LEN) == 0) {
++            if (memcmp(topo_map->topo_infos[i].agg_devs[j].agg_eid, eid->raw, EID_LEN) == 0) {
+                 for (int k = 0; k < IODIE_NUM; k++) {
+-                    if (topo_map.topo_infos[i].agg_devs[j].ues[k].chip_id == chip_id) {
+-                        memcpy(eid->raw, topo_map.topo_infos[i].agg_devs[j].ues[k].primary_eid, EID_LEN);
++                    if (topo_map->topo_infos[i].agg_devs[j].ues[k].chip_id == chip_id) {
++                        memcpy(eid->raw, topo_map->topo_infos[i].agg_devs[j].ues[k].primary_eid, EID_LEN);
+                         LOG_VERBOSE("Successful find source primary eid: ");
+                         log_eid_verbose(eid->raw);
++                        free(topo_map);
+                         return true;
+                     }
+                 }
+@@ -202,6 +223,7 @@ static bool get_source_eid_by_bonding_eid_and_chip_id(urma_eid_t *eid, uint32_t
+     }
+ 
+     LOG_ERROR("Failed to find source primary eid.\n");
++    free(topo_map);
+     return false;
+ }
+ 
+diff --git a/src/urma/tools/urma_ping/ping_run.h b/src/urma/tools/urma_ping/ping_run.h
+index 314f422d..ea30bfef 100644
+--- a/src/urma/tools/urma_ping/ping_run.h
++++ b/src/urma/tools/urma_ping/ping_run.h
+@@ -15,7 +15,7 @@
+ 
+ #define EID_LEN            (16)
+ #define MAX_PORT_NUM       (9)
+-#define MAX_NODE_NUM       (64)
++#define MAX_NODE_NUM       (1024)
+ #define IODIE_NUM_PER_CHIP (1)
+ #define IODIE_NUM          (2)
+ #define PORT_NUM           (9)
+-- 
+GitCode
+
