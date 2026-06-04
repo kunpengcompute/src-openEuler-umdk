@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B003
+    %define rpm_release B004
 %endif
 
 Name          : umdk
@@ -540,6 +540,14 @@ fi
 %endif
 
 %changelog
+* Thu Jun 4 2026 wangxin <wangxin554@huawei.com> - 26.06.0-B004
+-urma: performance optimization post wr
+-umq: alloc a id for umq
+-urma: add main_ue_eid admin command support
+-ums: remove auto-learn mode and enforce strict identity verification
+-umq: support register ext_func for log
+-urma: topology supports parallel planes
+-urma: allow disabling of msn deduplication
 * Thu May 28 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B003
 -urma: support get jfce fd list by usr ctl.
 -urma: add register log API and refactor user dfx.
