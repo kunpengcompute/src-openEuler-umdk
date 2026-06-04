@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B090
+    %define rpm_release B091
 %endif
 
 Name          : umdk
@@ -294,6 +294,7 @@ Patch0213: 0213-umdk-urma-switch-urma_perftest-prints-to-log-macros.patch
 Patch0214: 0214-umdk-urma-add-dfx-log-for-bondp-implement.patch
 Patch0215: 0215-umdk-urma-add-main_ue_eid-admin-command-support.patch
 Patch0216: 0216-umdk-urma-refactored-the-urma-bazel-build-to-emit-layered-shared-libraries.patch
+Patch0217: 0217-umdk-urma-increase-topo-max-node-limit-to-1024.patch
 
 %description
 A new system interconnect architecture
@@ -724,6 +725,8 @@ fi
 %endif
 
 %changelog
+* Thu Jun 4 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B091
+- urma: increase topo max node limit to 1024
 * Wed Jun 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B090
 - urma: sync SP3 patches (!2144-!2229), perftest/log/bazel/topo/main_ue_eid
 * Sat May 30 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B089
