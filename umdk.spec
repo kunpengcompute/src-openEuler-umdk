@@ -68,7 +68,7 @@ BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
-BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel
+BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel, libnl3-devel
 Requires: glibc, glib2, libummu
 %if %{with asan}
 Requires: libasan
