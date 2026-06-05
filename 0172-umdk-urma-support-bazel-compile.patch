@@ -1,0 +1,323 @@
+From 7c5d9830ec84754abdf4970572b53e3d9a546111 Mon Sep 17 00:00:00 2001
+From: duelu <luyizhou1@huawei.com>
+Date: Tue, 5 May 2026 16:39:08 +0800
+Subject: [PATCH] urma: support bazel compile
+
+(cherry picked from commit 1077e4e1e2eccea55e56480db89ebb09e967a815)
+---
+ src/urma/.bazelrc                 |  57 ++++++++++++
+ src/urma/BUILD.bazel              | 146 ++++++++++++++++++++++++++++++
+ src/urma/WORKSPACE                |  68 ++++++++++++++
+ src/urma/lib/urma/core/urma_log.c |   4 +-
+ 4 files changed, 273 insertions(+), 2 deletions(-)
+ create mode 100644 src/urma/.bazelrc
+ create mode 100644 src/urma/BUILD.bazel
+ create mode 100644 src/urma/WORKSPACE
+
+diff --git a/src/urma/.bazelrc b/src/urma/.bazelrc
+new file mode 100644
+index 00000000..3bfed77e
+--- /dev/null
++++ b/src/urma/.bazelrc
+@@ -0,0 +1,57 @@
++common --enable_bzlmod=false
++
++# Match urpc / URMA CMake defaults: optimized release flags (avoids _FORTIFY_SOURCE + -O0 warnings as errors).
++build --compilation_mode=opt
++
++build --copt=-Wall
++build --copt=-Werror
++build --copt=-Wformat
++build --copt=-Wfloat-equal
++build --copt=-Wtrampolines
++build --copt=-fno-strict-aliasing
++build --copt=-fstack-protector-strong
++build --copt=-fPIC
++build --copt=-std=gnu99
++build --linkopt=-Wl,-z,noexecstack
++build --linkopt=-Wl,-z,relro
++build --linkopt=-Wl,-z,now
++build --linkopt=-rdynamic
++
++build:debug --compilation_mode=dbg
++build:debug --copt=-U_FORTIFY_SOURCE
++build:debug --copt=-O0
++build:debug --copt=-g
++build:debug --copt=-DUNIT_TEST
++
++build:release --compilation_mode=opt
++build:release --copt=-O2
++build:release --copt=-DNDEBUG
++
++build:perf_cycle --define=perf_cycle=true
++build:perf_cycle --copt=-DPERF_CYCLE_FLAG
++
++build:arm64 --copt=-DUB_ARCH_ARM64
++build:arm64 --copt=-march=armv8-a+crc
++
++build:x86_64 --copt=-DUB_ARCH_X86_64
++build:x86_64 --copt=-msse4.2
++
++build:asan --strip=never
++build:asan --copt=-fsanitize=address
++build:asan --copt=-fsanitize-recover=address
++build:asan --copt=-fsanitize=leak
++build:asan --copt=-fno-omit-frame-pointer
++build:asan --linkopt=-fsanitize=address
++build:asan --linkopt=-fsanitize=leak
++
++build:tsan --strip=never
++build:tsan --copt=-fsanitize=thread
++build:tsan --copt=-fno-omit-frame-pointer
++build:tsan --linkopt=-fsanitize=thread
++
++build:coverage --collect_code_coverage
++build:coverage --copt=-fprofile-arcs
++build:coverage --copt=-ftest-coverage
++build:coverage --linkopt=-fprofile-arcs
++build:coverage --linkopt=-ftest-coverage
++build:coverage --linkopt=-lgcov
+diff --git a/src/urma/BUILD.bazel b/src/urma/BUILD.bazel
+new file mode 100644
+index 00000000..646cd312
+--- /dev/null
++++ b/src/urma/BUILD.bazel
+@@ -0,0 +1,146 @@
++package(default_visibility = ["//visibility:public"])
++
++config_setting(
++    name = "perf_cycle_enabled",
++    values = {"define": "perf_cycle=true"},
++)
++
++config_setting(
++    name = "build_udma_enabled",
++    values = {"define": "build_udma=true"},
++)
++
++URMA_COMMON_SRCS = glob(
++    ["common/*.c"],
++    exclude = ["common/ub_perf_cycle.c"],
++) + select({
++    ":perf_cycle_enabled": ["common/ub_perf_cycle.c"],
++    "//conditions:default": [],
++})
++
++cc_library(
++    name = "urma_common",
++    srcs = URMA_COMMON_SRCS,
++    hdrs = glob(["common/include/**/*.h"]),
++    includes = ["common/include"],
++    copts = ["-std=gnu99"],
++    linkopts = ["-ldl", "-lrt"] + select({
++        ":perf_cycle_enabled": ["-lm"],
++        "//conditions:default": [],
++    }),
++)
++
++cc_library(
++    name = "urma",
++    srcs = glob(["lib/urma/core/*.c"]),
++    hdrs = glob([
++        "lib/urma/core/include/**/*.h",
++        "lib/urma/core/*.h",
++    ]),
++    includes = [
++        "common/include",
++        "lib/urma/core",
++        "lib/urma/core/include",
++    ],
++    copts = ["-std=gnu99"],
++    deps = [":urma_common"],
++    linkopts = ["-ldl", "-lrt"],
++)
++
++cc_library(
++    name = "urma_ubagg",
++    srcs = glob([
++        "lib/urma/bond/*.c",
++        "lib/urma/bond/utils/*.c",
++    ]),
++    hdrs = glob(["lib/urma/bond/**/*.h"]),
++    includes = [
++        "common/include",
++        "lib/urma/bond",
++        "lib/urma/bond/include",
++        "lib/urma/bond/utils",
++    ],
++    copts = [
++        "-std=gnu99",
++        "-I/usr/include/libnl3",
++    ],
++    deps = [
++        ":urma",
++        ":urma_common",
++    ],
++    linkopts = ["-lnl-genl-3", "-lnl-3"],
++)
++
++cc_library(
++    name = "tpsa",
++    srcs = glob(["lib/uvs/core/*.c"]),
++    hdrs = glob([
++        "lib/uvs/core/include/**/*.h",
++        "lib/uvs/core/*.h",
++    ]),
++    includes = [
++        "common/include",
++        "lib/urma/core/include",
++        "lib/uvs/core",
++        "lib/uvs/core/include",
++    ],
++    copts = [
++        "-std=gnu99",
++        "-I/usr/include/libnl3",
++    ],
++    deps = [
++        ":urma",
++        ":urma_common",
++    ],
++    linkopts = [
++        "-lnl-genl-3",
++        "-lnl-3",
++        "-lz",
++        "-lssl",
++        "-lcrypto",
++    ],
++)
++
++cc_library(
++    name = "uvs",
++    deps = [":tpsa"],
++)
++
++alias(
++    name = "uvs_tpsa",
++    actual = ":tpsa",
++)
++
++cc_library(
++    name = "urma_udma",
++    srcs = select({
++        ":build_udma_enabled": glob(["hw/udma/*.c"]),
++        "//conditions:default": [],
++    }),
++    hdrs = glob([
++        "hw/udma/*.h",
++        "hw/udma/include/**/*.h",
++        "hw/udma/kernel_headers/**/*.h",
++    ]),
++    includes = [
++        "hw/udma",
++        "hw/udma/include",
++        "hw/udma/kernel_headers",
++        "lib/urma/core",
++        "lib/urma/core/include",
++    ],
++    copts = ["-std=gnu99"],
++    deps = [
++        ":urma",
++        ":urma_common",
++    ],
++    linkopts = select({
++        ":build_udma_enabled": ["-lummu"],
++        "//conditions:default": [],
++    }),
++)
++
++alias(
++    name = "hw_udma",
++    actual = ":urma_udma",
++)
+diff --git a/src/urma/WORKSPACE b/src/urma/WORKSPACE
+new file mode 100644
+index 00000000..d2b35055
+--- /dev/null
++++ b/src/urma/WORKSPACE
+@@ -0,0 +1,68 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++
++workspace(name = "com_atomgit_openeuler_umdk_urma")
++
++load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
++
++# Preload repositories that Bazel 7+ pulls from `DEFAULT.WORKSPACE.SUFFIX`
++# (otherwise `rules_java_builtin` may try to fetch `rules_python` from the network).
++#
++# Offline: place the **upstream release** tarball at the `file:///mnt/` path so its sha256 matches.
++# If the local file is missing or wrong checksum, Bazel tries the HTTPS URLs below.
++http_archive(
++    name = "rules_python",
++    sha256 = "f609f341d6e9090b981b3f45324d05a819fd7a5a56434f849c761971ce2c47da",
++    strip_prefix = "rules_python-1.7.0",
++    urls = [
++        "https://github.com/bazel-contrib/rules_python/releases/download/1.7.0/rules_python-1.7.0.tar.gz",
++    ],
++)
++
++http_archive(
++    name = "bazel_skylib",
++    sha256 = "bc283cdfcd526a52c3201279cda4bc298652efa898b10b4db0837dc51652756f",
++    urls = [
++        "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.7.1/bazel-skylib-1.7.1.tar.gz",
++        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.7.1/bazel-skylib-1.7.1.tar.gz",
++    ],
++)
++
++# Do not invoke `bazel_skylib_workspace()`: it would fetch `rules_license`.
++# See README (Bazel / offline deps).
++
++# `py_repositories()` may `maybe()` fetch `rules_cc` unless it is already defined.
++http_archive(
++    name = "rules_cc",
++    sha256 = "b8b918a85f9144c01f6cfe0f45e4f2838c7413961a8ff23bc0c6cdf8bb07a3b6",
++    strip_prefix = "rules_cc-0.1.5",
++    urls = [
++        "https://github.com/bazelbuild/rules_cc/releases/download/0.1.5/rules_cc-0.1.5.tar.gz",
++    ],
++)
++
++load("@rules_python//python:repositories.bzl", "py_repositories")
++
++py_repositories()
++
++http_archive(
++    name = "platforms",
++    sha256 = "29742e87275809b5e598dc2f04d86960cc7a55b3067d97221c9abbc9926bff0f",
++    urls = [
++        "https://mirror.bazel.build/github.com/bazelbuild/platforms/releases/download/0.0.11/platforms-0.0.11.tar.gz",
++        "https://github.com/bazelbuild/platforms/releases/download/0.0.11/platforms-0.0.11.tar.gz",
++    ],
++)
++
++http_archive(
++    name = "bazel_features",
++    sha256 = "07271d0f6b12633777b69020c4cb1eb67b1939c0cf84bb3944dc85cc250c0c01",
++    strip_prefix = "bazel_features-1.38.0",
++    urls = [
++        "https://github.com/bazel-contrib/bazel_features/releases/download/v1.38.0/bazel_features-v1.38.0.tar.gz",
++    ],
++)
++
++load("@bazel_features//:deps.bzl", "bazel_features_deps")
++
++bazel_features_deps()
+diff --git a/src/urma/lib/urma/core/urma_log.c b/src/urma/lib/urma/core/urma_log.c
+index c1baf424..3ed95fa0 100644
+--- a/src/urma/lib/urma/core/urma_log.c
++++ b/src/urma/lib/urma/core/urma_log.c
+@@ -216,8 +216,8 @@ static int urma_vlog(const char *function, int line, urma_vlog_level_t level, co
+     char newformat[MAX_LOG_LEN + 1] = {0};
+     char logmsg[MAX_LOG_LEN + 1] = {0};
+ 
+-    /* add log head info, "[URMA][liburma][thread_id=tid][thread_tag][function[Line=line]][format]" */
+-    ret = snprintf(newformat, MAX_LOG_LEN, "[%s][%s][thread_id=%ld][%s][%s[Line=%d]][%s]",
++    /* add log head info, "[URMA][liburma][thread_id=tid][thread_tag][function[Line=line]]format" */
++    ret = snprintf(newformat, MAX_LOG_LEN, "[%s][%s][thread_id=%ld][%s][%s[Line=%d]]%s",
+                    URMA_LOG_TAG, LIBURMA_LOG, (long)syscall(__NR_gettid), g_thread_tag, function,
+                    line, format);
+     if (ret <= 0 || ret >= sizeof(newformat)) {
+-- 
+2.43.0
+

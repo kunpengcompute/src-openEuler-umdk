@@ -1,0 +1,49 @@
+From 293befe9824870114610e63e9e62c910e1f1e802 Mon Sep 17 00:00:00 2001
+From: chenyutao <chenyutao2@huawei.com>
+Date: Mon, 27 Apr 2026 14:25:36 +0800
+Subject: [PATCH] urma: fix tjetty error parameter
+
+Signed-off-by: chenyutao <chenyutao2@huawei.com>
+---
+ src/urma/lib/urma/bond/bondp_api.c      | 4 ++++
+ src/urma/lib/urma/bond/bondp_datapath.c | 2 +-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 5900052..b06e83a 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -1505,6 +1505,8 @@ static int bondp_unimport_pjetty(bondp_target_jetty_t *bdp_tjetty)
+             bdp_tjetty->p_tjetty[i][j] = NULL;
+         }
+     }
++
++    URMA_LOG_INFO("Finish to unimport pjetty.\n");
+     return ret;
+ }
+ 
+@@ -1765,6 +1767,8 @@ static int bondp_unimport_pjfr(bondp_target_jetty_t *bdp_tjetty)
+             bdp_tjetty->p_tjetty[i][j] = NULL;
+         }
+     }
++
++    URMA_LOG_INFO("Finish to unimport pjfr.\n");
+     return ret;
+ }
+ 
+diff --git a/src/urma/lib/urma/bond/bondp_datapath.c b/src/urma/lib/urma/bond/bondp_datapath.c
+index 333869b..31e3b57 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath.c
++++ b/src/urma/lib/urma/bond/bondp_datapath.c
+@@ -658,7 +658,7 @@ static int resend_jfs_wr(jfs_wr_entry_t *wr_entry, int send_idx, int target_idx)
+     wr_entry->send_idx = send_idx;
+     wr_entry->target_idx = target_idx;
+     urma_jfs_wr_t *wr = &wr_entry->wr;
+-    urma_target_jetty_t *vtjetty = wr->tjetty;
++    urma_target_jetty_t *vtjetty = &wr_entry->v_conn->target_vjetty->v_tjetty;
+     convert_jfs_pwr_to_vwr_resend(wr, vtjetty);
+     convert_jfs_vwr_to_pwr_for_resend(wr, send_idx, target_idx);
+ 
+-- 
+2.28.0.windows.1
+

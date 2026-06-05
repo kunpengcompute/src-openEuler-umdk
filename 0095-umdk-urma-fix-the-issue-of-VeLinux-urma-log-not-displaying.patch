@@ -1,0 +1,38 @@
+diff --git a/src/urma/lib/urma/core/urma_log.c b/src/urma/lib/urma/core/urma_log.c
+index b7b321f45fd12842fa2bf35f9c960b47502882e8..abd8d7eccfd24823513f8877ad46a735537e2e1a 100644
+--- a/src/urma/lib/urma/core/urma_log.c
++++ b/src/urma/lib/urma/core/urma_log.c
+@@ -65,7 +65,7 @@ urma_status_t urma_unregister_log_func(void)
+ 
+ int urma_log_init(void)
+ {
+-    openlog("", LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
++    openlog(NULL, LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
+     return setlogmask(LOG_MASK(LOG_CRIT) | LOG_MASK(LOG_ERR) | LOG_MASK(LOG_WARNING) | LOG_MASK(LOG_INFO) |
+                       LOG_MASK(LOG_DEBUG));
+ }
+diff --git a/src/urma/lib/urma/core/urma_main.c b/src/urma/lib/urma/core/urma_main.c
+index 440584860139363174896461f1d6ae1f991c501a..7a030af597c90c804d83ac4f5d850786132ce070 100644
+--- a/src/urma/lib/urma/core/urma_main.c
++++ b/src/urma/lib/urma/core/urma_main.c
+@@ -211,6 +211,7 @@ static int urma_open_drivers(void)
+ 
+ urma_status_t urma_init(urma_init_attr_t *conf)
+ {
++    urma_log_init();
+     urma_getenv_log_level();
+ 
+     /* g_init_flag is initialized as 0 */
+diff --git a/src/urma/lib/uvs/core/tpsa_log.c b/src/urma/lib/uvs/core/tpsa_log.c
+index 3843e250ccc75bff3ab1b68c866589b8332b6e37..b12392592fdacaabc81edb0495b34ce7f44e97f5 100644
+--- a/src/urma/lib/uvs/core/tpsa_log.c
++++ b/src/urma/lib/uvs/core/tpsa_log.c
+@@ -57,7 +57,7 @@ void uvs_set_worker_idx(int idx)
+ 
+ void tpsa_log_init(void)
+ {
+-    openlog("tpsa", LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
++    openlog(NULL, LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
+     (void)setlogmask(LOG_MASK(LOG_ERR) | LOG_MASK(LOG_WARNING) | LOG_MASK(LOG_INFO) | LOG_MASK(LOG_DEBUG));
+ }
+ 

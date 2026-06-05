@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B043
+    %define rpm_release B087
 %endif
 
 Name          : umdk
@@ -68,7 +68,7 @@ BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
-BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, openssl-devel, glib2-devel, libnl3-devel, kernel-devel, libummu-devel
+BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel
 Requires: glibc, glib2, libummu
 %if %{with asan}
 Requires: libasan
@@ -144,6 +144,131 @@ Patch0063: 0063-umdk-urma-urma_admin-cleancode.patch
 Patch0064: 0064-umdk-urma-urma_perftest-cleancode.patch
 Patch0065: 0065-umdk-urma-cleancode-fix-for-ping_parameters.patch
 Patch0066: 0066-umdk-urma-check-ioctl-errno-value.patch
+Patch0067: 0067-umdk-urma-change-uvs-and-urma_admin-log-format.patch
+Patch0068: 0068-umdk-urma-cleancode-fix-for-bond.patch
+Patch0069: 0069-umdk-urma-bondp-seg-cache-should-not-import-vseg-twice.patch
+Patch0070: 0070-umdk-urma-bond-device-no-longer-requires.patch
+Patch0071: 0071-umdk-urma-add-comments-for-urma_wait_jfc0.patch
+Patch0072: 0072-umdk-urma-bonding-dev-adapts-to-SL-functionality.patch
+Patch0073: 0073-umdk-urma-remove-unused-bondp-code.patch
+Patch0074: 0074-umdk-urma-add-eid_idx-validity-check-when-set-eid-to-ns.patch
+Patch0075: 0075-umdk-urma-for-updates-to-external-files-or-APIs.patch
+Patch0076: 0076-umdk-urma-update-urma-admin-agg-expose.patch
+Patch0077: 0077-umdk-urma-do-not-parse-vendor-and-device-for-bonding-device.patch
+Patch0078: 0078-umdk-urma-update-urma_admin-show.patch
+Patch0079: 0079-umdk-urma-add-param-check-for-target-port.patch
+Patch0080: 0080-umdk-urma-fix-codecheck.patch
+Patch0081: 0081-umdk-urma-optimize-perftest-tool-parameters.patch
+Patch0082: 0082-umdk-dlock-adapt-to-urma-bondp-API-change-remove-bond-user-ctl-code.patch
+Patch0083: 0083-umdk-dlock-adapt-to-urma-API-change-set-jetty-priority-by-tp_type.patch
+Patch0084: 0084-umdk-dlock-synchronize-jetty-flush-flags-to-avoid-data-race-issue.patch
+Patch0085: 0085-umdk-udma-bugfix-related-to-clean-jfc.patch
+Patch0086: 0086-umdk-dlock-initialize-reserved-field-prevent-heap-bits-leaks.patch
+Patch0087: 0087-umdk-ums-adapt-to-ubcore-API-change-set-jetty-priority-by-tp_type.patch
+Patch0088: 0088-umdk-urma-refactor-bondp-poll-and-flush.patch
+Patch0089: 0089-umdk-urma-inline_data-add-description.patch
+Patch0090: 0090-umdk-urma-remove-legacy-bond-device-create-delete.patch
+Patch0091: 0091-umdk-urma-support-ubp-methods.patch
+Patch0092: 0092-umdk-urma-bugfix-for-libiurma-log-config.patch
+Patch0093: 0093-umdk-urma-add-max-jetty-config-check-for-urma_perftest.patch
+Patch0094: 0094-umdk-urma-fix-default-parameters-of-urma-perftest.patch
+Patch0095: 0095-umdk-urma-fix-the-issue-of-VeLinux-urma-log-not-displaying.patch
+Patch0096: 0096-umdk-urma-bugfix-perftest-display-bw-peak-err.patch
+Patch0097: 0097-umdk-urma-fix-urma_admin-agg-del.patch
+Patch0098: 0098-umdk-urma-fix-prepare-recv-wr-when-urma_perftest-send_bw.patch
+Patch0099: 0099-umdk-urma-fix-codecheck-problems.patch
+Patch0100: 0100-umdk-urma-Update-JFS-index.patch
+Patch0101: 0101-umdk-urma-support-the-perftest-O-parameter.patch
+Patch0102: 0102-umdk-urma-rctp-reuse-in-urma-bind-jetty.patch
+Patch0103: 0103-umdk-urma-support-create-agg-dev-with-explicit-dev_name.patch
+Patch0104: 0104-umdk-urma-update-validation-checks-for-single-path-and-aggregation-mode.patch
+Patch0105: 0105-umdk-urma-reduce-urma-slide-window-when-standalone.patch
+Patch0106: 0106-umdk-urma-bdp-slide-wnd-bool-function-return-value-fix.patch
+Patch0107: 0107-umdk-urma-support-custom-dev_name-in-urma_admin-agg-add-command.patch
+Patch0108: 0108-umdk-ums-fix-softirq-context-safety-in-ums_link_put.patch
+Patch0109: 0109-umdk-ums-fix-and-prevent-credits-deadlock-by-reserving-emergency-credits.patch
+Patch0110: 0110-umdk-urma-fix-bondp-balance-mode-datapath.patch
+Patch0111: 0111-umdk-urma-support-clos-port.patch
+Patch0112: 0112-umdk-urpc-enable-urma-clos-networking-and-failover.patch
+Patch0113: 0113-umdk-urma-fix-concurrency-error.patch
+Patch0114: 0114-umdk-urma-perftest-profiling-with-process.patch
+Patch0115: 0115-umdk-urma-add-urma-switch-inc.patch
+Patch0116: 0116-umdk-urma-bonding-dev-support-affinity-for-specific-iodie.patch
+Patch0117: 0117-umdk-urma-refactor-bonding-device-create-delete-context.patch
+Patch0118: 0118-umdk-urma-fix-bonding-device-cr-local_id.patch
+Patch0119: 0119-umdk-urma-fix-yum-install-error.patch
+Patch0120: 0120-umdk-urma-remove-bonding-device-unused-code.patch
+Patch0121: 0121-umdk-urma-return-wrong-when-there-are-no-send-path.patch
+Patch0122: 0122-umdk-urma-bondp-support-nl-revert-msg.patch
+Patch0123: 0123-umdk-urma-bonding-device-resend-should-keep-order.patch
+Patch0124: 0124-umdk-urma-fix-urma-log-format.patch
+Patch0125: 0125-umdk-urma-init-bondp-context-by-member-eid-info-list.patch
+Patch0126: 0126-umdk-urma-fix-wrid-0-in-empty-wr.patch
+Patch0127: 0127-umdk-urma-schedule-send-balance-should-support-iodie-leve.patch
+Patch0128: 0128-umdk-urma-recovery-backup-link.patch
+Patch0129: 0129-umdk-urma-user_space-support-profiling-by-only-UDMA.patch
+Patch0130: 0130-umdk-urma-fix-urma_perftest-single_path-compatibility.patch
+Patch0131: 0131-umdk-urma-update-bonding-device-failover-status.patch
+Patch0132: 0132-umdk-urma-bondp-support-balance-mode-recovery-link.patch
+Patch0133: 0133-umdk-urma-bonding-device-import-will-try-all-iodie.patch
+Patch0134: 0134-umdk-urma-fix-asan-build.patch
+Patch0135: 0135-umdk-urma-Add-fool-proofing-to-uvs_get_path_set-interface.patch
+Patch0136: 0136-umdk-urma-fix-bonding-device-udata-in-size.patch
+Patch0137: 0137-urma-Enable-ctp-while-using-single_path-mode-and-fix.patch
+Patch0138: 0138-umdk-urma-bugfix-for-bonding-import_jetty-jfr.patch
+Patch0139: 0139-umdk-urma-delete-pog-when-user_space-profiling.patch
+Patch0140: 0140-umdk-urma-fix-bonding-device-bug.patch
+Patch0141: 0141-umdk-urma-bonding-device-should-handle-flush_err_done-cr.patch
+Patch0142: 0142-umdk-urma-profiling-support-long-lived-thread.patch
+Patch0143: 0143-umdk-urma-bonding-tseg-and-tjetty-support-ref.patch
+Patch0144: 0144-umdk-urma-fix-tjetty-error-parameter.patch
+Patch0145: 0145-umdk-urma-support-change-log-separator.patch
+Patch0146: 0146-umdk-urma-fix-port-down-recover-error-bug.patch
+Patch0147: 0147-umdk-urma-delete-the-flushing-operation-before-delete-jetty.patch
+Patch0148: 0148-umdk-urma-bonding-device-should-not-use-wr-entry-if-jetty.patch
+Patch0149: 0149-umdk-urma-bugfix-retry-send-msg.patch
+Patch0150: 0150-umdk-urma-add-log-in-unimport_jetty-and-delete_jetty.patch
+Patch0151: 0151-umdk-urma-bonding-device-remove-target-jetty-from-vconn.patch
+Patch0152: 0152-umdk-urma-bonding-device-move-wr-buf-from-jfc-to-comp.patch
+Patch0153: 0153-umdk-urma-urma_get_perf_info-bug-fix.patch
+Patch0154: 0154-umdk-urma-fix-bonding-device-flush-err-done-handler.patch
+Patch0155: 0155-urma-bonding-schedule-send-balance-support-random-se.patch
+Patch0156: 0156-umdk-urma-filter-path-set-by-EID-type-for-FULLMESH_1D-top.patch
+Patch0157: 0157-umdk-urma-refactor-bonding-conn-api.patch
+Patch0158: 0158-umdk-urma-display-full-EID-format-in-show-topo-command.patch
+Patch0159: 0159-umdk-urma-supports-p9999-latency-statistics.patch
+Patch0160: 0160-umdk-urma-fix-bonding-standalone-rm-mode.patch
+Patch0161: 0161-umdk-urma-fix_fake_cr.patch
+Patch0162: 0162-umdk-urma-make-urma_perf_is_enabled-a-prototype.patch
+Patch0163: 0163-umdk-urma-optimize-the-log-content-output-in-the-URMA-sec.patch
+Patch0164: 0164-umdk-urma-Fixed-the-chip_id-and-die_id-validation-logic.patch
+Patch0165: 0165-umdk-urma-bonding-provider-should-parse-env-when-initiali.patch
+Patch0166: 0166-umdk-urma-bonding-balance-mode-support-fallback-to-non-af.patch
+Patch0167: 0167-umdk-urma-fix-correct-bonding-mode-opcode-mismatch-in-urm.patch
+Patch0168: 0168-umdk-urma-Wr_buf-supports-selection-from-either-jfc-or-je.patch
+Patch0169: 0169-umdk-urpc-support-qbuf-escape-and-share-flow-control-jfr.patch
+Patch0170: 0170-umdk-urma-fix-return-CONVERT_SKIP-when-comp-is-NULL.patch
+Patch0171: 0171-umdk-urma-avoid-to-record-error-log-when-failed-to-wait-jfc-with.patch
+Patch0172: 0172-umdk-urma-support-bazel-compile.patch
+Patch0173: 0173-umdk-urma-fix-the-change-of-new-interface-for-cache.patch
+Patch0174: 0174-umdk-urma-reorganize-uvs-cmake-openssl.patch
+Patch0175: 0175-umdk-urma-fix-ceqn-upper-bound-wording.patch
+Patch0176: 0176-umdk-urma-fix-warning-typo-in-support-matrix.patch
+Patch0177: 0177-umdk-urma-fix-unlimited-help-text-typo-in-urma_ping.patch
+Patch0178: 0178-umdk-urma-support-link-retransmission-counting.patch
+Patch0179: 0179-umdk-urma-change-bazel-liburma-udma-so-name.patch
+Patch0180: 0180-umdk-urma-revert-non-blocking-scene-for-JFR-deletion.patch
+Patch0181: 0181-umdk-urma-move-log-init-to-liburma_init-constructor.patch
+Patch0182: 0182-umdk-urma-add-extended-interface-for-bondp_create_jfc.patch
+Patch0183: 0183-umdk-urma-add-validation-for-port_ids-in-bondp_create_jfs-jetty.patch
+Patch0184: 0184-umdk-urma-add-extended-interface-for-bondp_create_jfr.patch
+Patch0185: 0185-umdk-urma-fix-bondp_import_jetty-mem-leak.patch
+Patch0186: 0186-umdk-urma-support-link-recovery-under-active_backup-mode.patch
+Patch0187: 0187-umdk-add-umdk-main-package.patch
+Patch0188: 0188-umdk-urma-refactor-user-dfx.patch
+Patch0189: 0189-umdk-urma-fix-RM-jetty-import-requiring-drv_ext-in-active-backup-mode.patch
+Patch0190: 0190-umdk-urma-fix-bazel-compile-problems.patch
+Patch0191: 0191-umdk-urma-fix-copy_to_usr-failed-when-create-bonding-dev-context.patch
 
 %description
 A new system interconnect architecture
@@ -169,11 +294,10 @@ libraries.
 Summary:        tools of urma
 Requires:       umdk-urma-lib = %{version}
 %description urma-tools
-tools of urma, contains  urma_perftest, urma_admin, ubagg_cli.
+tools of urma, contains  urma_perftest, urma_admin, urma_ping.
 
 %package urma-bin
 Summary:        binary file of urma
-BuildRequires:  gcc
 Requires:       glibc
 %description urma-bin
 binary file of urma
@@ -196,47 +320,17 @@ to develop applications based on urma_test.
 %endif
 %endif
 
-%if %{build_all} || %{with dlock}
-%package dlock-lib
-Summary:        Library files of dlock
-Requires:       umdk-urma-lib = %{version}
-
-%description dlock-lib
-This package contains the libdlock*.so files for the distributed lock feature.
-
-%package dlock-devel
-Summary:        Include development libraries and headers for dlock
-Requires:       umdk-dlock-lib = %{version}
-AutoReqProv:    on
-
-%description dlock-devel
-This package contains all necessary include files and libraries needed
-to develop applications based on dlock.
-
-%package dlock-example
-Summary:        Executable examples of dlock
-Requires:       umdk-dlock-lib = %{version}
-AutoReqProv:    on
-
-%description dlock-example
-This package contains all the executable examples of dlock.
-
-%files dlock-example
-%defattr(-,root,root)
-    %{_bindir}/dlock_primary_test
-    %{_bindir}/dlock_client_test
-    %{_bindir}/dlock_client_object_test
-%endif
-
 %if %{build_all} || %{with urpc}
 %package urpc-framework
 Summary:        URPC framework shared library
+BuildRequires:  openssl-devel
 Requires:       umdk-urma-lib
 %description urpc-framework
 This package contains the URPC framework shared libraries (e.g. liburpc.so).
 
 %package urpc-umq
 Summary:        URPC umq shared library
+BuildRequires:  openssl-devel
 Requires:       umdk-urma-lib
 %description urpc-umq
 This package contains the URPC umq shared libraries (e.g. libumq.so).
@@ -284,10 +378,37 @@ AutoReqProv:    on
 This package contains umq_perftest and related UMQ tools.
 %endif
 
+%if %{build_all} || %{with dlock}
+%package dlock-lib
+Summary:        Library files of dlock
+BuildRequires:  openssl-devel
+Requires:       umdk-urma-lib = %{version}
+
+%description dlock-lib
+This package contains the libdlock*.so files for the distributed lock feature.
+
+%package dlock-devel
+Summary:        Include development libraries and headers for dlock
+Requires:       umdk-dlock-lib = %{version}
+AutoReqProv:    on
+
+%description dlock-devel
+This package contains all necessary include files and libraries needed
+to develop applications based on dlock.
+
+%package dlock-example
+Summary:        Executable examples of dlock
+Requires:       umdk-dlock-lib = %{version}
+AutoReqProv:    on
+
+%description dlock-example
+This package contains all the executable examples of dlock.
+%endif
+
 %if %{with ums}
 %package ums
 Summary:        kmod file of ums
-BuildRequires:  glib2-devel, libnl3-devel
+BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
 Requires:       glib2, libnl3
 %description ums
 kmod file of ums
@@ -296,10 +417,6 @@ kmod file of ums
 Summary:        tools of ums
 %description ums-tools
 tools of ums, contains ums_run
-%endif
-
-%if "%{build_all}" == "0"
-    %global debug_package %{nil}
 %endif
 
 %prep
@@ -401,16 +518,20 @@ fi
     %{_includedir}/ub/umdk/urma/uvs_types.h
     %{_includedir}/ub/umdk/urma/udma/udma_u_ctl.h
 %if %{with gcov}
-    %dir /var/lib/ub/umdk/urma/gcov/%{name}
-    /var/lib/ub/umdk/urma/gcov/%{name}/
+    %dir /var/lib/umdk/gcov/%{name}
+    /var/lib/umdk/gcov/%{name}/
 %endif
+
+%pre urma-tools
+if [ -d /usr/bin/urma_admin ] && [ ! -L  /usr/bin/urma_admin ];then
+    rm -rf /usr/bin/urma_admin
+fi
 
 %files urma-tools
 %defattr(-,root,root)
     %{_bindir}/urma_admin
     /etc/rsyslog.d/urma_admin.conf
     %{_bindir}/urma_perftest
-    %{_bindir}/ubagg_cli
     %{_bindir}/urma_ping
 
 %post urma-tools
@@ -523,6 +644,12 @@ fi
     %{_includedir}/ub/umdk/ulock/dlock/dlock_client_api.h
     %{_includedir}/ub/umdk/ulock/dlock/dlock_types.h
     %{_includedir}/ub/umdk/ulock/dlock/dlock_server_api.h
+
+%files dlock-example
+%defattr(-,root,root)
+    %{_bindir}/dlock_primary_test
+    %{_bindir}/dlock_client_test
+    %{_bindir}/dlock_client_object_test
 %endif
 
 %if %{with ums}
@@ -537,7 +664,7 @@ if [ -d /lib/modules/$(uname -r)/kernel/net/smc ]; then
     %{__rm} -rf /lib/modules/$(uname -r)/kernel/net/smc
 fi
 if [[ %{kernel_version} != $(uname -r) ]]; then
-    %dir /lib/modules/$(uname -r)/weak-updates/drivers/ums/
+    mkdir -p /lib/modules/$(uname -r)/weak-updates/drivers/ums/
     echo "/lib/modules/%{kernel_version}/extra/ums/ums.ko" | /sbin/weak-modules --add-module --no-initramfs --verbose
 fi
 
@@ -574,6 +701,90 @@ fi
 %endif
 
 %changelog
+* Tue May 26 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B087
+- urma: fix copy to user failed problems
+* Fri May 22 2026 wujie <wujie66@huawei.com> - 25.12.0-B086
+- umdk: add umdk main package
+* Fri May 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B085
+- urma: fix bondp import jetty mem leak
+* Wed May 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B084
+- urma: support bazel compile
+* Wed May 13 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B083
+- urpc: support qbuf escape and share flow control jfr
+* Wed May 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B082
+- urma: make urma_perf_is_enabled a proper prototype (void)
+* Tue May 5 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B081
+- urma: enhance bonding schedule with random balance selection support
+* Sat May 2 2026 jilei <jilei8@huawei.com> - 25.12.0-B080
+- urma: bonding schedule send balance support random select
+* Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B079
+- urma: urma_get_perf_info bug fix
+* Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B078
+- urma: bonding device move wr buf from jfc to comp
+* Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B075
+- urma: bugfix retry send msg
+* Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B074
+* urma: bugfix bonding should not use wr entry if jetty deleted
+* Tue Apr 28 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B073
+- urma: fix double install urma error
+* Mon Apr 27 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B072
+- urma: bonding tseg and tjetty support ref
+* Mon Apr 27 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B071
+- urma: fix bonding failover issue
+* Mon Apr 20 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B070
+- urpc: enable urma CLOS networking and failover
+* Sun Apr 19 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B069
+- umdk: supports CLOS networking and failover, health checks, shared TP, and reliable link establishment.
+* Mon Apr 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B068
+- urma: fix bondp balance mode datapath
+* Thu Apr 9 2026 huying <huying21@huawei.com> - 25.12.0-B067
+- ums: fix and prevent credits deadlock by reserving emergency credits
+* Thu Apr 9 2026 huying <huying21@huawei.com> - 25.12.0-B066
+- ums: fix softirq context safety in ums_link_put
+* Wed Apr 8 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B065
+- urma: support custom dev_name in urma_admin agg add command
+* Wed Apr 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B064
+- urma: update validation checks for single path and aggregation mode
+* Thu Apr 2 2026 bishulei <bishulei@huawei.com> - 25.12.0-B063
+- urma: support create agg dev with explicit dev_name
+* Wed Apr 1 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B062
+- urma: rctp reuse in urma_bind_jetty
+* Tue Mar 31 2026 bishulei <bishulei@huawei.com> - 25.12.0-B061
+- urma: sync bugfix of urma
+* Fri Mar 27 2026 luyizhou  <luyizhou1@huawei.com> - 25.12.0-B060
+- urma: fix default parameters of urma_perftest
+* Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B059
+- urma: update version kernel commit
+* Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B058
+- urma: fix bondig poll and device create bugs
+* Tue Mar 24 2026 huying <huying21@huawei.com> - 25.12.0-B057
+- ums: adapt to ubcore API change, set jetty priority by tp_type
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B056
+- dlock: initialize reserved field, prevent heap bits leaks
+* Fri Mar 20 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B055
+- udma: fix a bug related to clean jfc
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B054
+- dlock: synchronize jetty flush flags to avoid data race issue
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B053
+- dlock: adapt to urma API change, set jetty priority by tp_type
+* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B052
+- dlock: adapt to urma bondp API change, remove bond user ctl code
+* Thu Mar 19 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B051
+- urma: perftest para optimization
+* Wed Mar 18 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B050
+- urma: update urma_admin show for bonding devices
+* Tue Mar 17 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B049
+- urma: do not parse vendor and device for bonding device
+* Mon Mar 16 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B048
+- urma: update urma_admin agg expose
+* Sat Mar 14 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B047
+- urma: support SL functionality; update bondp&urma_admin
+* Sat Mar 14 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B046
+- urma: sync for liburma and bondp implementation
+* Thu Mar 12 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B045
+- urma: cleancode fix for bondp
+* Thu Mar 12 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B044
+- urma: change uvs and urma_admin log format
 * Wed Mar 11 2026  luyicai <luyicai1994@yeah.net> - 25.12.0-B043
 - sync bugfix of urma
 * Tue Mar 10 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B042
