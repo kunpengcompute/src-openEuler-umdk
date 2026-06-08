@@ -1,0 +1,124 @@
+diff --git a/src/urma/lib/urma/config/urma.conf b/src/urma/lib/urma/config/urma.conf
+index 2b71581c8b01fa03a49e982ae8d25ed0883ead51..71af345b067acce0169529f40ce2f781db0227f9 100644
+--- a/src/urma/lib/urma/config/urma.conf
++++ b/src/urma/lib/urma/config/urma.conf
+@@ -6,4 +6,4 @@
+ $template UrmaDynamicFile,"/var/log/umdk/urma/%programname%.log"
+ $template urmaLogMsg,"%TIMESTAMP:::date-rfc3339%|%syslogseverity-text%|%programname%[%PROCID%]|%msg%\n"
+ 
+-if $msg startswith 'URMA|' then ?UrmaDynamicFile;urmaLogMsg
+\ No newline at end of file
++if $msg startswith 'URMA|liburma' then ?UrmaDynamicFile;urmaLogMsg
+\ No newline at end of file
+diff --git a/src/urma/lib/urma/core/urma_log.c b/src/urma/lib/urma/core/urma_log.c
+index 313c0ada03c77813ef71e4c2259f40df2afe25e6..37a190365fe5c27b0335af69b654c313693d70b5 100644
+--- a/src/urma/lib/urma/core/urma_log.c
++++ b/src/urma/lib/urma/core/urma_log.c
+@@ -98,6 +98,7 @@ const char *urma_log_get_thread_tag(void)
+ void urma_log_set_thread_tag(const char *tag)
+ {
+     if (tag == NULL || strnlen(tag, URMA_MAX_NAME) >= URMA_MAX_NAME) {
++        URMA_LOG_ERR("Invalid parameter.\n");
+         return;
+     }
+     (void)snprintf(g_thread_tag, sizeof(g_thread_tag), "%s", tag);
+diff --git a/src/urma/lib/uvs/config/tpsa.conf b/src/urma/lib/uvs/config/tpsa.conf
+index 1d6127e3dfe11352e8af69603c86d0c472432c46..4a6849baf8e3e2495a76154c1509401551a61bdd 100644
+--- a/src/urma/lib/uvs/config/tpsa.conf
++++ b/src/urma/lib/uvs/config/tpsa.conf
+@@ -6,4 +6,4 @@
+ $template TpsaDynamicFile,"/var/log/umdk/tpsa/%programname%.log"
+ $template tpsaLogMsg,"%TIMESTAMP:::date-rfc3339%|%syslogseverity-text%|%programname%[%PROCID%]|%msg%\n"
+ 
+-if $msg startswith 'LogTag_TPSA|' then ?TpsaDynamicFile;tpsaLogMsg
+\ No newline at end of file
++if $msg startswith 'URMA|libuvs' then ?TpsaDynamicFile;tpsaLogMsg
+\ No newline at end of file
+diff --git a/src/urma/lib/uvs/core/tpsa_log.c b/src/urma/lib/uvs/core/tpsa_log.c
+index 2df2cc1ac11077ac14f5c3c43085cac9a12cc907..3843e250ccc75bff3ab1b68c866589b8332b6e37 100644
+--- a/src/urma/lib/uvs/core/tpsa_log.c
++++ b/src/urma/lib/uvs/core/tpsa_log.c
+@@ -19,6 +19,8 @@
+ #include <sys/types.h>
+ #include <syslog.h>
+ #include <pthread.h>
++#include <unistd.h>
++#include <sys/syscall.h>
+ #include "tpsa_log.h"
+ 
+ #ifdef UNIT_TEST
+@@ -29,7 +31,8 @@
+ 
+ #define MAX_LOG_LEN 1024
+ #define MAX_PROCESS_NAME_LEN 1024
+-#define TPSA_LOG_TAG "LogTag_TPSA"
++#define URMA_LOG_TAG "URMA"
++#define LIBUVS_LOG "libuvs"
+ #define TPSA_PROCESS_PATH "/proc/self/exe"
+ 
+ static pthread_mutex_t g_tpsa_log_lock = PTHREAD_MUTEX_INITIALIZER;
+@@ -166,13 +169,14 @@ static int tpsa_vlog(const char *function, int line, unsigned int level, const c
+ 
+     int woker_idx = uvs_get_worker_idx();
+     if (woker_idx != -1) {
+-        /* add log head info, "TPSA_LOG_TAG|*tpsaprocessname*|worker_idx|function|[line]|format" */
+-        ret = snprintf(newformat, sizeof(newformat), "%s|*%s*|worker_%d|%s[%d]|%s",
+-            TPSA_LOG_TAG, g_tpsa_process_name, woker_idx, function, line, format);
++        /* add log head info, "URMA|libuvs|thread_id|*tpsaprocessname*|worker_idx|function|[line]|format" */
++        ret = snprintf(newformat, sizeof(newformat), "%s|%s|%ld|*%s*|work_%d|%s[%d]|%s",
++            URMA_LOG_TAG, LIBUVS_LOG, (long)syscall(__NR_gettid), g_tpsa_process_name,
++            woker_idx, function, line, format);
+     } else {
+-        /* add log head info, "TPSA_LOG_TAG|*tpsaprocessname*|function|[line]|format" */
+-        ret = snprintf(newformat, sizeof(newformat), "%s|*%s*|%s[%d]|%s",
+-            TPSA_LOG_TAG, g_tpsa_process_name, function, line, format);
++        /* add log head info, "URMA|libuvs|thread_id|*tpsaprocessname*|-|function|[line]|format" */
++        ret = snprintf(newformat, sizeof(newformat), "%s|%s|%ld|*%s*|-|%s[%d]|%s",
++            URMA_LOG_TAG, LIBUVS_LOG, (long)syscall(__NR_gettid), g_tpsa_process_name, function, line, format);
+     }
+ 
+     if (ret < 0 || ret >= (int)sizeof(newformat)) {
+diff --git a/src/urma/tools/urma_admin/admin_log.c b/src/urma/tools/urma_admin/admin_log.c
+index ea04c60a89361aabfec72e4725b0f17909c21631..4fab9e970a5254109f172e11300c0d5cbbf441ae 100644
+--- a/src/urma/tools/urma_admin/admin_log.c
++++ b/src/urma/tools/urma_admin/admin_log.c
+@@ -11,11 +11,14 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <syslog.h>
++#include <unistd.h>
++#include <sys/syscall.h>
+ 
+ #include "admin_log.h"
+ 
+ #define MAX_LOG_LEN                1024
+-#define URMA_ADMIN_LOG_TAG         "URMA_ADMIN_LOGTAG"
++#define URMA_LOG_TAG               "URMA"
++#define ADMIN_LOG_TAG              "urma_admin"
+ #define URMA_ADMIN_VLOG_LEVEL_INFO 6
+ 
+ static int urma_admin_vlog(const char *function, int line, const char *format, va_list va)
+@@ -24,8 +27,9 @@ static int urma_admin_vlog(const char *function, int line, const char *format, v
+     char newformat[MAX_LOG_LEN + 1] = {0};
+     char logmsg[MAX_LOG_LEN + 1] = {0};
+ 
+-    /* add log head info, "URMA_LOG_TAG|function|[line]|format" */
+-    ret = snprintf(newformat, MAX_LOG_LEN, "%s|%s[%d]|%s", URMA_ADMIN_LOG_TAG, function, line, format);
++    /* add log head info, "URMA|urma_admin|thread_id|-|function|[line]|format" */
++    ret = snprintf(newformat, MAX_LOG_LEN, "%s|%s|%ld|-|%s[%d]|%s",
++            URMA_LOG_TAG, ADMIN_LOG_TAG, (long)syscall(__NR_gettid), function, line, format);
+     if (ret <= 0 || ret >= (int)sizeof(newformat)) {
+         return ret;
+     }
+diff --git a/src/urma/tools/urma_admin/config/urma_admin.conf b/src/urma/tools/urma_admin/config/urma_admin.conf
+index fdecbd5387bfa260f55cf1e4d7437e982cf1b2c0..d7beefb316d9071cf525579f4f09bfbdf5a32bec 100644
+--- a/src/urma/tools/urma_admin/config/urma_admin.conf
++++ b/src/urma/tools/urma_admin/config/urma_admin.conf
+@@ -6,4 +6,4 @@
+ $template UrmaAdminDynamicFile,"/var/log/umdk/urma/%programname%.log"
+ $template urmaAdminLogMsg,"%TIMESTAMP:::date-rfc3339%|%syslogseverity-text%|%programname%[%PROCID%]|%msg%\n"
+ 
+-if $msg startswith 'URMA_ADMIN_LOGTAG|' then ?UrmaAdminDynamicFile;urmaAdminLogMsg
+\ No newline at end of file
++if $msg startswith 'URMA|urma_admin' then ?UrmaAdminDynamicFile;urmaAdminLogMsg
+\ No newline at end of file
