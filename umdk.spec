@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B004
+    %define rpm_release B005
 %endif
 
 Name          : umdk
@@ -540,6 +540,30 @@ fi
 %endif
 
 %changelog
+* Mon Jun 8 2026 wangxin <luyicai1994@yeah.net> - 26.06.0-B005
+-umq: modify qbuf default config in ctp mode
+-urma: performance optimization post wr
+-urma: add dfx log for bondp implement.
+-urma: Refactored the URMA Bazel build to emit layered shared libraries.
+-urma: support get tp list.
+-urpc: add param validation
+-umq: add ext_func for log_config_get
+-urma: fix log for bondp implement.
+-ums: remove auto-learn mode and enforce strict identity verification
+-umdk:modify umdk package version to 26.06.0
+-urma: increase topo max node limit to 1024
+-urma: fix umdk urma IPoURMA case fail
+-umq: flow control sge manage
+-urma: add background worker thread for bond device
+-umq: fix param validation and string terminator issues
+-umq: remove redundant code
+-fix umdk urma dev not correct
+-ums:fix codecheck issues
+-dlock:fixup update_locks_response processing out of bound bug
+-urma: enhance URMA Bazel build configuration
+-urma: Add DFX functionality for link removal and resource destruction
+-urma: improve urma_ping arg parsing and EID logging
+-umdk: fix ip over urma cases fail
 * Thu Jun 4 2026 wangxin <wangxin554@huawei.com> - 26.06.0-B004
 -urma: performance optimization post wr
 -umq: alloc a id for umq
