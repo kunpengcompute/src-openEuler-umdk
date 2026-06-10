@@ -1,0 +1,94 @@
+From 817fa64c5c4efc0da1fc9ec2a59ad29861478bb1 Mon Sep 17 00:00:00 2001
+From: zhoulingjuan <zhoulingjuan1@huawei.com>
+Date: Mon, 8 Jun 2026 19:43:00 +0800
+Subject: [PATCH] umq: change flow control sequence number to uint8_t to save
+ bits description: change flow control sequence number to uint8_t to save bits
+
+(cherry picked from commit bf4b24d2352c2be9460c47ed69b95633b49cce62)
+---
+ src/urpc/umq/umq_ub/core/flow_control/umq_ub_flow_control.c | 4 ++--
+ src/urpc/umq/umq_ub/core/private/umq_pro_ub.c               | 6 +++---
+ src/urpc/umq/umq_ub/core/private/umq_ub_private.h           | 4 ++--
+ src/urpc/umq/umq_ub/core/umq_ub_imm_data.h                  | 4 ++--
+ 4 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/src/urpc/umq/umq_ub/core/flow_control/umq_ub_flow_control.c b/src/urpc/umq/umq_ub/core/flow_control/umq_ub_flow_control.c
+index 4c5e197..bfa7c59 100644
+--- a/src/urpc/umq/umq_ub/core/flow_control/umq_ub_flow_control.c
++++ b/src/urpc/umq/umq_ub/core/flow_control/umq_ub_flow_control.c
+@@ -704,7 +704,7 @@ int umq_ub_shared_credit_req_send(ub_queue_t *queue)
+     return -UMQ_ERR_EFLOWCTL;
+ }
+ 
+-static int umq_ub_shared_credit_resp_send(ub_queue_t *queue, uint16_t notify, uint16_t seq)
++static int umq_ub_shared_credit_resp_send(ub_queue_t *queue, uint16_t notify, uint8_t seq)
+ {
+     if (queue->bind_ctx == NULL) {
+         return -UMQ_ERR_EINVAL;
+@@ -875,7 +875,7 @@ int umq_ub_shared_credit_return_req_send(ub_queue_t *queue)
+     return -UMQ_ERR_EFLOWCTL;
+ }
+ 
+-static int umq_ub_shared_credit_return_ack(ub_queue_t *queue, uint16_t return_credit, uint16_t seq)
++static int umq_ub_shared_credit_return_ack(ub_queue_t *queue, uint16_t return_credit, uint8_t seq)
+ {
+     ub_flow_control_t *fc = &queue->flow_control;
+     if (!fc->enabled || queue->bind_ctx == NULL) {
+diff --git a/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c b/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c
+index 67d2cd7..cf05407 100644
+--- a/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c
++++ b/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c
+@@ -812,9 +812,9 @@ static uint32_t umq_ub_fill_fc_buf(ub_queue_t *queue, umq_buf_t **buf, umq_buf_s
+     return 1;
+ }
+ 
+-static ALWAYS_INLINE uint16_t umq_ub_fc_seq_inc(uint16_t seq)
++static ALWAYS_INLINE uint8_t umq_ub_fc_seq_inc(uint8_t seq)
+ {
+-    uint16_t next = seq + 1;
++    uint8_t next = seq + 1;
+     return (next == 0) ? 1 : next;
+ }
+ 
+@@ -869,7 +869,7 @@ static void umq_ub_fill_rx_buff_post_process(ub_queue_t *queue, umq_ub_imm_t imm
+ 
+ static bool is_umq_ub_flow_control_msg_duplicate(ub_queue_t *real_queue, umq_ub_imm_t imm)
+ {
+-    uint16_t recv_seq = imm.flow_control.seq;
++    uint8_t recv_seq = imm.flow_control.seq;
+     ub_flow_control_t *fc = &real_queue->flow_control;
+ 
+     switch (imm.bs.type) {
+diff --git a/src/urpc/umq/umq_ub/core/private/umq_ub_private.h b/src/urpc/umq/umq_ub/core/private/umq_ub_private.h
+index 374d6b5..f8f6530 100644
+--- a/src/urpc/umq/umq_ub/core/private/umq_ub_private.h
++++ b/src/urpc/umq/umq_ub/core/private/umq_ub_private.h
+@@ -189,8 +189,8 @@ typedef struct ub_flow_control {
+     volatile bool is_credit_applying;
+     volatile uint64_t imm[UB_QUEUE_FC_MSG_TYPE_MAX];
+     umq_ub_flow_control_sge_slot_t recv_sge;
+-    uint16_t local_req_seq;
+-    uint16_t remote_expect_seq;
++    uint8_t local_req_seq;
++    uint8_t remote_expect_seq;
+ } ub_flow_control_t;
+ 
+ typedef struct umq_ub_flow_control_sge_mgr {
+diff --git a/src/urpc/umq/umq_ub/core/umq_ub_imm_data.h b/src/urpc/umq/umq_ub/core/umq_ub_imm_data.h
+index 3cb11c4..cb2495f 100644
+--- a/src/urpc/umq/umq_ub/core/umq_ub_imm_data.h
++++ b/src/urpc/umq/umq_ub/core/umq_ub_imm_data.h
+@@ -50,8 +50,8 @@ typedef union umq_ub_imm {
+         uint64_t type : 4;
+         uint64_t window : 10;
+         uint64_t ratio : 2;     // 0: 10%, 1: 30%, 2: 50%, 3: 70%, min reserved credit: modify to 70%
+-        uint64_t rsvd1 : 32;
+-        uint64_t seq : 16;
++        uint64_t rsvd1 : 40;
++        uint64_t seq : 8;
+     } flow_control;
+     struct {
+         uint64_t type : 4;
+-- 
+2.34.1
+

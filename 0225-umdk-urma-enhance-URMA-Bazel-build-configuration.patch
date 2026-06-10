@@ -1,0 +1,1711 @@
+From c6f5e3ea925251db4760330495b69965db8125ad Mon Sep 17 00:00:00 2001
+From: duelu <luyizhou1@huawei.com>
+Date: Fri, 5 Jun 2026 14:08:33 +0800
+Subject: [PATCH] urma: enhance URMA Bazel build configuration
+
+(cherry picked from commit 2f05c25cd5b2e8a632d45b1a489b35f47a71ae4a)
+---
+ README.ch.md                       |  59 +-
+ README.md                          |  57 +-
+ src/urma/.bazelrc                  |   2 +-
+ src/urma/BUILD.bazel               | 247 +++++++-
+ src/urma/WORKSPACE                 |  10 +-
+ src/urma/bazel/libummu.BUILD.bazel |  59 ++
+ src/urma/bazel/libummu_repo.bzl    |  38 ++
+ src/urma/bazel/urma_deps.bzl       |  17 +
+ src/urma/bazel/urma_shared.bzl     |  20 +-
+ src/urma/third_party/.gitignore    |   1 +
+ src/urma/urma_bazel.sh             | 942 +++++++++++++++++++++++++++++
+ 11 files changed, 1417 insertions(+), 35 deletions(-)
+ create mode 100644 src/urma/bazel/libummu.BUILD.bazel
+ create mode 100644 src/urma/bazel/libummu_repo.bzl
+ create mode 100644 src/urma/bazel/urma_deps.bzl
+ create mode 100644 src/urma/third_party/.gitignore
+ create mode 100755 src/urma/urma_bazel.sh
+
+diff --git a/README.ch.md b/README.ch.md
+index 3c13f0a..0ea3363 100644
+--- a/README.ch.md
++++ b/README.ch.md
+@@ -91,12 +91,67 @@ chmod 777 /dev/ummu/tid
+ chmod 755 /usr/lib64/liburma*
+ ```
+ 
++4. 使用 Bazel 脚本编译、打包、安装和卸载 URMA（工作区根目录：`src/urma`）
++
++在 UMDK 仓库根目录下，进入 `src/urma` 运行脚本。脚本会在编译前检查编译依赖，并在安装前检查运行依赖；已满足的依赖不会处理，缺失的依赖会通过 `yum install -y` 安装。因此请确认 yum 源可用，并在存在缺失依赖时使用具备安装权限的用户执行。
++
++```bash
++cd src/urma
++# 典型 AArch64 Release 包构建，包含 UDMA 和 libummu。
++./urma_bazel.sh compile --config=release --config=arm64 --define=build_udma=true
++```
++
++`compile` 命令会通过 Bazel 构建固定的 URMA 打包产物，生成与 RPM 安装效果对齐的 rootfs，写入 `metadata/urma_version`，并在 `src/urma` 下生成 `urma-bazel-<timestamp>.tar.gz`。打包完成后，脚本会清理中间产物，包括 `urma_version`、`bazel-urma-package` 和 Bazel 便捷软链接。
++
++该流程不需要手动安装或链接系统中的 `libummu`。脚本会从 `src/urma/WORKSPACE` 或 `src/urma/bazel/urma_deps.bzl` 读取 `LIBUMMU_REMOTE`、`LIBUMMU_COMMIT`、`LIBUMMU_VERSION` 和 `LIBUMMU_ABI_VERSION`，将指定 commit 拉取到 `src/urma/third_party/libummu`，通过 Bazel 编译，并随 URMA 一起打入 tar 包。
++
++如果环境上已经存在 `libummu`，当前逻辑如下：
++
++- `compile` 不使用系统已安装的 `libummu`，始终使用 `src/urma/third_party/libummu` 中配置 commit 对应的源码。
++- `install` 会安装 tar 包内置的 `libummu` 文件；如果 `/usr/lib64/libummu.so*` 等同路径文件或软链接已存在，会被包内产物替换。
++- `remove` 不会卸载通过 yum 安装的三方依赖，也不会删除随包安装的 `libummu` 内容。
++
++`compile` 后面的参数会继续传给 `bazel build`，因此仍可按需选择架构和诊断配置：
++
++```bash
++cd src/urma
++
++# x86_64 Release 包构建。
++./urma_bazel.sh compile --config=release --config=x86_64 --define=build_udma=true
++
++# Debug + AddressSanitizer / LeakSanitizer。
++./urma_bazel.sh compile --config=debug --config=asan --define=build_udma=true
++
++# 开启 ThreadSanitizer，并启用周期性能统计。
++./urma_bazel.sh compile --config=tsan --define=perf_cycle=true --define=build_udma=true
++```
++
++将生成的 tar 包复制到目标环境后，解压并使用包内脚本安装。`install` 和 `remove` 需要使用 **root** 或 **sudo** 执行；脚本会按 `metadata/install_manifest` 安装文件，刷新 `ldconfig`，在存在 `restorecon` 时恢复 SELinux 上下文，并在可用时重启 rsyslog。`remove` 命令只卸载 manifest 中的 URMA/UDMA/TPSA 自有安装内容，不会卸载通过 yum 安装的三方库，也会保留随包安装的 libummu 内容。
++
++```bash
++# 在目标环境执行。
++mkdir -p /tmp/urma-bazel
++tar -xzf urma-bazel-<timestamp>.tar.gz -C /tmp/urma-bazel
++/tmp/urma-bazel/urma_bazel.sh install
++
++# 后续卸载 URMA/UDMA/TPSA 打包安装内容。
++/tmp/urma-bazel/urma_bazel.sh remove
++```
++
++也可以直接从归档文件执行安装或卸载：
++
++```bash
++cd src/urma
++./urma_bazel.sh install urma-bazel-<timestamp>.tar.gz
++./urma_bazel.sh remove urma-bazel-<timestamp>.tar.gz
++```
++
+ #### 四、参与贡献
+ 
+-我们非常欢迎开发者提交贡献, 如果您发现了一个bug或者有一些想法想要交流，欢迎[发邮件到dev列表](https://openeuler.org/zh/community/mailing-list) 或者[提交一个issue](https://gitee.com/openeuler/umdk/issues) 。
++我们非常欢迎开发者提交贡献, 如果您发现了一个bug或者有一些想法想要交流，欢迎[发邮件到dev列表](https://openeuler.org/zh/community/mailing-list) 或者[提交一个issue](https://atomgit.com/openeuler/umdk/issues) 。
+ 
+ #### 五、许可
+ 
+ 代码使用的许可证详见[LICENSES](./LICENSES/README)
+ 
+-doc目录下的文档使用许可证详见[LICENSE](./doc/LICENSE)
+\ No newline at end of file
++doc目录下的文档使用许可证详见[LICENSE](./doc/LICENSE)
+diff --git a/README.md b/README.md
+index fd0a0a8..79eb180 100644
+--- a/README.md
++++ b/README.md
+@@ -90,9 +90,64 @@ chmod 777 /dev/ummu/tid
+ chmod 755 /usr/lib64/liburma*
+ ```
+ 
++4. Build, package, install, and remove URMA with the Bazel script (workspace root: `src/urma`)
++
++From the UMDK repository root, run the script from `src/urma`. The script checks build dependencies before compiling and runtime dependencies before installing. Already satisfied dependencies are left untouched; missing dependencies are installed with `yum install -y`, so make sure yum repositories are configured and the command is run with sufficient privileges when dependencies are absent.
++
++```bash
++cd src/urma
++# Typical release package for AArch64, including UDMA and libummu.
++./urma_bazel.sh compile --config=release --config=arm64 --define=build_udma=true
++```
++
++The `compile` command builds the fixed URMA package payload with Bazel, stages RPM-equivalent install content, writes `metadata/urma_version`, and creates `urma-bazel-<timestamp>.tar.gz` in `src/urma`. It also removes intermediate files after packaging, including `urma_version`, `bazel-urma-package`, and Bazel convenience symlinks.
++
++Do not install or link against a manually built system `libummu` for this flow. The script reads `LIBUMMU_REMOTE`, `LIBUMMU_COMMIT`, `LIBUMMU_VERSION`, and `LIBUMMU_ABI_VERSION` from `src/urma/WORKSPACE` or `src/urma/bazel/urma_deps.bzl`, fetches that commit into `src/urma/third_party/libummu`, builds it with Bazel, and packages libummu together with URMA.
++
++If `libummu` already exists on the environment, the behavior is:
++
++- `compile` ignores the system-installed `libummu`; it always uses `src/urma/third_party/libummu` at the configured commit.
++- `install` installs the bundled `libummu` files from the tarball. Existing files or symlinks at the same paths, such as `/usr/lib64/libummu.so*`, are replaced by the packaged payload.
++- `remove` does not uninstall third-party yum dependencies and does not remove the bundled `libummu` payload.
++
++Extra arguments after `compile` are passed to `bazel build`, so architecture and diagnostic configurations can still be selected by the caller:
++
++```bash
++cd src/urma
++
++# Release package for x86_64.
++./urma_bazel.sh compile --config=release --config=x86_64 --define=build_udma=true
++
++# Debug + AddressSanitizer / LeakSanitizer.
++./urma_bazel.sh compile --config=debug --config=asan --define=build_udma=true
++
++# ThreadSanitizer with cycle profiling enabled.
++./urma_bazel.sh compile --config=tsan --define=perf_cycle=true --define=build_udma=true
++```
++
++Copy the generated tarball to the target environment, extract it, and install with the packaged script. Run `install` and `remove` as root or with `sudo`; the script installs files according to `metadata/install_manifest`, refreshes `ldconfig`, restores SELinux contexts when `restorecon` is available, and restarts rsyslog when available. The `remove` command removes the URMA/UDMA/TPSA payload from the manifest, but leaves third-party libraries installed by yum and the bundled libummu payload in place.
++
++```bash
++# On the target environment.
++mkdir -p /tmp/urma-bazel
++tar -xzf urma-bazel-<timestamp>.tar.gz -C /tmp/urma-bazel
++/tmp/urma-bazel/urma_bazel.sh install
++
++# Remove the installed URMA/UDMA/TPSA payload later.
++/tmp/urma-bazel/urma_bazel.sh remove
++```
++
++The script can also install or remove directly from an archive:
++
++```bash
++cd src/urma
++./urma_bazel.sh install urma-bazel-<timestamp>.tar.gz
++./urma_bazel.sh remove urma-bazel-<timestamp>.tar.gz
++```
++
+ #### 4. Contributing
+ 
+-We warmly welcome contributions from developers. If you have discovered a bug or would like to discuss ideas, please feel free to [send an email to the development mailing list](https://openeuler.org/zh/community/mailing-list) or [submit an issue](https://gitee.com/openeuler/umdk/issues) 。
++We warmly welcome contributions from developers. If you have discovered a bug or would like to discuss ideas, please feel free to [send an email to the development mailing list](https://openeuler.org/zh/community/mailing-list) or [submit an issue](https://atomgit.com/openeuler/umdk/issues) 。
+ 
+ #### 5. LICENSES
+ 
+diff --git a/src/urma/.bazelrc b/src/urma/.bazelrc
+index 3bfed77..6d5ce44 100644
+--- a/src/urma/.bazelrc
++++ b/src/urma/.bazelrc
+@@ -11,7 +11,7 @@ build --copt=-Wtrampolines
+ build --copt=-fno-strict-aliasing
+ build --copt=-fstack-protector-strong
+ build --copt=-fPIC
+-build --copt=-std=gnu99
++build --conlyopt=-std=gnu99
+ build --linkopt=-Wl,-z,noexecstack
+ build --linkopt=-Wl,-z,relro
+ build --linkopt=-Wl,-z,now
+diff --git a/src/urma/BUILD.bazel b/src/urma/BUILD.bazel
+index 779092c..871133c 100644
+--- a/src/urma/BUILD.bazel
++++ b/src/urma/BUILD.bazel
+@@ -1,6 +1,7 @@
+ package(default_visibility = ["//visibility:public"])
+ 
+ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
++load("//bazel:urma_deps.bzl", "LIBUMMU_ABI_VERSION", "LIBUMMU_RUNTIME_LINKOPTS")
+ load("//bazel:urma_shared.bzl", "urma_dynamic_linkopts", "urma_linklib_inputs", "urma_shared_library", "urma_shared_library_static_dep")
+ 
+ config_setting(
+@@ -9,10 +10,94 @@ config_setting(
+ )
+ 
+ config_setting(
+-    name = "build_udma_enabled",
+-    values = {"define": "build_udma=true"},
++    name = "build_udma_disabled",
++    values = {"define": "build_udma=false"},
+ )
+ 
++config_setting(
++    name = "udma_st64b_disabled",
++    values = {"define": "udma_st64b_disable=true"},
++)
++
++config_setting(
++    name = "cpu_aarch64",
++    values = {"cpu": "aarch64"},
++)
++
++config_setting(
++    name = "cpu_x86_64",
++    values = {"cpu": "k8"},
++)
++
++config_setting(
++    name = "cpu_x86_64_legacy",
++    values = {"cpu": "x86_64"},
++)
++
++config_setting(
++    name = "cpu_x86_64_cross",
++    values = {
++        "cpu": "k8",
++        "define": "X86_CROSS_COMPILATION=enable",
++    },
++)
++
++config_setting(
++    name = "cpu_x86_64_legacy_cross",
++    values = {
++        "cpu": "x86_64",
++        "define": "X86_CROSS_COMPILATION=enable",
++    },
++)
++
++URMA_ARCH_COPTS = select({
++    ":cpu_aarch64": [
++        "-march=armv8-a+crc",
++        "-DUB_ARCH_ARM64",
++    ],
++    ":cpu_x86_64_cross": [
++        "-DUB_ARCH_X86_64",
++    ],
++    ":cpu_x86_64_legacy_cross": [
++        "-DUB_ARCH_X86_64",
++    ],
++    ":cpu_x86_64": [
++        "-msse4.2",
++        "-DUB_ARCH_X86_64",
++    ],
++    ":cpu_x86_64_legacy": [
++        "-msse4.2",
++        "-DUB_ARCH_X86_64",
++    ],
++    "//conditions:default": [],
++})
++
++URMA_COMMON_COPTS = [
++    "-std=gnu99",
++    "-U_FORTIFY_SOURCE",
++    "-D_FORTIFY_SOURCE=2",
++    "-fno-strict-aliasing",
++    "-fstack-protector-strong",
++    "-fPIC",
++] + URMA_ARCH_COPTS
++
++URMA_TOOL_COPTS = URMA_COMMON_COPTS + [
++    "-fPIE",
++]
++
++URMA_TOOL_LINKOPTS = [
++    "-pie",
++]
++
++URMA_UDMA_COPTS = URMA_COMMON_COPTS + [
++    "-fno-common",
++    "-Werror=implicit-function-declaration",
++    "-ftrapv",
++] + select({
++    ":udma_st64b_disabled": [],
++    "//conditions:default": ["-DST64B"],
++})
++
+ URMA_COMMON_SRCS = glob(
+     ["common/*.c"],
+     exclude = ["common/ub_perf_cycle.c"],
+@@ -37,8 +122,9 @@ urma_shared_library(
+     srcs = URMA_COMMON_SRCS,
+     hdrs = glob(["common/include/**/*.h"]),
+     includes = ["common/include"],
+-    copts = ["-std=gnu99"],
++    copts = URMA_COMMON_COPTS,
+     linkopts = URMA_COMMON_LINKOPTS,
++    soname = "liburma_common.so.0",
+ )
+ 
+ cc_library(
+@@ -67,10 +153,11 @@ urma_shared_library(
+         "lib/urma/core",
+         "lib/urma/core/include",
+     ],
+-    copts = ["-std=gnu99"],
++    copts = URMA_COMMON_COPTS,
+     compile_deps = [":urma_common_headers"],
+     dynamic_lib_names = ["urma_common"],
+     linkopts = ["-ldl", "-lrt"],
++    soname = "liburma.so.0",
+ )
+ 
+ urma_shared_library(
+@@ -86,16 +173,16 @@ urma_shared_library(
+         "lib/urma/bond/include",
+         "lib/urma/bond/utils",
+     ],
+-    copts = [
+-        "-std=gnu99",
++    copts = URMA_COMMON_COPTS + [
+         "-I/usr/include/libnl3",
+     ],
+     compile_deps = [
+         ":urma_common_headers",
+         ":urma_headers",
+     ],
+-    dynamic_lib_names = ["urma"],
++    dynamic_lib_names = ["urma", "urma_common"],
+     linkopts = ["-lnl-genl-3", "-lnl-3"],
++    soname = "liburma_ubagg.so.0",
+ )
+ 
+ urma_shared_library_static_dep(
+@@ -111,8 +198,7 @@ urma_shared_library_static_dep(
+         "lib/uvs/core",
+         "lib/uvs/core/include",
+     ],
+-    copts = [
+-        "-std=gnu99",
++    copts = URMA_COMMON_COPTS + [
+         "-I/usr/include/libnl3",
+     ],
+     static_deps = [
+@@ -123,8 +209,8 @@ urma_shared_library_static_dep(
+     linkopts = [
+         "-lnl-genl-3",
+         "-lnl-3",
+-        "-lz",
+     ],
++    soname = "libtpsa.so.0",
+ )
+ 
+ cc_library(
+@@ -137,13 +223,28 @@ alias(
+     actual = ":tpsa",
+ )
+ 
+-_UMMU_LINKLIB_DIR = "-L$(GENDIR)/external/libummu/linklib"
++cc_binary(
++    name = "ummu",
++    linkshared = True,
++    deps = ["@libummu//:ummu_internal"],
++    linkopts = [
++        "-Wl,-z,relro,-z,now",
++        "-Wl,-soname,libummu.so." + LIBUMMU_ABI_VERSION,
++    ] + LIBUMMU_RUNTIME_LINKOPTS,
++)
++
++genrule(
++    name = "ummu_linklib",
++    srcs = [":ummu"],
++    outs = ["linklib/libummu.so"],
++    cmd = "mkdir -p $(@D) && cp $(location :ummu) $@",
++)
+ 
+ cc_library(
+     name = "urma_udma_internal",
+     srcs = select({
+-        ":build_udma_enabled": glob(["hw/udma/*.c"]),
+-        "//conditions:default": [],
++        ":build_udma_disabled": [],
++        "//conditions:default": glob(["hw/udma/*.c"]),
+     }),
+     hdrs = glob([
+         "hw/udma/*.h",
+@@ -157,16 +258,16 @@ cc_library(
+         "lib/urma/core",
+         "lib/urma/core/include",
+     ],
+-    copts = ["-std=gnu99"],
++    copts = URMA_UDMA_COPTS,
+     deps = select({
+-        ":build_udma_enabled": [
++        ":build_udma_disabled": [
+             ":urma_common_headers",
+             ":urma_headers",
+-            "@libummu//:ummu_api",
+         ],
+         "//conditions:default": [
+             ":urma_common_headers",
+             ":urma_headers",
++            "@libummu//:ummu_api",
+         ],
+     }),
+     linkstatic = True,
+@@ -178,18 +279,20 @@ cc_binary(
+     linkshared = True,
+     deps = [":urma_udma_internal"],
+     additional_linker_inputs = select({
+-        ":build_udma_enabled": urma_linklib_inputs(["urma", "urma_common"]) + [
+-            "@libummu//:ummu_linklib",
++        ":build_udma_disabled": [],
++        "//conditions:default": urma_linklib_inputs(["urma", "urma_common"]) + [
++            ":ummu_linklib",
+         ],
+-        "//conditions:default": [],
+     }),
+     linkopts = select({
+-        ":build_udma_enabled": urma_dynamic_linkopts(
++        ":build_udma_disabled": [],
++        "//conditions:default": urma_dynamic_linkopts(
+             ["urma", "urma_common"],
+-            extra_dirs = [_UMMU_LINKLIB_DIR],
+-            extra_libs = ["-lummu"],
++            extra_libs = [
++                "-Wl,-soname,liburma-udma.so",
++                "-lummu",
++            ],
+         ),
+-        "//conditions:default": [],
+     }),
+ )
+ 
+@@ -204,3 +307,101 @@ alias(
+     name = "hw_udma",
+     actual = ":urma-udma",
+ )
++
++cc_binary(
++    name = "urma_admin",
++    srcs = glob([
++        "tools/urma_admin/*.c",
++        "tools/urma_admin/*.h",
++    ]),
++    includes = [
++        "common/include",
++        "lib/urma/core/include",
++        "tools/urma_admin",
++    ],
++    copts = URMA_TOOL_COPTS + [
++        "-I/usr/include/libnl3",
++    ],
++    additional_linker_inputs = urma_linklib_inputs(["urma", "urma_common"]),
++    linkopts = URMA_TOOL_LINKOPTS + urma_dynamic_linkopts(
++        ["urma", "urma_common"],
++        extra_libs = [
++            "-lnl-genl-3",
++            "-lnl-3",
++        ],
++    ),
++    deps = [
++        ":urma_common_headers",
++        ":urma_headers",
++    ],
++)
++
++cc_binary(
++    name = "urma_perftest",
++    srcs = glob([
++        "tools/urma_perftest/*.c",
++        "tools/urma_perftest/*.h",
++        "lib/urma/bond/include/*.h",
++    ]),
++    includes = [
++        "common/include",
++        "lib/urma/bond/include",
++        "lib/urma/core/include",
++        "tools/urma_perftest",
++    ],
++    copts = URMA_TOOL_COPTS,
++    additional_linker_inputs = urma_linklib_inputs(["urma", "urma_common"]),
++    linkopts = URMA_TOOL_LINKOPTS + urma_dynamic_linkopts(
++        ["urma", "urma_common"],
++        extra_libs = [
++            "-lpthread",
++            "-lm",
++        ],
++    ),
++    deps = [
++        ":urma_common_headers",
++        ":urma_headers",
++    ],
++)
++
++cc_binary(
++    name = "urma_ping",
++    srcs = glob([
++        "lib/uvs/core/include/*.h",
++        "tools/urma_ping/*.c",
++        "tools/urma_ping/*.h",
++    ]),
++    includes = [
++        "common/include",
++        "lib/urma/core/include",
++        "lib/uvs/core/include",
++        "tools/urma_ping",
++    ],
++    copts = URMA_TOOL_COPTS,
++    additional_linker_inputs = urma_linklib_inputs(["urma", "tpsa", "urma_common"]),
++    linkopts = URMA_TOOL_LINKOPTS + urma_dynamic_linkopts(
++        ["urma", "tpsa", "urma_common"],
++        extra_libs = [
++            "-lm",
++            "-lnl-genl-3",
++            "-lnl-3",
++        ],
++    ),
++    deps = [
++        ":urma_common_headers",
++        ":urma_headers",
++    ],
++)
++
++cc_binary(
++    name = "urma_sample",
++    srcs = ["examples/urma_sample.c"],
++    includes = ["lib/urma/core/include"],
++    copts = URMA_TOOL_COPTS,
++    additional_linker_inputs = urma_linklib_inputs(["urma", "urma_common"]),
++    linkopts = URMA_TOOL_LINKOPTS + urma_dynamic_linkopts(
++        ["urma", "urma_common"],
++        extra_libs = ["-lpthread"],
++    ),
++    deps = [":urma_headers"],
++)
+diff --git a/src/urma/WORKSPACE b/src/urma/WORKSPACE
+index 0945edd..3dd2793 100644
+--- a/src/urma/WORKSPACE
++++ b/src/urma/WORKSPACE
+@@ -4,12 +4,14 @@
+ workspace(name = "com_atomgit_openeuler_umdk_urma")
+ 
+ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+-load("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
++load("//bazel:urma_deps.bzl", "LIBUMMU_ABI_VERSION", "LIBUMMU_COMMIT", "LIBUMMU_REMOTE", "LIBUMMU_VERSION")
++load("//bazel:libummu_repo.bzl", "libummu_local_repository")
+ 
+-# libummu source tree (sibling of umdk checkout under urma_workspace).
+-local_repository(
++# libummu source tree managed by urma_bazel.sh.
++libummu_local_repository(
+     name = "libummu",
+-    path = "../../../libummu",
++    path = "third_party/libummu",
++    build_file = "//bazel:libummu.BUILD.bazel",
+ )
+ 
+ # Preload repositories that Bazel 7+ pulls from `DEFAULT.WORKSPACE.SUFFIX`
+diff --git a/src/urma/bazel/libummu.BUILD.bazel b/src/urma/bazel/libummu.BUILD.bazel
+new file mode 100644
+index 0000000..394130f
+--- /dev/null
++++ b/src/urma/bazel/libummu.BUILD.bazel
+@@ -0,0 +1,59 @@
++package(default_visibility = ["//visibility:public"])
++
++load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
++
++UMMU_SRCS = glob(["*.c", "*.cpp"])
++
++UMMU_HDRS = glob([
++    "*.h",
++    "include/*.h",
++    "kernel_headers/*.h",
++])
++
++UMMU_INCLUDES = [
++    "include",
++    "kernel_headers",
++]
++
++UMMU_COPTS = [
++    "-U_FORTIFY_SOURCE",
++    "-D_FORTIFY_SOURCE=2",
++    "-fstack-protector-all",
++    "-fno-common",
++]
++
++cc_library(
++    name = "ummu_internal",
++    srcs = UMMU_SRCS,
++    hdrs = UMMU_HDRS,
++    includes = UMMU_INCLUDES,
++    copts = UMMU_COPTS,
++    cxxopts = [
++        "-std=c++11",
++        "-Wno-error",
++    ],
++    alwayslink = True,
++    linkstatic = True,
++)
++
++cc_binary(
++    name = "ummu",
++    linkshared = True,
++    deps = [":ummu_internal"],
++    linkopts = [
++        "-Wl,-z,relro,-z,now",
++    ],
++)
++
++genrule(
++    name = "ummu_linklib",
++    srcs = [":ummu"],
++    outs = ["linklib/libummu.so"],
++    cmd = "mkdir -p $(@D) && cp $(location :ummu) $@",
++)
++
++cc_library(
++    name = "ummu_api",
++    hdrs = UMMU_HDRS,
++    includes = UMMU_INCLUDES,
++)
+diff --git a/src/urma/bazel/libummu_repo.bzl b/src/urma/bazel/libummu_repo.bzl
+new file mode 100644
+index 0000000..cbea107
+--- /dev/null
++++ b/src/urma/bazel/libummu_repo.bzl
+@@ -0,0 +1,38 @@
++"""Local libummu repository overlay for URMA Bazel builds."""
++
++def _libummu_local_repository_impl(repository_ctx):
++    build_file = repository_ctx.path(repository_ctx.attr.build_file)
++    workspace_dir = build_file.dirname.dirname
++    src = repository_ctx.path(str(workspace_dir) + "/" + repository_ctx.attr.path)
++
++    if not src.exists:
++        fail("libummu source path does not exist: {}".format(src))
++    if not build_file.exists:
++        fail("libummu BUILD overlay does not exist: {}".format(build_file))
++
++    repository_ctx.file("WORKSPACE", 'workspace(name = "{}")\n'.format(repository_ctx.name))
++    repository_ctx.symlink(build_file, "BUILD.bazel")
++
++    result = repository_ctx.execute([
++        "bash",
++        "-c",
++        "cd \"$1\" && find . -mindepth 1 -maxdepth 1 "
++        + "! -name .git ! -name BUILD ! -name BUILD.bazel ! -name WORKSPACE -printf '%P\\n'",
++        "find-libummu-files",
++        str(src),
++    ])
++    if result.return_code != 0:
++        fail("failed to enumerate libummu source files: {}".format(result.stderr))
++
++    for rel in result.stdout.splitlines():
++        if rel:
++            repository_ctx.symlink(str(src) + "/" + rel, rel)
++
++libummu_local_repository = repository_rule(
++    implementation = _libummu_local_repository_impl,
++    attrs = {
++        "build_file": attr.label(allow_single_file = True, mandatory = True),
++        "path": attr.string(mandatory = True),
++    },
++    local = True,
++)
+diff --git a/src/urma/bazel/urma_deps.bzl b/src/urma/bazel/urma_deps.bzl
+new file mode 100644
+index 0000000..e7fe322
+--- /dev/null
++++ b/src/urma/bazel/urma_deps.bzl
+@@ -0,0 +1,17 @@
++"""Versioned external dependency configuration for URMA Bazel builds."""
++
++LIBUMMU_REMOTE = "https://gitcode.com/openeuler/libummu.git"
++LIBUMMU_COMMIT = "d28a6b1096f1214f9d3185b41537cde06d5e6233"
++LIBUMMU_VERSION = "1.0.3"
++LIBUMMU_ABI_VERSION = "1"
++
++# Keep runtime libraries explicit so libummu has the same direct dependencies
++# when built through Bazel, without hard-coding an architecture-specific loader.
++LIBUMMU_RUNTIME_LINKOPTS = [
++    "-Wl,--no-as-needed",
++    "-lstdc++",
++    "-lm",
++    "-lgcc_s",
++    "-lc",
++    "-Wl,--as-needed",
++]
+diff --git a/src/urma/bazel/urma_shared.bzl b/src/urma/bazel/urma_shared.bzl
+index afacbd0..1a4f92b 100644
+--- a/src/urma/bazel/urma_shared.bzl
++++ b/src/urma/bazel/urma_shared.bzl
+@@ -40,6 +40,7 @@ def urma_shared_library(
+         linkopts = [],
+         dynamic_lib_names = [],
+         extra_link_dirs = None,
++        soname = None,
+         visibility = None):
+     """Emit ``{name}_internal``, ``{name}`` (.so), and ``{name}_linklib``."""
+     internal = name + "_internal"
+@@ -60,15 +61,21 @@ def urma_shared_library(
+ 
+     shared_linkopts = linkopts
+     shared_inputs = []
++    soname_linkopts = []
++    if soname:
++        soname_linkopts = ["-Wl,-soname," + soname]
++
+     if dynamic_lib_names:
+         shared_inputs = urma_linklib_inputs(dynamic_lib_names)
+         shared_linkopts = urma_dynamic_linkopts(
+             dynamic_lib_names,
+             extra_dirs = extra_link_dirs,
+-            extra_libs = linkopts,
++            extra_libs = soname_linkopts + linkopts,
+         )
+     elif linkopts:
+-        shared_linkopts = _LINK_NO_AS_NEEDED + linkopts + _LINK_AS_NEEDED
++        shared_linkopts = _LINK_NO_AS_NEEDED + soname_linkopts + linkopts + _LINK_AS_NEEDED
++    elif soname_linkopts:
++        shared_linkopts = soname_linkopts
+ 
+     cc_binary(
+         name = name,
+@@ -96,6 +103,7 @@ def urma_shared_library_static_dep(
+         cxxopts = [],
+         static_deps = [],
+         linkopts = [],
++        soname = None,
+         visibility = None):
+     """Shared library that statically links ``static_deps`` (e.g. tpsa + urma_common)."""
+     internal = name + "_internal"
+@@ -114,9 +122,13 @@ def urma_shared_library_static_dep(
+         visibility = vis,
+     )
+ 
+-    static_linkopts = linkopts
++    soname_linkopts = []
++    if soname:
++        soname_linkopts = ["-Wl,-soname," + soname]
++
++    static_linkopts = soname_linkopts + linkopts
+     if linkopts:
+-        static_linkopts = _LINK_NO_AS_NEEDED + linkopts + _LINK_AS_NEEDED
++        static_linkopts = _LINK_NO_AS_NEEDED + soname_linkopts + linkopts + _LINK_AS_NEEDED
+ 
+     cc_binary(
+         name = name,
+diff --git a/src/urma/third_party/.gitignore b/src/urma/third_party/.gitignore
+new file mode 100644
+index 0000000..1059bbb
+--- /dev/null
++++ b/src/urma/third_party/.gitignore
+@@ -0,0 +1 @@
++libummu/
+diff --git a/src/urma/urma_bazel.sh b/src/urma/urma_bazel.sh
+new file mode 100755
+index 0000000..c0fb14f
+--- /dev/null
++++ b/src/urma/urma_bazel.sh
+@@ -0,0 +1,942 @@
++#!/usr/bin/env bash
++# SPDX-License-Identifier: MIT
++# Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++
++set -euo pipefail
++
++SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
++WORKSPACE_DIR="${SCRIPT_DIR}"
++PACKAGE_NAME="urma-bazel"
++LIBDIR="/usr/lib64"
++BINDIR="/usr/bin"
++INCLUDEDIR="/usr/include/ub/umdk/urma"
++DOCDIR="/usr/share/doc/umdk-examples/urma_example"
++UMMU_INCLUDEDIR="/usr/include"
++UMMU_DOCDIR="/usr/share/doc/ub/libummu"
++MANDIR="/usr/share/man/man3"
++ROOTFS_DIR="rootfs"
++METADATA_DIR="metadata"
++INSTALL_MANIFEST="install_manifest"
++THIRD_PARTY_DIR="${WORKSPACE_DIR}/third_party"
++LIBUMMU_DIR="${THIRD_PARTY_DIR}/libummu"
++
++BUILD_DEPENDENCY_PACKAGES=(
++    "bazel"
++    "git"
++    "gcc"
++    "gcc-c++"
++    "glibc-devel"
++    "libnl3-devel"
++    "tar"
++    "gzip"
++)
++
++RUNTIME_DEPENDENCY_PACKAGES=(
++    "glibc"
++    "libgcc"
++    "libstdc++"
++    "libnl3"
++)
++
++ARCHIVE_TOOL_PACKAGES=(
++    "tar"
++    "gzip"
++)
++
++BAZEL_TARGETS=(
++    "//:ummu"
++    "//:urma"
++    "//:urma_common"
++    "//:urma_ubagg"
++    "//:urma-udma"
++    "//:tpsa"
++    "//:urma_admin"
++    "//:urma_perftest"
++    "//:urma_ping"
++    "//:urma_sample"
++)
++
++usage()
++{
++    cat <<EOF
++Usage:
++  $0 <command> [options]
++
++Commands:
++  compile [bazel build args...]
++      Build URMA and libummu with Bazel, stage the install payload, and
++      create a ${PACKAGE_NAME}-<timestamp>.tar.gz package in the workspace.
++      Any extra arguments are passed directly to 'bazel build'.
++
++  install [package.tar.gz]
++      Install files from a generated package. If no package is provided, run
++      this command from an extracted package directory and it installs the
++      package beside this script.
++
++  remove [package.tar.gz|extracted_package_dir]
++      Remove files listed in the package install manifest. If no argument is
++      provided, run this command from an extracted package directory and it
++      removes the package beside this script.
++      Third-party dependencies installed by yum, and the bundled libummu
++      payload, are left installed.
++
++  help, -h, --help
++      Show this help message.
++
++Examples:
++  # Build a release package for AArch64 with the UDMA provider enabled.
++  $0 compile --config=release --config=arm64 --define=build_udma=true
++
++  # Install directly from a generated package archive.
++  $0 install ${PACKAGE_NAME}-20260605120000.tar.gz
++
++  # Extract a package, then install from the extracted package directory.
++  tar -xzf ${PACKAGE_NAME}-20260605120000.tar.gz -C /tmp/urma-bazel
++  /tmp/urma-bazel/urma_bazel.sh install
++
++  # Remove files by reading the manifest from a generated package archive.
++  $0 remove ${PACKAGE_NAME}-20260605120000.tar.gz
++
++  # Remove files by running the script from an extracted package directory.
++  /tmp/urma-bazel/urma_bazel.sh remove
++
++Notes:
++  - The compile and install commands check required yum dependencies first.
++    Already satisfied dependencies are left untouched; missing dependencies are
++    installed with 'yum install -y'.
++  - The compile command fetches the configured libummu commit into
++    ${THIRD_PARTY_DIR}/libummu and builds it through Bazel.
++  - The install command refreshes ldconfig and restarts rsyslog when available.
++  - The remove command does not uninstall third-party libraries.
++EOF
++}
++
++need_cmd()
++{
++    if ! command -v "$1" >/dev/null 2>&1; then
++        echo "Error: command '$1' not found" >&2
++        exit 1
++    fi
++}
++
++append_unique()
++{
++    local value="$1"
++    shift
++    local item
++
++    for item in "$@"; do
++        if [ "${item}" = "${value}" ]; then
++            return
++        fi
++    done
++    printf '%s\n' "${value}"
++}
++
++library_glob_exists()
++{
++    local pattern="$1"
++    local dir
++
++    for dir in /lib64 /usr/lib64 /lib /usr/lib; do
++        if compgen -G "${dir}/${pattern}" >/dev/null; then
++            return 0
++        fi
++    done
++    return 1
++}
++
++library_exists()
++{
++    local library="$1"
++
++    if command -v ldconfig >/dev/null 2>&1 &&
++        ldconfig -p 2>/dev/null | awk '{print $1}' | grep -Fxq "${library}"; then
++        return 0
++    fi
++    library_glob_exists "${library}"
++}
++
++libnl3_devel_exists()
++{
++    if command -v pkg-config >/dev/null 2>&1 &&
++        pkg-config --exists libnl-3.0 libnl-genl-3.0; then
++        return 0
++    fi
++
++    [ -f /usr/include/libnl3/netlink/netlink.h ] &&
++        library_glob_exists "libnl-3.so" &&
++        library_glob_exists "libnl-genl-3.so"
++}
++
++dependency_satisfied()
++{
++    local package="$1"
++
++    case "${package}" in
++        bazel)
++            command -v bazel >/dev/null 2>&1
++            ;;
++        git)
++            command -v git >/dev/null 2>&1
++            ;;
++        gcc)
++            command -v gcc >/dev/null 2>&1
++            ;;
++        gcc-c++)
++            command -v g++ >/dev/null 2>&1 || command -v c++ >/dev/null 2>&1
++            ;;
++        glibc-devel)
++            [ -f /usr/include/stdio.h ] &&
++                { [ -f /usr/lib64/libc.so ] || [ -f /usr/lib/libc.so ]; }
++            ;;
++        libnl3-devel)
++            libnl3_devel_exists
++            ;;
++        tar)
++            command -v tar >/dev/null 2>&1
++            ;;
++        gzip)
++            command -v gzip >/dev/null 2>&1
++            ;;
++        glibc)
++            library_exists "libc.so.6"
++            ;;
++        libgcc)
++            library_exists "libgcc_s.so.1"
++            ;;
++        libstdc++)
++            library_exists "libstdc++.so.6"
++            ;;
++        libnl3)
++            library_exists "libnl-3.so.200" && library_exists "libnl-genl-3.so.200"
++            ;;
++        libasan)
++            library_glob_exists "libasan.so*"
++            ;;
++        libtsan)
++            library_glob_exists "libtsan.so*"
++            ;;
++        *)
++            command -v rpm >/dev/null 2>&1 && rpm -q "${package}" >/dev/null 2>&1
++            ;;
++    esac
++}
++
++yum_install_packages()
++{
++    local reason="$1"
++    shift
++
++    if [ "$#" -eq 0 ]; then
++        return
++    fi
++    if ! command -v yum >/dev/null 2>&1; then
++        echo "Error: missing ${reason} dependencies: $*. The 'yum' command is not available." >&2
++        exit 1
++    fi
++
++    echo "Installing missing ${reason} dependencies: $*"
++    if [ "$(id -u)" -eq 0 ]; then
++        yum install -y "$@"
++    elif command -v sudo >/dev/null 2>&1; then
++        sudo yum install -y "$@"
++    else
++        echo "Error: missing ${reason} dependencies: $*. Run as root or install them manually." >&2
++        exit 1
++    fi
++}
++
++require_root()
++{
++    local command="$1"
++
++    if [ "$(id -u)" -ne 0 ]; then
++        echo "Error: '${command}' modifies system files. Run it as root or with sudo." >&2
++        exit 1
++    fi
++}
++
++ensure_yum_dependencies()
++{
++    local reason="$1"
++    shift
++    local missing=()
++    local package
++    local unique
++
++    for package in "$@"; do
++        if dependency_satisfied "${package}"; then
++            continue
++        fi
++        unique=$(append_unique "${package}" "${missing[@]}")
++        if [ -n "${unique}" ]; then
++            missing+=("${unique}")
++        fi
++    done
++
++    yum_install_packages "${reason}" "${missing[@]}"
++}
++
++ensure_archive_tool_dependencies()
++{
++    ensure_yum_dependencies "archive tool" "${ARCHIVE_TOOL_PACKAGES[@]}"
++}
++
++ensure_build_dependencies()
++{
++    local build_args=("$@")
++    local package
++    local packages=("${BUILD_DEPENDENCY_PACKAGES[@]}")
++
++    for package in "${build_args[@]}"; do
++        case "${package}" in
++            --config=asan|--config=*asan*|--copt=-fsanitize=address|--linkopt=-fsanitize=address)
++                packages+=("libasan")
++                ;;
++            --config=tsan|--config=*tsan*|--copt=-fsanitize=thread|--linkopt=-fsanitize=thread)
++                packages+=("libtsan")
++                ;;
++            *)
++                ;;
++        esac
++    done
++
++    ensure_yum_dependencies "build" "${packages[@]}"
++}
++
++ensure_runtime_dependencies()
++{
++    local source_dir="$1"
++    local version_file="${source_dir}/${METADATA_DIR}/urma_version"
++    local packages=("${RUNTIME_DEPENDENCY_PACKAGES[@]}")
++    local build_command=""
++
++    if [ -f "${version_file}" ]; then
++        build_command=$(sed -n 's/^build_command=//p' "${version_file}" | head -n 1)
++    fi
++
++    case "${build_command}" in
++        *--config=asan*|*--copt=-fsanitize=address*|*--linkopt=-fsanitize=address*)
++            packages+=("libasan")
++            ;;
++        *)
++            ;;
++    esac
++    case "${build_command}" in
++        *--config=tsan*|*--copt=-fsanitize=thread*|*--linkopt=-fsanitize=thread*)
++            packages+=("libtsan")
++            ;;
++        *)
++            ;;
++    esac
++
++    ensure_yum_dependencies "runtime" "${packages[@]}"
++}
++
++copy_file()
++{
++    local src="$1"
++    local dst="$2"
++    install -D -m 0644 "${src}" "${dst}"
++}
++
++copy_private_file()
++{
++    local src="$1"
++    local dst="$2"
++    install -D -m 0600 "${src}" "${dst}"
++}
++
++copy_exec()
++{
++    local src="$1"
++    local dst="$2"
++    install -D -m 0755 "${src}" "${dst}"
++}
++
++remove_path()
++{
++    local path="$1"
++    if [ -L "${path}" ]; then
++        rm -f "${path}"
++    elif [ -e "${path}" ]; then
++        rm -rf "${path}"
++    fi
++}
++
++cleanup_compile_artifacts()
++{
++    rm -f "${WORKSPACE_DIR}/urma_version"
++    remove_path "${WORKSPACE_DIR}/bazel-urma-package"
++    remove_path "${WORKSPACE_DIR}/bazel-bin"
++    remove_path "${WORKSPACE_DIR}/bazel-out"
++    remove_path "${WORKSPACE_DIR}/bazel-testlogs"
++    remove_path "${WORKSPACE_DIR}/bazel-urma"
++}
++
++workspace_var()
++{
++    local name="$1"
++    local value
++
++    value=$(sed -n "s/^${name}[[:space:]]*=[[:space:]]*\"\\(.*\\)\"[[:space:]]*$/\\1/p" \
++        "${WORKSPACE_DIR}/WORKSPACE" "${WORKSPACE_DIR}/bazel/urma_deps.bzl" | head -n 1)
++    if [ -z "${value}" ]; then
++        echo "Error: ${name} is not configured in WORKSPACE or bazel/urma_deps.bzl" >&2
++        exit 1
++    fi
++    echo "${value}"
++}
++
++metadata_var()
++{
++    local name="$1"
++    local file="${SCRIPT_DIR}/${METADATA_DIR}/urma_version"
++    local value=""
++
++    if [ -f "${file}" ]; then
++        value=$(sed -n "s/^${name}=\\(.*\\)$/\\1/p" "${file}" | head -n 1)
++    fi
++    echo "${value}"
++}
++
++config_var()
++{
++    local name="$1"
++    local value=""
++
++    if [ -f "${WORKSPACE_DIR}/WORKSPACE" ]; then
++        value=$(sed -n "s/^${name}[[:space:]]*=[[:space:]]*\"\\(.*\\)\"[[:space:]]*$/\\1/p" "${WORKSPACE_DIR}/WORKSPACE" | head -n 1)
++    fi
++    if [ -z "${value}" ] && [ -f "${WORKSPACE_DIR}/bazel/urma_deps.bzl" ]; then
++        value=$(sed -n "s/^${name}[[:space:]]*=[[:space:]]*\"\\(.*\\)\"[[:space:]]*$/\\1/p" "${WORKSPACE_DIR}/bazel/urma_deps.bzl" | head -n 1)
++    fi
++    if [ -z "${value}" ]; then
++        value=$(metadata_var "${name}")
++    fi
++    if [ -z "${value}" ]; then
++        echo "Error: ${name} is not configured in WORKSPACE, bazel/urma_deps.bzl, or metadata/urma_version" >&2
++        exit 1
++    fi
++    echo "${value}"
++}
++
++extract_cmake_version()
++{
++    local file="$1"
++    local version
++
++    if [ ! -f "${file}" ]; then
++        echo "Error: ${file} not found; cannot determine project version" >&2
++        exit 1
++    fi
++
++    version=$(
++        sed -n \
++            -e 's/^[[:space:]]*VERSION[[:space:]]*\([0-9][0-9.]*\).*/\1/p' \
++            -e 's/^[[:space:]]*set[[:space:]]*([[:space:]]*PROJECT_VERSION[[:space:]]*"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}.*/\1/p' \
++            "${file}" | head -n 1
++    )
++    if [ -n "${version}" ]; then
++        echo "${version}"
++    else
++        echo "Error: cannot determine project version from ${file}" >&2
++        exit 1
++    fi
++}
++
++project_version()
++{
++    local key="$1"
++    local cmake_file="$2"
++    local value
++
++    if [ -f "${cmake_file}" ]; then
++        extract_cmake_version "${cmake_file}"
++        return
++    fi
++
++    value=$(metadata_var "${key}")
++    if [ -n "${value}" ]; then
++        echo "${value}"
++    else
++        echo "Error: ${key} is not available in source CMakeLists.txt or metadata/urma_version" >&2
++        exit 1
++    fi
++}
++
++stage_versioned_so()
++{
++    local src="$1"
++    local dir="$2"
++    local name="$3"
++    local version="$4"
++    local major="${5:-${version%%.*}}"
++
++    install -D -m 0755 "${src}" "${dir}/${name}.so.${version}"
++    ln -sfn "${name}.so.${version}" "${dir}/${name}.so.${major}"
++    ln -sfn "${name}.so.${major}" "${dir}/${name}.so"
++}
++
++prepare_libummu()
++{
++    local remote
++    local commit
++    local actual_commit
++
++    remote=$(workspace_var LIBUMMU_REMOTE)
++    commit=$(workspace_var LIBUMMU_COMMIT)
++
++    need_cmd git
++    mkdir -p "${THIRD_PARTY_DIR}"
++
++    if [ ! -d "${LIBUMMU_DIR}/.git" ]; then
++        remove_path "${LIBUMMU_DIR}"
++        git clone "${remote}" "${LIBUMMU_DIR}"
++    fi
++
++    git -C "${LIBUMMU_DIR}" remote set-url origin "${remote}"
++    git -C "${LIBUMMU_DIR}" fetch origin "${commit}"
++    git -C "${LIBUMMU_DIR}" reset --hard "${commit}"
++    git -C "${LIBUMMU_DIR}" clean -fdx
++
++    actual_commit=$(git -C "${LIBUMMU_DIR}" rev-parse HEAD)
++    if [ "${actual_commit}" != "${commit}" ]; then
++        echo "Error: libummu HEAD ${actual_commit} does not match configured commit ${commit}" >&2
++        exit 1
++    fi
++
++    if [ ! -f "${WORKSPACE_DIR}/bazel/libummu.BUILD.bazel" ]; then
++        echo "Error: ${WORKSPACE_DIR}/bazel/libummu.BUILD.bazel not found" >&2
++        exit 1
++    fi
++    if [ ! -f "${LIBUMMU_DIR}/include/ummu_api.h" ] || [ ! -f "${LIBUMMU_DIR}/kernel_headers/ummu_core.h" ]; then
++        echo "Error: configured libummu source tree is incomplete" >&2
++        exit 1
++    fi
++}
++
++create_version_file()
++{
++    local version_file="$1"
++    local build_cmd="$2"
++    local commit_id="unknown"
++
++    if git -C "${WORKSPACE_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
++        commit_id=$(git -C "${WORKSPACE_DIR}" rev-parse HEAD)
++    fi
++
++    {
++        echo "commit_id=${commit_id}"
++        echo "build_time=$(date '+%Y-%m-%d %H:%M:%S %z')"
++        echo "build_command=${build_cmd}"
++        echo "COMMON_VERSION=$(extract_cmake_version "${WORKSPACE_DIR}/../CMakeLists.txt")"
++        echo "URMA_VERSION=$(extract_cmake_version "${WORKSPACE_DIR}/lib/urma/core/CMakeLists.txt")"
++        echo "libummu_remote=$(workspace_var LIBUMMU_REMOTE)"
++        echo "libummu_commit=$(workspace_var LIBUMMU_COMMIT)"
++        echo "LIBUMMU_VERSION=$(workspace_var LIBUMMU_VERSION)"
++        echo "LIBUMMU_ABI_VERSION=$(workspace_var LIBUMMU_ABI_VERSION)"
++    } > "${version_file}"
++}
++
++stage_libummu_payload()
++{
++    local rootfs="$1"
++    local bin_dir="$2"
++    local libummu_version
++    local libummu_abi_version
++
++    libummu_version=$(config_var LIBUMMU_VERSION)
++    libummu_abi_version=$(config_var LIBUMMU_ABI_VERSION)
++
++    stage_versioned_so "${bin_dir}/libummu.so" "${rootfs}${LIBDIR}" "libummu" "${libummu_version}" "${libummu_abi_version}"
++    copy_file "${LIBUMMU_DIR}/include/ummu_api.h" "${rootfs}${UMMU_INCLUDEDIR}/ummu_api.h"
++    copy_file "${LIBUMMU_DIR}/kernel_headers/ummu_core.h" "${rootfs}${UMMU_INCLUDEDIR}/ummu_core.h"
++    copy_file "${LIBUMMU_DIR}/README.md" "${rootfs}${UMMU_DOCDIR}/README.md"
++    copy_file "${LIBUMMU_DIR}/doc/API.md" "${rootfs}${UMMU_DOCDIR}/API.md"
++    copy_file "${LIBUMMU_DIR}/doc/Design.md" "${rootfs}${UMMU_DOCDIR}/Design.md"
++    copy_file "${LIBUMMU_DIR}/doc/man3/libummu.3" "${rootfs}${UMMU_DOCDIR}/man3/libummu.3"
++    copy_file "${LIBUMMU_DIR}/doc/man3/libummu.3" "${rootfs}${MANDIR}/libummu.3"
++    gzip -f9n "${rootfs}${MANDIR}/libummu.3"
++    chmod 0644 "${rootfs}${MANDIR}/libummu.3.gz"
++}
++
++generate_install_manifest()
++{
++    local rootfs="$1"
++    local manifest="$2"
++
++    : > "${manifest}"
++    (
++        cd "${rootfs}"
++        find . -mindepth 1 -type d -printf '%P\n' | sort | while IFS= read -r rel; do
++            printf 'd\t%s\t%s\t-\n' "$(stat -c '%a' "${rel}")" "${rel}"
++        done
++        find . -mindepth 1 ! -type d -printf '%P\n' | sort | while IFS= read -r rel; do
++            if [ -L "${rel}" ]; then
++                printf 'l\t777\t%s\t%s\n' "${rel}" "$(readlink "${rel}")"
++            else
++                printf 'f\t%s\t%s\t-\n' "$(stat -c '%a' "${rel}")" "${rel}"
++            fi
++        done
++    ) > "${manifest}"
++}
++
++strip_payload_elfs()
++{
++    local rootfs="$1"
++
++    if ! command -v strip >/dev/null 2>&1 || ! command -v readelf >/dev/null 2>&1; then
++        return
++    fi
++
++    find "${rootfs}" -type f -exec sh -c '
++        for file do
++            if readelf -h "${file}" >/dev/null 2>&1; then
++                strip --strip-unneeded "${file}" >/dev/null 2>&1 || true
++            fi
++        done
++    ' sh {} +
++}
++
++stage_payload()
++{
++    local stage_dir="$1"
++    local bin_dir="${WORKSPACE_DIR}/bazel-bin"
++    local rootfs="${stage_dir}/${ROOTFS_DIR}"
++    local common_version
++    local library_version
++
++    common_version=$(project_version COMMON_VERSION "${WORKSPACE_DIR}/../CMakeLists.txt")
++    library_version=$(project_version URMA_VERSION "${WORKSPACE_DIR}/lib/urma/core/CMakeLists.txt")
++
++    rm -rf "${stage_dir}"
++    mkdir -p "${rootfs}${LIBDIR}/urma" "${rootfs}${BINDIR}" "${rootfs}${INCLUDEDIR}/udma"
++
++    stage_versioned_so "${bin_dir}/liburma.so" "${rootfs}${LIBDIR}" "liburma" "${library_version}"
++    stage_versioned_so "${bin_dir}/liburma_common.so" "${rootfs}${LIBDIR}" "liburma_common" "${common_version}"
++    stage_versioned_so "${bin_dir}/libtpsa.so" "${rootfs}${LIBDIR}" "libtpsa" "${library_version}"
++    stage_versioned_so "${bin_dir}/liburma_ubagg.so" "${rootfs}${LIBDIR}/urma" "liburma_ubagg" "${library_version}"
++    copy_exec "${bin_dir}/liburma-udma.so" "${rootfs}${LIBDIR}/urma/liburma-udma.so"
++    stage_libummu_payload "${rootfs}" "${bin_dir}"
++
++    copy_exec "${bin_dir}/urma_admin" "${rootfs}${BINDIR}/urma_admin"
++    copy_exec "${bin_dir}/urma_perftest" "${rootfs}${BINDIR}/urma_perftest"
++    copy_exec "${bin_dir}/urma_ping" "${rootfs}${BINDIR}/urma_ping"
++    copy_exec "${bin_dir}/urma_sample" "${rootfs}${BINDIR}/urma_sample"
++
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_api.h" "${rootfs}${INCLUDEDIR}/urma_api.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_cmd.h" "${rootfs}${INCLUDEDIR}/urma_cmd.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_opcode.h" "${rootfs}${INCLUDEDIR}/urma_opcode.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_provider.h" "${rootfs}${INCLUDEDIR}/urma_provider.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_types_str.h" "${rootfs}${INCLUDEDIR}/urma_types_str.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_types.h" "${rootfs}${INCLUDEDIR}/urma_types.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/core/include/urma_perf.h" "${rootfs}${INCLUDEDIR}/urma_perf.h"
++    copy_file "${WORKSPACE_DIR}/lib/urma/bond/include/urma_ubagg.h" "${rootfs}${INCLUDEDIR}/urma_ubagg.h"
++    copy_file "${WORKSPACE_DIR}/lib/uvs/core/include/uvs_api.h" "${rootfs}${INCLUDEDIR}/uvs_api.h"
++    copy_file "${WORKSPACE_DIR}/lib/uvs/core/include/uvs_types.h" "${rootfs}${INCLUDEDIR}/uvs_types.h"
++    copy_file "${WORKSPACE_DIR}/hw/udma/include/udma_u_ctl.h" "${rootfs}${INCLUDEDIR}/udma/udma_u_ctl.h"
++    copy_file "${WORKSPACE_DIR}/examples/README.md" "${rootfs}${DOCDIR}/README.md"
++
++    copy_private_file "${WORKSPACE_DIR}/lib/urma/config/urma.conf" "${rootfs}/etc/rsyslog.d/urma.conf"
++    copy_private_file "${WORKSPACE_DIR}/lib/urma/config/urma" "${rootfs}/etc/logrotate.d/urma"
++    copy_private_file "${WORKSPACE_DIR}/lib/uvs/config/tpsa.conf" "${rootfs}/etc/rsyslog.d/tpsa.conf"
++    copy_file "${WORKSPACE_DIR}/lib/uvs/config/tpsa" "${rootfs}/etc/logrotate.d/tpsa"
++    copy_private_file "${WORKSPACE_DIR}/tools/urma_admin/config/urma_admin.conf" "${rootfs}/etc/rsyslog.d/urma_admin.conf"
++
++    find "${rootfs}" -type d -exec chmod 0755 {} +
++    strip_payload_elfs "${rootfs}"
++}
++
++compile_cmd()
++{
++    local build_args=("$@")
++
++    ensure_build_dependencies "${build_args[@]}"
++    need_cmd bazel
++    need_cmd git
++    need_cmd gzip
++    need_cmd tar
++
++    local build_cmd="$0 compile"
++    if [ "${#build_args[@]}" -gt 0 ]; then
++        build_cmd="${build_cmd} ${build_args[*]}"
++    fi
++
++    local stage_dir="${WORKSPACE_DIR}/bazel-urma-package"
++    local tarball="${WORKSPACE_DIR}/${PACKAGE_NAME}-$(date '+%Y%m%d%H%M%S').tar.gz"
++
++    trap cleanup_compile_artifacts EXIT
++    prepare_libummu
++    bazel sync --only=libummu
++    create_version_file "${WORKSPACE_DIR}/urma_version" "${build_cmd}"
++    bazel build "${BAZEL_TARGETS[@]}" "${build_args[@]}"
++
++    stage_payload "${stage_dir}"
++    mkdir -p "${stage_dir}/${METADATA_DIR}"
++    generate_install_manifest "${stage_dir}/${ROOTFS_DIR}" "${stage_dir}/${METADATA_DIR}/${INSTALL_MANIFEST}"
++    copy_file "${WORKSPACE_DIR}/urma_version" "${stage_dir}/${METADATA_DIR}/urma_version"
++    copy_exec "${WORKSPACE_DIR}/urma_bazel.sh" "${stage_dir}/urma_bazel.sh"
++
++    tar -C "${stage_dir}" -czf "${tarball}" .
++    echo "Created ${tarball}"
++}
++
++extract_package()
++{
++    local package="$1"
++    local tmp_dir="$2"
++
++    mkdir -p "${tmp_dir}"
++    tar -C "${tmp_dir}" -xzf "${package}"
++    echo "${tmp_dir}"
++}
++
++restart_rsyslog()
++{
++    if [ -x /usr/bin/systemctl ] && [ -x /usr/sbin/rsyslogd ]; then
++        timeout 10s /usr/bin/systemctl restart rsyslog >/dev/null 2>&1 || true
++    fi
++}
++
++restore_selinux_contexts()
++{
++    local manifest="$1"
++
++    if command -v restorecon >/dev/null 2>&1 && [ -f "${manifest}" ]; then
++        {
++            awk -F '\t' 'NF >= 3 { print "/" $3 }' "${manifest}"
++            echo "/etc/ld.so.cache"
++        } | xargs -r restorecon -F >/dev/null 2>&1 || true
++    fi
++}
++
++install_from_manifest()
++{
++    local source_dir="$1"
++    local rootfs="${source_dir}/${ROOTFS_DIR}"
++    local manifest="${source_dir}/${METADATA_DIR}/${INSTALL_MANIFEST}"
++    local type
++    local mode
++    local rel
++    local target
++    local src
++    local dst
++
++    if [ ! -f "${manifest}" ]; then
++        echo "Error: ${manifest} not found." >&2
++        exit 1
++    fi
++
++    while IFS=$'\t' read -r type mode rel target; do
++        [ -n "${type}" ] || continue
++        src="${rootfs}/${rel}"
++        dst="/${rel}"
++
++        case "${type}" in
++            d)
++                install -d -m "${mode}" "${dst}"
++                ;;
++            f)
++                if [ -d "${dst}" ] && [ ! -L "${dst}" ]; then
++                    rm -rf "${dst}"
++                fi
++                install -D -m "${mode}" "${src}" "${dst}"
++                ;;
++            l)
++                if [ -d "${dst}" ] && [ ! -L "${dst}" ]; then
++                    rm -rf "${dst}"
++                fi
++                mkdir -p "$(dirname "${dst}")"
++                rm -f "${dst}"
++                ln -s "${target}" "${dst}"
++                ;;
++            *)
++                echo "Error: unsupported manifest entry type '${type}' in ${manifest}" >&2
++                exit 1
++                ;;
++        esac
++    done < "${manifest}"
++}
++
++remove_from_manifest()
++{
++    local manifest="$1"
++    local type
++    local mode
++    local rel
++    local target
++    local dst
++
++    if [ ! -f "${manifest}" ]; then
++        echo "Error: ${manifest} not found. Run remove from an extracted package directory." >&2
++        exit 1
++    fi
++
++    tac "${manifest}" | while IFS=$'\t' read -r type mode rel target; do
++        [ -n "${type}" ] || continue
++        dst="/${rel}"
++
++        if is_third_party_manifest_entry "${rel}"; then
++            continue
++        fi
++
++        case "${type}" in
++            f|l)
++                remove_one "${dst}"
++                ;;
++            d)
++                remove_empty_dir "${dst}"
++                ;;
++            *)
++                echo "Error: unsupported manifest entry type '${type}' in ${manifest}" >&2
++                exit 1
++                ;;
++        esac
++    done
++}
++
++is_third_party_manifest_entry()
++{
++    local rel="$1"
++
++    case "${rel}" in
++        usr/lib64/libummu.so|usr/lib64/libummu.so.*)
++            return 0
++            ;;
++        usr/include/ummu_api.h|usr/include/ummu_core.h)
++            return 0
++            ;;
++        usr/share/doc/ub/libummu|usr/share/doc/ub/libummu/*)
++            return 0
++            ;;
++        usr/share/man/man3/libummu.3.gz)
++            return 0
++            ;;
++        *)
++            return 1
++            ;;
++    esac
++}
++
++install_cmd()
++{
++    local package="${1:-}"
++    local source_dir="${SCRIPT_DIR}"
++    local tmp_dir=""
++
++    require_root "install"
++
++    if [ -n "${package}" ]; then
++        ensure_archive_tool_dependencies
++        need_cmd tar
++        tmp_dir=$(mktemp -d)
++        source_dir=$(extract_package "${package}" "${tmp_dir}")
++    fi
++
++    if [ ! -d "${source_dir}/${ROOTFS_DIR}" ]; then
++        echo "Error: ${source_dir}/${ROOTFS_DIR} not found. Run from an extracted package or pass package.tar.gz." >&2
++        exit 1
++    fi
++
++    ensure_runtime_dependencies "${source_dir}"
++
++    if [ -d /usr/bin/urma_admin ] && [ ! -L /usr/bin/urma_admin ]; then
++        rm -rf /usr/bin/urma_admin
++    fi
++
++    install_from_manifest "${source_dir}"
++    if command -v ldconfig >/dev/null 2>&1; then
++        ldconfig
++    fi
++    restore_selinux_contexts "${source_dir}/${METADATA_DIR}/${INSTALL_MANIFEST}"
++    if [ -x /usr/bin/systemctl ]; then
++        timeout 10s /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || true
++    fi
++    restart_rsyslog
++
++    if [ -n "${tmp_dir}" ]; then
++        rm -rf "${tmp_dir}"
++    fi
++}
++
++remove_one()
++{
++    local path="$1"
++    if [ -e "${path}" ] || [ -L "${path}" ]; then
++        rm -f "${path}"
++    fi
++}
++
++remove_empty_dir()
++{
++    local dir="$1"
++    rmdir "${dir}" >/dev/null 2>&1 || true
++}
++
++remove_cmd()
++{
++    local package="${1:-}"
++    local source_dir="${SCRIPT_DIR}"
++    local tmp_dir=""
++    local manifest
++
++    require_root "remove"
++
++    if [ -n "${package}" ]; then
++        if [ -d "${package}" ]; then
++            source_dir="${package}"
++        else
++            ensure_archive_tool_dependencies
++            need_cmd tar
++            tmp_dir=$(mktemp -d)
++            source_dir=$(extract_package "${package}" "${tmp_dir}")
++        fi
++    fi
++
++    manifest="${source_dir}/${METADATA_DIR}/${INSTALL_MANIFEST}"
++
++    remove_from_manifest "${manifest}"
++
++    if command -v ldconfig >/dev/null 2>&1; then
++        ldconfig
++    fi
++    restore_selinux_contexts "${manifest}"
++    restart_rsyslog
++
++    if [ -n "${tmp_dir}" ]; then
++        rm -rf "${tmp_dir}"
++    fi
++}
++
++main()
++{
++    local command="${1:-}"
++    if [ -z "${command}" ]; then
++        usage
++        exit 1
++    fi
++    shift
++
++    case "${command}" in
++        compile)
++            compile_cmd "$@"
++            ;;
++        install)
++            install_cmd "$@"
++            ;;
++        remove)
++            remove_cmd "$@"
++            ;;
++        -h|--help|help)
++            usage
++            ;;
++        *)
++            usage
++            exit 1
++            ;;
++    esac
++}
++
++main "$@"
+-- 
+2.34.1
+
