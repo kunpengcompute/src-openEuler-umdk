@@ -1,0 +1,55 @@
+From 5322e16e44d52749bd608805dafb485ff3f58c38 Mon Sep 17 00:00:00 2001
+From: jillwu <wujie66@huawei.com>
+Date: Fri, 5 Jun 2026 18:22:35 +0800
+Subject: [PATCH] dlock:fixup update_locks_response processing out of bound bug
+
+Description:
+1. Add check of recv msg that if it is longer enough to hold
+batch update lock body
+2. Modify buf_len param to msg_hdr->total_len to avoid using
+of older memory lock info.
+
+(cherry picked from commit 7694f5f3d5b5fbd8fd8c41e0c87ada954006827f)
+---
+ src/ulock/dlock/lib/client/dlock_client_cp.cpp | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/ulock/dlock/lib/client/dlock_client_cp.cpp b/src/ulock/dlock/lib/client/dlock_client_cp.cpp
+index ee25293..70393c1 100644
+--- a/src/ulock/dlock/lib/client/dlock_client_cp.cpp
++++ b/src/ulock/dlock/lib/client/dlock_client_cp.cpp
+@@ -273,7 +273,8 @@ int dlock_client::init_client_do(int *p_client_id, const char *ip_str, bool rein
+ 
+     message_id = p_conn->generate_message_id();
+     buff = construct_control_msg(((reinit_flag) ? CLIENT_REINIT_REQUEST : CLIENT_INIT_REQUEST),
+-        DLOCK_PROTO_VERSION, DLOCK_FIXED_CTRL_MSG_HDR_LEN, msg_len, message_id, *p_client_id);
++        DLOCK_PROTO_VERSION, DLOCK_FIXED_CTRL_MSG_HDR_LEN, msg_len, message_id, (reinit_flag) ?
++        *p_client_id : 0);
+     if (buff == nullptr) {
+         DLOCK_LOG_ERR("construct_control_msg error");
+         goto err_del_p_jetty_mgr;
+@@ -1111,7 +1112,9 @@ int dlock_client::update_locks_response_handler(client_entry_c &p_client_entry,
+         }
+ 
+         last_is_eagain = false;
+-        ret = process_update_locks_response(p_client_entry, buf, buf_len);
++        struct dlock_control_hdr *msg_hdr = reinterpret_cast<struct dlock_control_hdr *>(buf);
++        /* msg len has been checked in recv_update_locks_response to ensure msg is not larger than buf_len */
++        ret = process_update_locks_response(p_client_entry, buf, msg_hdr->total_len);
+         if (ret != 0) {
+             break;
+         }
+@@ -1196,6 +1199,10 @@ int dlock_client::process_update_locks_response(client_entry_c &p_client_entry,
+     struct update_lock_body *p_msg_update = nullptr;
+     uint32_t offset = DLOCK_FIXED_CTRL_MSG_HDR_LEN + DLOCK_BATCH_UPDATE_LOCK_BODY_LEN;
+ 
++    if (offset > buf_len) {
++        DLOCK_LOG_ERR("invalid msg with incomplete DLOCK_BATCH_UPDATE_LOCK_BODY header");
++        return static_cast<int>(DLOCK_BAD_RESPONSE);
++    }
+     uint32_t lock_num = msg_batch_update_lock_body->lock_num;
+     if (lock_num > MAX_LOCK_BATCH_SIZE) {
+         DLOCK_LOG_ERR("invalid message lock_num");
+-- 
+2.34.1
+

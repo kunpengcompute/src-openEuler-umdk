@@ -1,0 +1,101 @@
+From de65cca0f195dddb72b5cb988e6cce78bec447e4 Mon Sep 17 00:00:00 2001
+From: duelu <luyizhou1@huawei.com>
+Date: Mon, 8 Jun 2026 15:55:39 +0800
+Subject: [PATCH] urma: fix bond cleanup and lifetime issues
+
+Problem: unlisted finding - p_jfr rollback uses the failing loop index instead of the cleanup index.
+Problem: finding-3de618b744d7fe9172b7a7e49e2a1b53 - Bond JFR import leaks virtual import handle on post-import validation failure.
+Problem: finding-610344a1b8e21865f8db3c552b68af6c - Bond jetty bindings do not retain imported target jettys.
+Problem: finding-f6590e37be7f739aad5636c1c39831cb - Bond health-check teardown destroys task_table before removing the context from the global scan list.
+
+Use the cleanup loop index when deleting p_jfr mappings so rollback removes the entries that were actually added.
+
+Route validation failures after virtual JFR import through the existing unimport cleanup path instead of returning directly.
+
+Hold a target jetty reference while a bond jetty is bound. Release it only after all physical unbind operations succeed so a failed unbind keeps the local binding state and target jetty reference intact.
+
+Unregister the health context and health-check segments before destroying the task table so concurrent scans cannot observe freed table state.
+
+Signed-off-by: duelu <luyizhou1@huawei.com>
+(cherry picked from commit 6086c3ffb022dca2636780cc93a431a7b142c3aa)
+---
+ src/urma/lib/urma/bond/bondp_api.c          | 13 +++++++++----
+ src/urma/lib/urma/bond/bondp_health_check.c |  2 +-
+ 2 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index df174ff..d2e76a4 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -917,7 +917,7 @@ DEL_P_VJFR_ID:
+         if (bdp_jfr->p_jfr[j] == NULL) {
+             continue;
+         }
+-        urma_jfr_id_t pjfr_id = bdp_jfr->p_jfr[i]->jfr_id;
++        urma_jfr_id_t pjfr_id = bdp_jfr->p_jfr[j]->jfr_id;
+         (void)bdp_p_vjetty_id_table_del_without_lock(&bdp_ctx->p_vjetty_id_table, pjfr_id, JFR);
+     }
+     pthread_rwlock_unlock(&bdp_ctx->p_vjetty_id_table.lock);
+@@ -1903,6 +1903,7 @@ urma_status_t bondp_bind_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty)
+     }
+ 
+     bdp_jetty->v_jetty.remote_jetty = &bdp_tjetty->v_tjetty;
++    bondp_tjetty_get(&bdp_tjetty->v_tjetty);
+     return URMA_SUCCESS;
+ 
+ UNBIND:
+@@ -1931,11 +1932,15 @@ urma_status_t bondp_unbind_jetty(urma_jetty_t *jetty)
+             if (urma_unbind_jetty(bdp_jetty->p_jetty[local_idx]) != URMA_SUCCESS) {
+                 URMA_LOG_ERR("Failed to unbind tjetty [%u](%d, %d)\n", bdp_tjetty->v_tjetty.id.id, local_idx, local_idx);
+                 ret = URMA_FAIL;
++                continue;
+             }
+             bdp_jetty->p_jetty[local_idx]->remote_jetty = NULL;
+         }
+     }
+-    bdp_jetty->v_jetty.remote_jetty = NULL;
++    if (ret == URMA_SUCCESS) {
++        bdp_jetty->v_jetty.remote_jetty = NULL;
++        bondp_tjetty_put(tjetty);
++    }
+     return ret;
+ }
+ 
+@@ -2050,12 +2055,12 @@ urma_target_jetty_t *bondp_import_jfr(urma_context_t *ctx, urma_rjfr_t *rjfr, ur
+     if (cfg_jfs == NULL) {
+         if (rjfr->trans_mode == URMA_TM_RM && bdp_ctx->bonding_mode == BONDP_BONDING_MODE_ACTIVE_BACKUP) {
+             URMA_LOG_ERR("RM jfr import requires drv_ext.vjfs\n");
+-            return NULL;
++            goto UNIMPORT_VJFR;
+         }
+         cfg_jfs = &fake_jfs;
+         if (init_active_indices(bdp_ctx, &fake_jfs, NULL, 0) != 0) {
+             URMA_LOG_ERR("Failed to init active indices\n");
+-            return NULL;
++            goto UNIMPORT_VJFR;
+         }
+     }
+     if (init_target_active_indices(bdp_ctx, bdp_tjetty, &udata_out, cfg_jfs) != 0) {
+diff --git a/src/urma/lib/urma/bond/bondp_health_check.c b/src/urma/lib/urma/bond/bondp_health_check.c
+index d99f597..05de87a 100644
+--- a/src/urma/lib/urma/bond/bondp_health_check.c
++++ b/src/urma/lib/urma/bond/bondp_health_check.c
+@@ -1596,7 +1596,6 @@ void bondp_destroy_health_check_ctx(bondp_context_t *bond_ctx)
+     }
+ 
+     health = &bond_ctx->bondp_heath_check_ctx;
+-    bondp_hash_table_destroy(&health->task_table);
+     bondp_unregister_health_ctx_global(bond_ctx);
+ 
+     if (global_ctx->health_thread_ctx.health_epoll_fd >= 0 && health->health_check_fd >= 0) {
+@@ -1607,6 +1606,7 @@ void bondp_destroy_health_check_ctx(bondp_context_t *bond_ctx)
+     }
+ 
+     bondp_unregister_health_check_seg(bond_ctx);
++    bondp_hash_table_destroy(&health->task_table);
+     bondp_free_health_event_list(&health->event_list);
+     pthread_spin_destroy(&health->event_lock);
+ 
+-- 
+2.34.1
+

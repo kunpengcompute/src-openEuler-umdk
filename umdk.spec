@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B091
+    %define rpm_release B092
 %endif
 
 Name          : umdk
@@ -295,6 +295,25 @@ Patch0214: 0214-umdk-urma-add-dfx-log-for-bondp-implement.patch
 Patch0215: 0215-umdk-urma-add-main_ue_eid-admin-command-support.patch
 Patch0216: 0216-umdk-urma-refactored-the-urma-bazel-build-to-emit-layered-shared-libraries.patch
 Patch0217: 0217-umdk-urma-increase-topo-max-node-limit-to-1024.patch
+Patch0218: 0218-umdk-urma-fix-log-for-bondp-implement.patch
+Patch0219: 0219-umdk-umq-flow-control-sge-manage.patch
+Patch0220: 0220-umdk-urma-add-background-worker-thread-for-bond-device.patch
+Patch0221: 0221-umdk-umq-fix-param-validation-and-string-terminator-issues.patch
+Patch0222: 0222-umdk-urma-performance-optimization-post-wr.patch
+Patch0223: 0223-umdk-umq-remove-redundant-code.patch
+Patch0224: 0224-umdk-dlock-fixup-update_locks_response-processing-out-of-bound-bug.patch
+Patch0225: 0225-umdk-urma-enhance-URMA-Bazel-build-configuration.patch
+Patch0226: 0226-umdk-urma-improve-urma_ping-arg-parsing-and-EID-logging.patch
+Patch0227: 0227-umdk-umq-implement-flow-control-packet-deduplication-with-sequence-number.patch
+Patch0228: 0228-umdk-umq-remove-unused-code-protected-by-external-lock.patch
+Patch0229: 0229-umdk-urma-fix-clean-code-check.patch
+Patch0230: 0230-umdk-urma-clean-code-in-bondp_api.c.patch
+Patch0231: 0231-umdk-umq-change-flow-control-sequence-number-to-uint8_t-to-save-bits.patch
+Patch0232: 0232-umdk-umq-flow-control-interaction-over-sge-and-imm_data.patch
+Patch0233: 0233-umdk-urma-fix-bond-cleanup-and-lifetime-issues.patch
+Patch0234: 0234-umdk-urma-Fix-some-formatting-issues-in-the-code.patch
+Patch0235: 0235-umdk-umq-fix-flow-control-sge.tseg.patch
+Patch0236: 0236-umdk-umq-expand-flow-control-SGE-for-active-backup-deployment.patch
 
 %description
 A new system interconnect architecture
@@ -725,6 +744,11 @@ fi
 %endif
 
 %changelog
+* Wed Jun 10 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B092
+- urma: update fix log for bondp, increase topo max node, bond worker, performance, build, argument parsing, and cleanup
+- umq: update flow-control SGE management, validation, cleanup, packet deduplication, change flow control sequence, and SGE/imm_data interaction
+- dlock: fix update_locks_response bounds handling
+- umdk: add SP3 patches 0218-0236, skipped 2 empty changes
 * Thu Jun 4 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B091
 - urma: increase topo max node limit to 1024
 * Wed Jun 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B090

@@ -1,0 +1,1125 @@
+From 30562c0f847b8badfde45a72ccb2239010b3ba14 Mon Sep 17 00:00:00 2001
+From: wanghang73 <wanghang73@huawei.com>
+Date: Wed, 20 May 2026 10:53:28 +0800
+Subject: [PATCH] urma: add background worker thread for bond device
+
+(cherry picked from commit d31b69d5d4d93eb1532e98356ac842e8dfae9fe1)
+---
+ .clang-format                                 |  39 +-
+ .../lib/urma/bond/utils/bondp_timewheel.c     | 294 +++++++++
+ .../lib/urma/bond/utils/bondp_timewheel.h     |  86 +++
+ src/urma/lib/urma/bond/utils/bondp_worker.c   | 581 ++++++++++++++++++
+ src/urma/lib/urma/bond/utils/bondp_worker.h   |  75 +++
+ 5 files changed, 1063 insertions(+), 12 deletions(-)
+ create mode 100644 src/urma/lib/urma/bond/utils/bondp_timewheel.c
+ create mode 100644 src/urma/lib/urma/bond/utils/bondp_timewheel.h
+ create mode 100644 src/urma/lib/urma/bond/utils/bondp_worker.c
+ create mode 100644 src/urma/lib/urma/bond/utils/bondp_worker.h
+
+diff --git a/.clang-format b/.clang-format
+index 07b5d45..bf1a19f 100644
+--- a/.clang-format
++++ b/.clang-format
+@@ -1,12 +1,27 @@
+-BasedOnStyle: LLVM
+-IndentWidth: 4
+-ColumnLimit: 0
+-BreakBeforeBraces: Custom
+-BraceWrapping:
+-  AfterFunction: true
+-ForEachMacros: [UB_LIST_FOR_EACH, UB_LIST_FOR_EACH_SAFE]
+-AlignConsecutiveBitFields: AcrossComments
+-AlignConsecutiveMacros: AcrossComments
+-AllowShortFunctionsOnASingleLine: None
+-AllowShortEnumsOnASingleLine: false
+-IndentCaseLabels: true
++BasedOnStyle: LLVM
++IndentWidth: 4
++ColumnLimit: 0
++BreakBeforeBraces: Custom
++BraceWrapping:
++  AfterFunction: true
++ForEachMacros:
++  - UB_LIST_FOR_EACH
++  - UB_LIST_FOR_EACH_SAFE
++  - HMAP_FOR_EACH
++  - HMAP_FOR_EACH_SAFE
++  - HMAP_FOR_EACH_WITH_HASH
++  - HMAP_FOR_EACH_WITH_HASH_SAFE
++TypenameMacros:
++  - TAILQ_ENTRY
++  - TAILQ_HEAD
++  - STAILQ_ENTRY
++  - STAILQ_HEAD
++  - LIST_ENTRY
++  - LIST_HEAD
++  - SLIST_ENTRY
++  - SLIST_HEAD
++AlignConsecutiveBitFields: AcrossComments
++AlignConsecutiveMacros: AcrossComments
++AllowShortFunctionsOnASingleLine: None
++AllowShortEnumsOnASingleLine: false
++IndentCaseLabels: true
+diff --git a/src/urma/lib/urma/bond/utils/bondp_timewheel.c b/src/urma/lib/urma/bond/utils/bondp_timewheel.c
+new file mode 100644
+index 0000000..5b47ac1
+--- /dev/null
++++ b/src/urma/lib/urma/bond/utils/bondp_timewheel.c
+@@ -0,0 +1,294 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: Timing wheel implementation
++ */
++
++#include <errno.h>
++#include <pthread.h>
++#include <stdlib.h>
++#include <sys/queue.h>
++
++#include "ub_hash.h"
++#include "ub_hmap.h"
++#include "ub_util.h"
++#include "urma_log.h"
++
++#include "bondp_timewheel.h"
++
++#define TW_HMAP_MIN_SIZE (1024U)
++
++typedef struct tw_task {
++    tw_task_id_t task_id;
++    uint64_t round;
++    uint32_t slot_idx;
++    tw_task_fn_t fn;
++    void *arg;
++    TAILQ_ENTRY(tw_task)
++    slot_entry;
++    struct ub_hmap_node hmap_node;
++} tw_task_t;
++
++TAILQ_HEAD(tw_task_head, tw_task);
++
++typedef struct tw_slot {
++    struct tw_task_head tasks;
++} tw_slot_t;
++
++struct tw {
++    pthread_mutex_t lock;
++    uint32_t tick_ms;
++    uint32_t slot_num;
++    uint64_t current_tick;
++    uint64_t next_task_id;
++    struct ub_hmap task_map;
++    tw_slot_t *slots;
++};
++
++static uint32_t tw_task_hash(tw_task_id_t task_id)
++{
++    return ub_hash_bytes(&task_id, sizeof(task_id), 0);
++}
++
++static tw_task_t *tw_lookup_task(tw_t *tw, tw_task_id_t task_id)
++{
++    tw_task_t *task = NULL;
++    uint32_t hash = tw_task_hash(task_id);
++
++    HMAP_FOR_EACH_WITH_HASH (task, hmap_node, hash, &tw->task_map) {
++        if (task->task_id == task_id) {
++            return task;
++        }
++    }
++
++    return NULL;
++}
++
++static void tw_task_free(tw_task_t *task)
++{
++    free(task);
++}
++
++static void tw_process_tick(tw_t *tw)
++{
++    struct tw_task_head due_tasks;
++    tw_task_t *task = NULL;
++    tw_task_t *next = NULL;
++    uint32_t slot_idx;
++
++    TAILQ_INIT(&due_tasks);
++
++    (void)pthread_mutex_lock(&tw->lock);
++    tw->current_tick++;
++    slot_idx = (uint32_t)(tw->current_tick % tw->slot_num);
++    task = TAILQ_FIRST(&tw->slots[slot_idx].tasks);
++    while (task != NULL) {
++        next = TAILQ_NEXT(task, slot_entry);
++        if (task->round > 0) {
++            task->round--;
++            task = next;
++            continue;
++        }
++
++        TAILQ_REMOVE(&tw->slots[slot_idx].tasks, task, slot_entry);
++        ub_hmap_remove(&tw->task_map, &task->hmap_node);
++        TAILQ_INSERT_TAIL(&due_tasks, task, slot_entry);
++        task = next;
++    }
++    (void)pthread_mutex_unlock(&tw->lock);
++
++    while ((task = TAILQ_FIRST(&due_tasks)) != NULL) {
++        TAILQ_REMOVE(&due_tasks, task, slot_entry);
++        task->fn(task->arg);
++        tw_task_free(task);
++    }
++}
++
++static int tw_init_slots(tw_t *tw)
++{
++    uint32_t i;
++
++    tw->slots = calloc(tw->slot_num, sizeof(*tw->slots));
++    if (tw->slots == NULL) {
++        URMA_LOG_ERR("Failed to alloc timing wheel slots.\n");
++        return -ENOMEM;
++    }
++
++    for (i = 0; i < tw->slot_num; i++) {
++        TAILQ_INIT(&tw->slots[i].tasks);
++    }
++
++    return 0;
++}
++
++static int tw_init_task_map(tw_t *tw)
++{
++    uint32_t hmap_size = MAX(TW_HMAP_MIN_SIZE, tw->slot_num * 2U);
++
++    if (ub_hmap_init(&tw->task_map, hmap_size) != 0) {
++        URMA_LOG_ERR("Failed to init timing wheel task map.\n");
++        return -ENOMEM;
++    }
++
++    return 0;
++}
++
++tw_t *tw_create(const tw_cfg_t *cfg)
++{
++    tw_t *tw = NULL;
++    uint32_t tick_ms;
++    uint32_t slot_num;
++    int ret;
++
++    if (cfg == NULL) {
++        URMA_LOG_ERR("Invalid timing wheel config, cfg is NULL.\n");
++        return NULL;
++    }
++
++    tick_ms = cfg->tick_ms == 0 ? TW_DEFAULT_TICK_MS : cfg->tick_ms;
++    slot_num = cfg->slot_num == 0 ? TW_DEFAULT_SLOT_NUM : cfg->slot_num;
++    if (tick_ms == 0 || slot_num == 0) {
++        URMA_LOG_ERR("Invalid timing wheel config, tick_ms: %u, slot_num: %u.\n", tick_ms, slot_num);
++        return NULL;
++    }
++
++    tw = calloc(1, sizeof(*tw));
++    if (tw == NULL) {
++        URMA_LOG_ERR("Failed to alloc timing wheel.\n");
++        return NULL;
++    }
++
++    tw->tick_ms = tick_ms;
++    tw->slot_num = slot_num;
++    tw->next_task_id = 1;
++
++    ret = pthread_mutex_init(&tw->lock, NULL);
++    if (ret != 0) {
++        URMA_LOG_ERR("Failed to init timing wheel mutex, ret: %d.\n", ret);
++        free(tw);
++        return NULL;
++    }
++
++    ret = tw_init_slots(tw);
++    if (ret != 0) {
++        goto err_mutex;
++    }
++
++    ret = tw_init_task_map(tw);
++    if (ret != 0) {
++        goto err_slots;
++    }
++
++    return tw;
++err_slots:
++    free(tw->slots);
++err_mutex:
++    (void)pthread_mutex_destroy(&tw->lock);
++    free(tw);
++    return NULL;
++}
++
++void tw_destroy(tw_t *tw)
++{
++    tw_task_t *task = NULL;
++    tw_task_t *next = NULL;
++
++    if (tw == NULL) {
++        return;
++    }
++
++    HMAP_FOR_EACH_SAFE (task, next, hmap_node, &tw->task_map) {
++        ub_hmap_remove(&tw->task_map, &task->hmap_node);
++        free(task);
++    }
++
++    ub_hmap_destroy(&tw->task_map);
++    free(tw->slots);
++    (void)pthread_mutex_destroy(&tw->lock);
++    free(tw);
++}
++
++int tw_schedule(tw_t *tw, uint64_t delay_ms, tw_task_fn_t fn, void *arg, tw_task_id_t *task_id)
++{
++    tw_task_t *task = NULL;
++    tw_task_id_t new_task_id;
++    uint64_t delay_tick;
++    uint64_t expire_tick;
++    if (tw == NULL || fn == NULL || task_id == NULL) {
++        URMA_LOG_ERR("Invalid param when scheduling timing wheel task.\n");
++        return -EINVAL;
++    }
++
++    task = calloc(1, sizeof(*task));
++    if (task == NULL) {
++        URMA_LOG_ERR("Failed to alloc timing wheel task.\n");
++        return -ENOMEM;
++    }
++
++    delay_tick = delay_ms == 0 ? 0 : 1 + (delay_ms - 1) / tw->tick_ms;
++    if (delay_tick == 0) {
++        delay_tick = 1;
++    }
++
++    (void)pthread_mutex_lock(&tw->lock);
++    new_task_id = tw->next_task_id++;
++    task->task_id = new_task_id;
++    task->fn = fn;
++    task->arg = arg;
++    expire_tick = tw->current_tick + delay_tick;
++    task->slot_idx = (uint32_t)(expire_tick % tw->slot_num);
++    task->round = (delay_tick - 1U) / tw->slot_num;
++    ub_hmap_insert(&tw->task_map, &task->hmap_node, tw_task_hash(task->task_id));
++    TAILQ_INSERT_TAIL(&tw->slots[task->slot_idx].tasks, task, slot_entry);
++    *task_id = task->task_id;
++    (void)pthread_mutex_unlock(&tw->lock);
++    return 0;
++}
++
++int tw_cancel(tw_t *tw, tw_task_id_t task_id)
++{
++    tw_task_t *task = NULL;
++    int ret = 0;
++
++    if (tw == NULL || task_id == 0) {
++        URMA_LOG_ERR("Invalid param when canceling timing wheel task.\n");
++        return -EINVAL;
++    }
++
++    (void)pthread_mutex_lock(&tw->lock);
++    task = tw_lookup_task(tw, task_id);
++    if (task == NULL) {
++        ret = -ENOENT;
++        goto out_unlock;
++    }
++
++    TAILQ_REMOVE(&tw->slots[task->slot_idx].tasks, task, slot_entry);
++    ub_hmap_remove(&tw->task_map, &task->hmap_node);
++    tw_task_free(task);
++
++out_unlock:
++    (void)pthread_mutex_unlock(&tw->lock);
++    return ret;
++}
++
++uint32_t tw_get_tick_ms(const tw_t *tw)
++{
++    if (tw == NULL) {
++        return 0;
++    }
++
++    return tw->tick_ms;
++}
++
++void tw_advance(tw_t *tw, uint64_t tick_cnt)
++{
++    uint64_t i;
++
++    if (tw == NULL || tick_cnt == 0) {
++        return;
++    }
++
++    for (i = 0; i < tick_cnt; i++) {
++        tw_process_tick(tw);
++    }
++}
+diff --git a/src/urma/lib/urma/bond/utils/bondp_timewheel.h b/src/urma/lib/urma/bond/utils/bondp_timewheel.h
+new file mode 100644
+index 0000000..8c6c66a
+--- /dev/null
++++ b/src/urma/lib/urma/bond/utils/bondp_timewheel.h
+@@ -0,0 +1,86 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: Timing wheel internal header
++ */
++
++#ifndef BONDP_TIMEWHEEL_H
++#define BONDP_TIMEWHEEL_H
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define TW_DEFAULT_TICK_MS  (10U)
++#define TW_DEFAULT_SLOT_NUM (512U)
++
++typedef uint64_t tw_task_id_t;
++
++typedef void (*tw_task_fn_t)(void *arg);
++
++typedef struct tw tw_t;
++
++typedef struct tw_cfg {
++    uint32_t tick_ms;
++    uint32_t slot_num;
++} tw_cfg_t;
++
++/**
++ * @brief Create a timing wheel instance.
++ * @param[in] cfg timing wheel configuration. Default values will be
++ * used when one field is 0.
++ * @return Timing wheel instance pointer on success, NULL on error.
++ */
++tw_t *tw_create(const tw_cfg_t *cfg);
++
++/**
++ * @brief Destroy the timing wheel instance.
++ * @param[in] tw timing wheel instance.
++ * @note The caller must ensure no thread is concurrently calling
++ * tw_schedule(), tw_cancel(), tw_advance(), or tw_destroy() on the same
++ * timing wheel. Destroy is only valid after all external users have stopped
++ * accessing the instance.
++ */
++void tw_destroy(tw_t *tw);
++
++/**
++ * @brief Schedule a task on the timing wheel.
++ * @param[in] tw timing wheel instance.
++ * @param[in] delay_ms task delay in milliseconds. The minimum effective delay
++ * is one tick.
++ * @param[in] fn task callback function.
++ * @param[in] arg user private data passed to callback.
++ * @param[out] task_id returned task id used for later cancellation.
++ * @return 0 on success, negative errno on error.
++ */
++int tw_schedule(tw_t *tw, uint64_t delay_ms, tw_task_fn_t fn, void *arg, tw_task_id_t *task_id);
++
++/**
++ * @brief Cancel a scheduled task.
++ * @param[in] tw timing wheel instance.
++ * @param[in] task_id task id returned by tw_schedule().
++ * @return 0 on success, negative errno on error.
++ */
++int tw_cancel(tw_t *tw, tw_task_id_t task_id);
++
++/**
++ * @brief Get the tick interval of the timing wheel.
++ * @param[in] tw timing wheel instance.
++ * @return Tick interval in milliseconds, 0 when tw is NULL.
++ */
++uint32_t tw_get_tick_ms(const tw_t *tw);
++
++/**
++ * @brief Advance the timing wheel by a specified tick count.
++ * @param[in] tw timing wheel instance.
++ * @param[in] tick_cnt number of ticks to advance.
++ */
++void tw_advance(tw_t *tw, uint64_t tick_cnt);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // BONDP_TIMEWHEEL_H
+diff --git a/src/urma/lib/urma/bond/utils/bondp_worker.c b/src/urma/lib/urma/bond/utils/bondp_worker.c
+new file mode 100644
+index 0000000..cd1bab0
+--- /dev/null
++++ b/src/urma/lib/urma/bond/utils/bondp_worker.c
+@@ -0,0 +1,581 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: Bond worker thread implementation
++ */
++
++#include <errno.h>
++#include <pthread.h>
++#include <stdlib.h>
++#include <sys/epoll.h>
++#include <sys/eventfd.h>
++#include <time.h>
++#include <unistd.h>
++
++#include "bondp_timewheel.h"
++#include "ub_hash.h"
++#include "ub_hmap.h"
++#include "ub_util.h"
++#include "urma_log.h"
++
++#include "bondp_worker.h"
++
++#define BONDP_WORKER_EVENT_NUM         (16)
++#define BONDP_WORKER_HANDLER_MAP_SIZE  (64U)
++#define BONDP_WORKER_MAX_ADVANCE_TICKS (64U)
++
++typedef struct bondp_worker_event_handler {
++    int fd;
++    bondp_worker_event_fn_t handler;
++    void *arg;
++    bool deleting;
++    uint32_t refcnt;
++    struct ub_hmap_node hmap_node;
++} bondp_worker_event_handler_t;
++
++typedef struct bondp_worker {
++    pthread_t thread;
++    pthread_mutex_t lock;
++    int epoll_fd;
++    int wake_fd;
++    bool running;
++    uint64_t last_tick_ms;
++    struct ub_hmap handler_map;
++    tw_t *tw;
++} bondp_worker_t;
++
++static bondp_worker_t *bondp_worker = NULL;
++static pthread_mutex_t bondp_worker_lock = PTHREAD_MUTEX_INITIALIZER;
++
++static uint32_t bondp_worker_event_hash(int fd)
++{
++    return ub_hash_bytes(&fd, sizeof(fd), 0);
++}
++
++static bondp_worker_event_handler_t *find_event_handler(bondp_worker_t *worker, int fd)
++{
++    bondp_worker_event_handler_t *entry = NULL;
++    uint32_t hash = bondp_worker_event_hash(fd);
++
++    HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash, &worker->handler_map) {
++        if (entry->fd == fd) {
++            return entry;
++        }
++    }
++
++    return NULL;
++}
++
++static int attach_event_handler(bondp_worker_t *worker, bondp_worker_event_handler_t *entry)
++{
++    struct epoll_event event = {
++        .events = EPOLLIN,
++        .data.fd = entry->fd,
++    };
++
++    if (find_event_handler(worker, entry->fd) != NULL) {
++        return -EEXIST;
++    }
++
++    if (epoll_ctl(worker->epoll_fd, EPOLL_CTL_ADD, entry->fd, &event) != 0) {
++        URMA_LOG_ERR("Failed to add fd %d to bond worker epoll, errno: %d.\n", entry->fd, errno);
++        return -errno;
++    }
++
++    ub_hmap_insert(&worker->handler_map, &entry->hmap_node, bondp_worker_event_hash(entry->fd));
++    return 0;
++}
++
++static int detach_event_handler(bondp_worker_t *worker, int fd)
++{
++    bondp_worker_event_handler_t *entry = find_event_handler(worker, fd);
++
++    if (entry == NULL) {
++        return -ENOENT;
++    }
++
++    if (epoll_ctl(worker->epoll_fd, EPOLL_CTL_DEL, entry->fd, NULL) != 0) {
++        URMA_LOG_ERR("Failed to del fd %d from bond worker epoll, errno: %d.\n", entry->fd, errno);
++        return -errno;
++    }
++
++    ub_hmap_remove(&worker->handler_map, &entry->hmap_node);
++    entry->deleting = true;
++    if (entry->refcnt == 0) {
++        free(entry);
++    }
++
++    return 0;
++}
++
++static bondp_worker_event_handler_t *get_event_handler(bondp_worker_t *worker, int fd)
++{
++    bondp_worker_event_handler_t *entry = find_event_handler(worker, fd);
++
++    if (entry == NULL || entry->deleting) {
++        return NULL;
++    }
++
++    entry->refcnt++;
++    return entry;
++}
++
++static void put_event_handler(bondp_worker_event_handler_t *entry)
++{
++    if (entry->refcnt == 0) {
++        URMA_LOG_ERR("Bond worker event handler fd %d put without refs.\n", entry->fd);
++        return;
++    }
++
++    entry->refcnt--;
++    if (entry->deleting && entry->refcnt == 0) {
++        free(entry);
++    }
++}
++
++static void flush_event_handlers(bondp_worker_t *worker)
++{
++    bondp_worker_event_handler_t *entry = NULL;
++    bondp_worker_event_handler_t *next = NULL;
++
++    HMAP_FOR_EACH_SAFE (entry, next, hmap_node, &worker->handler_map) {
++        ub_hmap_remove(&worker->handler_map, &entry->hmap_node);
++        entry->deleting = true;
++        free(entry);
++    }
++}
++
++static uint64_t bondp_worker_now_ms(void)
++{
++    struct timespec ts = {0};
++
++    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
++        URMA_LOG_ERR("Failed to get bond worker monotonic time, errno: %d.\n", errno);
++        return 0;
++    }
++
++    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
++}
++
++static int bondp_worker_get_wait_timeout_ms(bondp_worker_t *worker, uint64_t now_ms)
++{
++    uint32_t tick_ms = tw_get_tick_ms(worker->tw);
++    uint64_t next_tick_ms = worker->last_tick_ms + tick_ms;
++
++    if (tick_ms == 0 || now_ms >= next_tick_ms) {
++        return 0;
++    }
++
++    return (int)(next_tick_ms - now_ms);
++}
++
++static void bondp_worker_advance_by_now(bondp_worker_t *worker)
++{
++    uint32_t tick_ms = tw_get_tick_ms(worker->tw);
++    uint64_t now_ms = bondp_worker_now_ms();
++    uint64_t tick_cnt;
++
++    if (tick_ms == 0 || now_ms < worker->last_tick_ms + tick_ms) {
++        return;
++    }
++
++    tick_cnt = (now_ms - worker->last_tick_ms) / tick_ms;
++    tick_cnt = MIN(tick_cnt, BONDP_WORKER_MAX_ADVANCE_TICKS);
++    worker->last_tick_ms += tick_cnt * tick_ms;
++    tw_advance(worker->tw, tick_cnt);
++}
++
++static int bondp_worker_wakeup(bondp_worker_t *worker)
++{
++    uint64_t one = 1;
++    ssize_t ret;
++
++    do {
++        ret = write(worker->wake_fd, &one, sizeof(one));
++    } while (ret < 0 && errno == EINTR);
++
++    if (ret == (ssize_t)sizeof(one) || (ret < 0 && errno == EAGAIN)) {
++        return 0;
++    }
++
++    URMA_LOG_ERR("Failed to wake bond worker thread, errno: %d.\n", errno);
++    return ret < 0 ? -errno : -EIO;
++}
++
++static void bondp_worker_drain_wakeup_fd(int wake_fd)
++{
++    uint64_t value;
++    ssize_t ret;
++
++    while (true) {
++        ret = read(wake_fd, &value, sizeof(value));
++        if (ret == (ssize_t)sizeof(value)) {
++            continue;
++        }
++        if (ret < 0 && errno == EINTR) {
++            continue;
++        }
++        if (ret < 0 && errno == EAGAIN) {
++            return;
++        }
++        break;
++    }
++
++    if (ret == 0) {
++        URMA_LOG_WARN("Unexpected EOF while draining bond worker wake fd.\n");
++        return;
++    }
++
++    URMA_LOG_WARN("Failed to drain bond worker wake fd, errno: %d.\n", errno);
++}
++
++static void bondp_worker_handle_epoll_event(bondp_worker_t *worker, int fd, uint32_t events)
++{
++    bondp_worker_event_handler_t *entry;
++
++    if (fd == worker->wake_fd) {
++        if ((events & EPOLLIN) != 0) {
++            bondp_worker_drain_wakeup_fd(worker->wake_fd);
++        }
++        return;
++    }
++
++    if ((events & (EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP)) == 0) {
++        return;
++    }
++
++    (void)pthread_mutex_lock(&worker->lock);
++    entry = get_event_handler(worker, fd);
++    if (entry == NULL) {
++        (void)pthread_mutex_unlock(&worker->lock);
++        return;
++    }
++    (void)pthread_mutex_unlock(&worker->lock);
++
++    entry->handler(entry->arg);
++
++    (void)pthread_mutex_lock(&worker->lock);
++    put_event_handler(entry);
++    (void)pthread_mutex_unlock(&worker->lock);
++}
++
++static void *bondp_worker_thread_main(void *arg)
++{
++    bondp_worker_t *worker = arg;
++    struct epoll_event events[BONDP_WORKER_EVENT_NUM];
++
++    while (true) {
++        uint64_t now_ms = bondp_worker_now_ms();
++        int timeout_ms = bondp_worker_get_wait_timeout_ms(worker, now_ms);
++        int nfds = epoll_wait(worker->epoll_fd, events, BONDP_WORKER_EVENT_NUM, timeout_ms);
++
++        if (nfds < 0) {
++            if (errno == EINTR) {
++                continue;
++            }
++            URMA_LOG_ERR("Bond worker epoll_wait failed, errno: %d.\n", errno);
++            (void)pthread_mutex_lock(&worker->lock);
++            worker->running = false;
++            (void)pthread_mutex_unlock(&worker->lock);
++            break;
++        }
++
++        for (int i = 0; i < nfds; i++) {
++            bondp_worker_handle_epoll_event(worker, events[i].data.fd, events[i].events);
++        }
++
++        (void)pthread_mutex_lock(&worker->lock);
++        if (!worker->running) {
++            (void)pthread_mutex_unlock(&worker->lock);
++            break;
++        }
++        (void)pthread_mutex_unlock(&worker->lock);
++
++        bondp_worker_advance_by_now(worker);
++    }
++
++    return NULL;
++}
++
++static bondp_worker_t *bondp_worker_create_instance(int *err_code)
++{
++    bondp_worker_t *worker;
++    int ret;
++
++    worker = calloc(1, sizeof(*worker));
++    if (worker == NULL) {
++        URMA_LOG_ERR("Failed to alloc bond worker.\n");
++        *err_code = -ENOMEM;
++        return NULL;
++    }
++
++    tw_cfg_t tw_cfg = {
++        .tick_ms = TW_DEFAULT_TICK_MS,
++        .slot_num = TW_DEFAULT_SLOT_NUM,
++    };
++    tw_t *tw = tw_create(&tw_cfg);
++    if (tw == NULL) {
++        *err_code = -ENOMEM;
++        free(worker);
++        return NULL;
++    }
++
++    worker->epoll_fd = -1;
++    worker->wake_fd = -1;
++    worker->tw = tw;
++
++    ret = pthread_mutex_init(&worker->lock, NULL);
++    if (ret != 0) {
++        URMA_LOG_ERR("Failed to init bond worker mutex, ret: %d.\n", ret);
++        *err_code = -ret;
++        goto ERR_TW;
++    }
++
++    if (ub_hmap_init(&worker->handler_map, BONDP_WORKER_HANDLER_MAP_SIZE) != 0) {
++        URMA_LOG_ERR("Failed to init bond worker handler map.\n");
++        *err_code = -ENOMEM;
++        goto ERR_LOCK;
++    }
++
++    worker->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
++    if (worker->epoll_fd < 0) {
++        URMA_LOG_ERR("Failed to create bond worker epoll fd, errno: %d.\n", errno);
++        *err_code = -errno;
++        goto ERR_MAP;
++    }
++
++    worker->wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
++    if (worker->wake_fd < 0) {
++        URMA_LOG_ERR("Failed to create bond worker wake fd, errno: %d.\n", errno);
++        *err_code = -errno;
++        goto ERR_EPOLL;
++    }
++
++    struct epoll_event event = {
++        .events = EPOLLIN,
++        .data.fd = worker->wake_fd,
++    };
++    if (epoll_ctl(worker->epoll_fd, EPOLL_CTL_ADD, worker->wake_fd, &event) != 0) {
++        URMA_LOG_ERR("Failed to add wake fd to bond worker epoll, errno: %d.\n", errno);
++        *err_code = -errno;
++        goto ERR_WAKE;
++    }
++
++    worker->last_tick_ms = bondp_worker_now_ms();
++    worker->running = true;
++    ret = pthread_create(&worker->thread, NULL, bondp_worker_thread_main, worker);
++    if (ret != 0) {
++        URMA_LOG_ERR("Failed to create bond worker thread, ret: %d.\n", ret);
++        *err_code = -ret;
++        goto ERR_WAKE;
++    }
++
++    return worker;
++
++ERR_WAKE:
++    (void)close(worker->wake_fd);
++ERR_EPOLL:
++    (void)close(worker->epoll_fd);
++ERR_MAP:
++    ub_hmap_destroy(&worker->handler_map);
++ERR_LOCK:
++    (void)pthread_mutex_destroy(&worker->lock);
++ERR_TW:
++    tw_destroy(worker->tw);
++    free(worker);
++    return NULL;
++}
++
++int bondp_worker_create(void)
++{
++    bondp_worker_t *worker;
++    int ret = 0;
++
++    (void)pthread_mutex_lock(&bondp_worker_lock);
++    if (bondp_worker != NULL) {
++        URMA_LOG_ERR("Bond worker already created.\n");
++        ret = -EEXIST;
++        goto UNLOCK;
++    }
++
++    worker = bondp_worker_create_instance(&ret);
++    if (worker == NULL) {
++        goto UNLOCK;
++    }
++
++    bondp_worker = worker;
++    ret = 0;
++
++UNLOCK:
++    (void)pthread_mutex_unlock(&bondp_worker_lock);
++    return ret;
++}
++
++void bondp_worker_destroy(void)
++{
++    bondp_worker_t *worker;
++
++    (void)pthread_mutex_lock(&bondp_worker_lock);
++    worker = bondp_worker;
++    if (worker == NULL) {
++        (void)pthread_mutex_unlock(&bondp_worker_lock);
++        return;
++    }
++    /*
++     * Destroy is only called after external users have stopped accessing the
++     * worker, so clearing the global pointer here is enough to prevent later
++     * accidental reuse during teardown.
++     */
++    bondp_worker = NULL;
++
++    (void)pthread_mutex_lock(&worker->lock);
++    worker->running = false;
++    (void)pthread_mutex_unlock(&worker->lock);
++    (void)bondp_worker_wakeup(worker);
++
++    (void)pthread_join(worker->thread, NULL);
++
++    if (worker->wake_fd >= 0) {
++        (void)close(worker->wake_fd);
++    }
++    if (worker->epoll_fd >= 0) {
++        (void)close(worker->epoll_fd);
++    }
++    (void)pthread_mutex_lock(&worker->lock);
++    flush_event_handlers(worker);
++    (void)pthread_mutex_unlock(&worker->lock);
++    ub_hmap_destroy(&worker->handler_map);
++    (void)pthread_mutex_destroy(&worker->lock);
++    tw_destroy(worker->tw);
++    free(worker);
++    (void)pthread_mutex_unlock(&bondp_worker_lock);
++}
++
++int bondp_worker_schedule(uint64_t delay_ms, bondp_worker_task_fn_t fn, void *arg, bondp_worker_task_id_t *task_id)
++{
++    bondp_worker_t *worker = bondp_worker;
++    int ret = 0;
++
++    if (worker == NULL) {
++        return -ENODEV;
++    }
++
++    (void)pthread_mutex_lock(&worker->lock);
++    ret = worker->running ? 0 : -EIO;
++    (void)pthread_mutex_unlock(&worker->lock);
++    if (ret != 0) {
++        return ret;
++    }
++
++    ret = tw_schedule(worker->tw, delay_ms, fn, arg, task_id);
++    if (ret == 0) {
++        (void)bondp_worker_wakeup(worker);
++    }
++
++    return ret;
++}
++
++int bondp_worker_cancel(bondp_worker_task_id_t task_id)
++{
++    bondp_worker_t *worker = bondp_worker;
++    int ret = 0;
++
++    if (worker == NULL) {
++        return -ENODEV;
++    }
++
++    (void)pthread_mutex_lock(&worker->lock);
++    ret = worker->running ? 0 : -EIO;
++    (void)pthread_mutex_unlock(&worker->lock);
++    if (ret != 0) {
++        return ret;
++    }
++
++    ret = tw_cancel(worker->tw, task_id);
++    if (ret == 0) {
++        (void)bondp_worker_wakeup(worker);
++    }
++
++    return ret;
++}
++
++int bondp_worker_add_fd(int fd, bondp_worker_event_fn_t handler, void *arg)
++{
++    bondp_worker_t *worker = bondp_worker;
++    int ret = 0;
++
++    if (fd < 0 || handler == NULL) {
++        return -EINVAL;
++    }
++
++    bondp_worker_event_handler_t *entry = calloc(1, sizeof(*entry));
++    if (entry == NULL) {
++        URMA_LOG_ERR("Failed to alloc bond worker event handler.\n");
++        return -ENOMEM;
++    }
++
++    entry->fd = fd;
++    entry->handler = handler;
++    entry->arg = arg;
++
++    if (worker == NULL) {
++        ret = -ENODEV;
++        goto FREE_ENTRY;
++    }
++
++    (void)pthread_mutex_lock(&worker->lock);
++    ret = worker->running ? 0 : -EIO;
++    if (ret != 0) {
++        goto UNLOCK_WORKER;
++    }
++    ret = attach_event_handler(worker, entry);
++    if (ret != 0) {
++        goto UNLOCK_WORKER;
++    }
++
++UNLOCK_WORKER:
++    (void)pthread_mutex_unlock(&worker->lock);
++    if (ret != 0) {
++        goto FREE_ENTRY;
++    }
++
++    (void)bondp_worker_wakeup(worker);
++    return 0;
++
++FREE_ENTRY:
++    free(entry);
++    return ret;
++}
++
++int bondp_worker_del_fd(int fd)
++{
++    bondp_worker_t *worker = bondp_worker;
++    int ret = 0;
++
++    if (fd < 0) {
++        return -EINVAL;
++    }
++
++    if (worker == NULL) {
++        return -ENODEV;
++    }
++
++    (void)pthread_mutex_lock(&worker->lock);
++    ret = worker->running ? 0 : -EIO;
++    if (ret != 0) {
++        goto UNLOCK_WORKER;
++    }
++    ret = detach_event_handler(worker, fd);
++    if (ret != 0) {
++        goto UNLOCK_WORKER;
++    }
++
++UNLOCK_WORKER:
++    (void)pthread_mutex_unlock(&worker->lock);
++    if (ret != 0) {
++        return ret;
++    }
++
++    (void)bondp_worker_wakeup(worker);
++    return 0;
++}
+diff --git a/src/urma/lib/urma/bond/utils/bondp_worker.h b/src/urma/lib/urma/bond/utils/bondp_worker.h
+new file mode 100644
+index 0000000..f44cc3e
+--- /dev/null
++++ b/src/urma/lib/urma/bond/utils/bondp_worker.h
+@@ -0,0 +1,75 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
++ * Description: Bond worker thread header
++ */
++
++#ifndef BONDP_WORKER_H
++#define BONDP_WORKER_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++typedef uint64_t bondp_worker_task_id_t;
++
++typedef void (*bondp_worker_task_fn_t)(void *arg);
++typedef void (*bondp_worker_event_fn_t)(void *arg);
++
++/**
++ * @brief Create the bond worker instance.
++ * @note The caller must serialize create/destroy against all other bond worker
++ * APIs.
++ * @return 0 on success, negative errno on error.
++ */
++int bondp_worker_create(void);
++
++/**
++ * @brief Destroy the bond worker instance.
++ * @note The caller must serialize create/destroy against all other bond worker
++ * APIs.
++ */
++void bondp_worker_destroy(void);
++
++/**
++ * @brief Schedule a task on the bond worker timing wheel.
++ * @param[in] delay_ms task delay in milliseconds. The minimum effective delay
++ * is one tick.
++ * @param[in] fn task callback function.
++ * @param[in] arg user private data passed to callback.
++ * @param[out] task_id returned task id used for later cancellation.
++ * @return 0 on success, negative errno on error.
++ */
++int bondp_worker_schedule(uint64_t delay_ms, bondp_worker_task_fn_t fn, void *arg, bondp_worker_task_id_t *task_id);
++
++/**
++ * @brief Cancel a scheduled bond worker task.
++ * @param[in] task_id task id returned by bondp_worker_schedule().
++ * @return 0 on success, negative errno on error.
++ */
++int bondp_worker_cancel(bondp_worker_task_id_t task_id);
++
++/**
++ * @brief Register an fd on the bond worker epoll instance.
++ * @param[in] fd file descriptor to monitor.
++ * @param[in] handler callback function invoked when the fd becomes readable.
++ * @param[in] arg user private data passed to callback.
++ * @return 0 on success, negative errno on error.
++ */
++int bondp_worker_add_fd(int fd, bondp_worker_event_fn_t handler, void *arg);
++
++/**
++ * @brief Unregister an fd from the bond worker epoll instance.
++ * @param[in] fd file descriptor to remove.
++ * @return 0 on success, negative errno on error.
++ */
++int bondp_worker_del_fd(int fd);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // BONDP_WORKER_H
+-- 
+2.34.1
+

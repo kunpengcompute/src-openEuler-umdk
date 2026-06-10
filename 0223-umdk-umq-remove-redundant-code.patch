@@ -1,0 +1,213 @@
+From a1ec4506a10487da1b3cd6a8bbd6d3ac39f32592 Mon Sep 17 00:00:00 2001
+From: caihongxu <caihongxu@huawei.com>
+Date: Fri, 5 Jun 2026 15:30:56 +0800
+Subject: [PATCH] umq: remove redundant code
+
+(cherry picked from commit fb9a29baac4d02c4801470c5e95f7d69b6636ebd)
+---
+ src/urpc/umq/umq_ub/core/private/umq_pro_ub.c | 30 ++++++-------
+ src/urpc/umq/umq_ub/core/private/umq_ub.c     | 42 ++++---------------
+ 2 files changed, 24 insertions(+), 48 deletions(-)
+
+diff --git a/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c b/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c
+index 475fcb0..86c871f 100644
+--- a/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c
++++ b/src/urpc/umq/umq_ub/core/private/umq_pro_ub.c
+@@ -594,7 +594,7 @@ int umq_ub_post_rx_inner_impl(ub_queue_t *queue, umq_buf_t *qbuf, umq_buf_t **ba
+         umq_ub_rqe_posted_cnt_inc(queue, wr_index - umq_ub_post_rx_failed_num(recv_wr, wr_index, *bad_qbuf));
+         // if fails, add chain of qbuf back for rx
+         process_bad_wr(queue, bad_wr, NULL);
+-        return -UMQ_ERR_EAGAIN;
++        return umq_status_convert(status);
+     }
+     umq_ub_rqe_posted_cnt_inc(queue, wr_index);
+     umq_perf_record_write(UMQ_PERF_RECORD_TRANSPORT_POST_RECV, start_timestamp);
+@@ -901,8 +901,18 @@ static int main_umq_ub_poll_fc_rx(ub_queue_t *queue, umq_buf_t **buf, uint32_t b
+             continue;
+         }
+ 
+-        // Record the imm of the flow control message, and process the flow control message when sub umq poll rx.
+         umq_ub_imm_t imm = {.value = cr[i].imm_data};
++
++        // Flow control messages sent to the main umq are processed directly.
++        if (real_queue == queue) {
++            qbuf_cnt += (int32_t)umq_ub_process_fc_msg(queue, imm, &buf[qbuf_cnt]);
++            (void)umq_ub_fill_fc_rx_buf(queue);
++            umq_ub_fill_rx_buff_post_process(queue, imm);
++            umq_ub_put_real_queue(real_queue, UB_QUEUE_JETTY_FLOW_CONTROL);
++            continue;
++        }
++
++        // Record the imm of the flow control message, and process the flow control message when sub umq poll rx.
+         switch (imm.bs.type) {
+             case IMM_TYPE_FC_CREDIT_REQ:
+             case IMM_TYPE_FC_CREDIT_RETURN_REQ:
+@@ -932,7 +942,7 @@ static int sub_umq_ub_poll_fc_rx(ub_queue_t *queue, umq_buf_t **buf, uint32_t bu
+             continue;
+         }
+         qbuf_cnt += umq_ub_process_fc_msg(queue, imm, &buf[qbuf_cnt]);
+-        (void)umq_ub_fill_rx_buff_post_process(queue, imm);
++        umq_ub_fill_rx_buff_post_process(queue, imm);
+     }
+     return (int)qbuf_cnt;
+ }
+@@ -978,7 +988,7 @@ static int umq_ub_poll_fc_rx(ub_queue_t *queue, umq_buf_t **buf, uint32_t buf_co
+         umq_ub_imm_t imm = {.value = cr[i].imm_data};
+         qbuf_cnt += (int32_t)umq_ub_process_fc_msg(queue, imm, &buf[qbuf_cnt]);
+         (void)umq_ub_fill_fc_rx_buf(queue);
+-        (void)umq_ub_fill_rx_buff_post_process(queue, imm);
++        umq_ub_fill_rx_buff_post_process(queue, imm);
+     }
+     /* If buf is not NULL, return qbuf_cnt (0 if no error, >0 if has error);
+      * If buf is NULL, return ret (0 if no error, error code if has error) */
+@@ -1225,11 +1235,6 @@ static int umq_ub_flush_sqe(ub_queue_t *queue, umq_buf_t **buf, uint32_t buf_cou
+     return cnt;
+ }
+ 
+-static int umq_ub_fc_process_tx(ub_queue_t *queue, umq_ub_fc_user_ctx_t *obj)
+-{
+-    return UMQ_SUCCESS;
+-}
+-
+ static void umq_ub_fc_process_tx_error(ub_queue_t *queue, umq_ub_fc_user_ctx_t *obj)
+ {
+     uint32_t type = obj->bs.type;
+@@ -1287,7 +1292,7 @@ int umq_ub_poll_fc_tx(ub_queue_t *queue, umq_buf_t **buf, uint32_t buf_count)
+     uint32_t success_cnt = 0;
+     int32_t qbuf_cnt = 0;
+     for (int i = 0; i < tx_cr_cnt; i++) {
+-        umq_ub_fc_user_ctx_t  obj = {.value = cr[i].user_ctx};
++        umq_ub_fc_user_ctx_t obj = {.value = cr[i].user_ctx};
+         if (cr[i].status != URMA_CR_SUCCESS) {
+             umq_ub_fc_packet_stats(&queue->flow_control, 1, UB_PACKET_STATS_TYPE_SEND_ERROR);
+             if (cr[i].status == URMA_CR_WR_FLUSH_ERR_DONE || cr[i].status == URMA_CR_WR_SUSPEND_DONE) {
+@@ -1305,11 +1310,6 @@ int umq_ub_poll_fc_tx(ub_queue_t *queue, umq_buf_t **buf, uint32_t buf_count)
+             continue;
+         }
+ 
+-        if (umq_ub_fc_process_tx(queue, &obj) != UMQ_SUCCESS) {
+-            ret = -UMQ_ERR_EFLOWCTL;
+-            continue;
+-        }
+-
+         success_cnt++;
+     }
+ 
+diff --git a/src/urpc/umq/umq_ub/core/private/umq_ub.c b/src/urpc/umq/umq_ub/core/private/umq_ub.c
+index a11355a..680e7fa 100644
+--- a/src/urpc/umq/umq_ub/core/private/umq_ub.c
++++ b/src/urpc/umq/umq_ub/core/private/umq_ub.c
+@@ -26,7 +26,6 @@
+ #define UMQ_INLINE_ENABLE 1
+ #define UMQ_LEN_ALIGNMENT_4 4
+ #define TSEG_MAP_NUM 256
+-#define UMQ_PORT_STR_SIZE 512
+ #define UMQ_CTP_MAX_BUF_SIZE 4096
+ 
+ static util_id_allocator_t g_umq_ub_id_allocator = {0};
+@@ -1083,28 +1082,9 @@ void umq_ub_ctx_imported_info_destroy(umq_ub_ctx_t *ub_ctx)
+     ub_ctx->remote_imported_info = NULL;
+ }
+ 
+-static void umq_jetty_port_info(char *buf, int size, ub_queue_t *queue)
++urma_jetty_t *umq_create_jetty(ub_queue_t *queue, umq_ub_ctx_t *dev_ctx, ub_queue_jetty_index_t jetty_idx,
++    const char *port_str)
+ {
+-    int ret;
+-    int offset = 0, remain = size;
+-
+-    for (uint8_t i = 0; i < queue->used_port_num; i++) {
+-        ret = snprintf(buf + offset, remain, " [chip: %hhu, die: %hhu, port: %hhu]", queue->used_port[i].chip_id,
+-                       queue->used_port[i].die_id, queue->used_port[i].port_idx);
+-        if (ret < 0 || ret >= remain) {
+-            buf[0] = 0;
+-            UMQ_VLOG_ERR(VLOG_UMQ, "format jetty port info failed, port_num %d, error %d\n", queue->used_port_num, ret);
+-            return;
+-        }
+-
+-        offset += ret;
+-        remain -= ret;
+-    }
+-}
+-
+-urma_jetty_t *umq_create_jetty(ub_queue_t *queue, umq_ub_ctx_t *dev_ctx, ub_queue_jetty_index_t jetty_idx)
+-{
+-    char port_str[UMQ_PORT_STR_SIZE] = {0};
+     bondp_jetty_cfg_t bondp_jetty_cfg = {
+         .base = {
+             .jfs_cfg = {
+@@ -1127,16 +1107,11 @@ urma_jetty_t *umq_create_jetty(ub_queue_t *queue, umq_ub_ctx_t *dev_ctx, ub_queu
+     bondp_jetty_cfg.base.flag.bs.has_drv_ext = ((queue->create_flag & UMQ_CREATE_FLAG_USED_PORTS) != 0);
+     bondp_jetty_cfg.base.shared.jfr = queue->jfr_ctx[jetty_idx]->jfr;
+ 
+-    umq_jetty_port_info(port_str, UMQ_PORT_STR_SIZE, queue);
+     urma_jetty_t *jetty = umq_symbol_urma()->urma_create_jetty(dev_ctx->urma_ctx, &bondp_jetty_cfg.base);
+     if (jetty == NULL) {
+         UMQ_VLOG_ERR(VLOG_UMQ_URMA_API, "urma_create_jetty failed,%s errno: %d\n", port_str, errno);
+         return NULL;
+     }
+-    UMQ_VLOG_INFO(VLOG_UMQ, "eid: " EID_FMT ", jetty_id: %u,%s create jetty[%d] success, urma transmode %d, "
+-                  "tp_type %d, priority %d, rnr_retry %d, err_timeout %d\n", EID_ARGS(jetty->jetty_id.eid),
+-                  jetty->jetty_id.id, port_str, jetty_idx, queue->tp_mode, queue->tp_type, queue->priority,
+-                  queue->rnr_retry, queue->err_timeout);
+     return jetty;
+ }
+ 
+@@ -1295,7 +1270,7 @@ int check_and_set_param(umq_ub_ctx_t *dev_ctx, umq_create_option_t *option, ub_q
+     }
+ 
+     if (is_umq_ub_main_queue(option->create_flag) && is_umq_ub_sub_queue(option->create_flag)) {
+-        UMQ_VLOG_ERR(VLOG_UMQ, "queue create_flag[%u] is invalid, main_umq and sub_umq are conflict\n",
++        UMQ_VLOG_ERR(VLOG_UMQ, "queue create_flag[%u] is invalid, main_umq and sub_umq are conflicting\n",
+                      option->create_flag);
+         return -UMQ_ERR_EINVAL;
+     }
+@@ -1309,6 +1284,10 @@ int check_and_set_param(umq_ub_ctx_t *dev_ctx, umq_create_option_t *option, ub_q
+     } else {
+         queue->tp_mode = umq_tp_mode_convert_to_urma(UMQ_TM_RM);
+     }
++    if (queue->tp_mode == URMA_TM_RC && queue->tp_type == URMA_CTP) {
++        UMQ_VLOG_ERR(VLOG_UMQ, "the combination of tp_mode rc and tp_type ctp is not supported\n");
++        return -UMQ_ERR_EINVAL;
++    }
+ 
+     umq_tp_type_t actual_tp_type = (option->create_flag & UMQ_CREATE_FLAG_TP_TYPE) != 0 ?
+         option->tp_type : UMQ_TP_TYPE_CTP;
+@@ -1512,7 +1491,7 @@ static int umq_ub_rqe_post_factor_query(ub_queue_t *queue, umq_ub_ctx_t *dev_ctx
+ jfr_ctx_t *umq_ub_jfr_ctx_create(ub_queue_t *queue, umq_ub_ctx_t *dev_ctx, ub_queue_jetty_index_t jetty_idx)
+ {
+     bool enable_token = (dev_ctx->feature & UMQ_FEATURE_ENABLE_TOKEN_POLICY) != 0;
+-    uint32_t jetty_token;
++    uint32_t jetty_token = 0;
+     int ret = umq_ub_token_generate(enable_token, &jetty_token);
+     if (ret != UMQ_SUCCESS) {
+         UMQ_VLOG_ERR(VLOG_UMQ, "generate jetty token failed, status: %d\n", ret);
+@@ -1592,8 +1571,6 @@ jfr_ctx_t *umq_ub_jfr_ctx_create(ub_queue_t *queue, umq_ub_ctx_t *dev_ctx, ub_qu
+     }
+ 
+     jfr_ctx->ref_cnt = 1;
+-    UMQ_VLOG_INFO(VLOG_UMQ, "create jfr_ctx success, eid: " EID_FMT ", jfr_id: %u\n",
+-                  EID_ARGS(jfr_ctx->jfr->jfr_id.eid), jfr_ctx->jfr->jfr_id.id);
+     return jfr_ctx;
+ 
+ DELETE_JFR:
+@@ -1646,7 +1623,6 @@ uint32_t token_policy_get(bool enable)
+ int umq_ub_token_generate(bool enable_token, uint32_t *token)
+ {
+     if (!enable_token) {
+-        *token = get_timestamp();
+         return 0;
+     }
+ 
+@@ -1660,7 +1636,7 @@ int umq_ub_register_seg(umq_ub_ctx_t *ctx, uint16_t mempool_id, void *addr, uint
+         return UMQ_SUCCESS;
+     }
+     bool enable_token = (ctx->feature & UMQ_FEATURE_ENABLE_TOKEN_POLICY) != 0;
+-    uint32_t mem_token;
++    uint32_t mem_token = 0;
+     int ret = umq_ub_token_generate(enable_token, &mem_token);
+     if (ret != UMQ_SUCCESS) {
+         UMQ_VLOG_ERR(VLOG_UMQ, "generate memory token failed, status: %d\n", ret);
+-- 
+2.34.1
+
