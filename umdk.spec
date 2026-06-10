@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B005
+    %define rpm_release B006
 %endif
 
 Name          : umdk
@@ -540,6 +540,12 @@ fi
 %endif
 
 %changelog
+* Wed Jun 10 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B006
+- umdk: update cam update cam compile, ums fix the security, and cam fix compile bug
+- urma: update respect iodie level in, fix bond cleanup and, Fix some formatting issues, and fix dev cap reserved
+- umq: update change flow control sequence, SGE/imm_data interaction, and flow-control SGE management
+- dlock: fix add TAG mechanism for and refactor control message receiving
+- umdk: drop stale paths from refreshed tarball
 * Mon Jun 8 2026 wangxin <luyicai1994@yeah.net> - 26.06.0-B005
 -umq: modify qbuf default config in ctp mode
 -urma: performance optimization post wr
