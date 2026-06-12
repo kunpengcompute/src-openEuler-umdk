@@ -1,0 +1,56 @@
+From cc69ca20f92e32c885909951bc9933fb5b1b2976 Mon Sep 17 00:00:00 2001
+From: Wei Qin <qinwei61@huawei.com>
+Date: Tue, 27 Jan 2026 19:13:36 +0800
+Subject: [PATCH 3/3] ub: udma: bugfix related to free tid.
+
+driver inclusion
+category: bugfix
+bugzilla: https://atomgit.com/openeuler/kernel/issues/8385
+CVE: NA
+
+-----------------------------------------------------------
+
+This patch fix a bug related to free tid.
+
+Fixes: a7ea7e683ec6 ("udma: support alloc and free tid")
+
+Signed-off-by: Wei Qin <qinwei61@huawei.com>
+---
+ src/urma/hw/udma/udma_u_segment.c | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/src/urma/hw/udma/udma_u_segment.c b/src/urma/hw/udma/udma_u_segment.c
+index 2dbdf72..0499da0 100644
+--- a/src/urma/hw/udma/udma_u_segment.c
++++ b/src/urma/hw/udma/udma_u_segment.c
+@@ -169,18 +169,20 @@ err_ummu_grant:
+ 
+ urma_status_t udma_u_unregister_seg(urma_target_seg_t *target_seg)
+ {
++	struct udma_u_context *udma_ctx = to_udma_u_ctx(target_seg->urma_ctx);
+ 	struct udma_u_segment *seg = to_udma_u_seg(target_seg);
+ 	int ret;
+ 
+-	if (!seg->urma_tseg.seg.attr.bs.non_pin) {
+-		ret = urma_cmd_unregister_seg(target_seg);
+-		if (ret) {
+-			UDMA_LOG_ERR("urma cmd unregister segment failed, ret = %d.\n",
+-				     ret);
+-			return URMA_FAIL;
+-		}
++	if (!udma_ctx->sva_sep_mode_en && seg->urma_tseg.seg.attr.bs.non_pin)
++		goto common_process;
++
++	ret = urma_cmd_unregister_seg(target_seg);
++	if (ret) {
++		UDMA_LOG_ERR("urma cmd unregister segment failed, ret = %d.\n", ret);
++		return URMA_FAIL;
+ 	}
+ 
++common_process:
+ 	udma_u_ungrant_seg(seg);
+ 	seg->token_value.token = 0;
+ 	free(seg);
+-- 
+2.28.0.windows.1
+
