@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B006
+    %define rpm_release B007
 %endif
 
 Name          : umdk
@@ -540,6 +540,13 @@ fi
 %endif
 
 %changelog
+* Mon Jun 15 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B007
+- uvs: update fix cleancode issue
+- urma: update fix cleancode issue, add jfc and jfs, Refactor the urma_admin show_res, and validate dst_chip_id in bondp
+- umq: update Flow control exchanges umq_id, set rjetty in umq_bind_info, and transmit data with umq_id
+- umdk: update cam fix bug to, fix ub device incorrect, ums fix codecheck problem, and fix umq bond dev
+- dlock: fix add fd num check
+- umdk: drop stale paths from refreshed tarball
 * Wed Jun 10 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B006
 - umdk: update cam update cam compile, ums fix the security, and cam fix compile bug
 - urma: update respect iodie level in, fix bond cleanup and, Fix some formatting issues, and fix dev cap reserved
