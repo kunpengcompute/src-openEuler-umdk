@@ -1,0 +1,731 @@
+From 4d0eb3d9857b90f0a320f89741286171ea9035d8 Mon Sep 17 00:00:00 2001
+From: wanghang73 <wanghang73@huawei.com>
+Date: Mon, 27 Apr 2026 06:04:18 +0800
+Subject: [PATCH] urma: bonding tseg and tjetty support ref
+
+(cherry picked from commit d981db9af2b4f53e1e17b5775e5dae94add2810d)
+---
+ src/urma/lib/urma/bond/bondp_api.c            |  49 +++-
+ src/urma/lib/urma/bond/bondp_api.h            |   4 +
+ src/urma/lib/urma/bond/bondp_datapath.c       |  33 +--
+ .../lib/urma/bond/bondp_datapath_convert.c    | 244 +++++++++++-------
+ .../lib/urma/bond/bondp_datapath_convert.h    |  10 +-
+ src/urma/lib/urma/bond/bondp_segment.c        |  65 ++++-
+ src/urma/lib/urma/bond/bondp_segment.h        |   4 +
+ src/urma/lib/urma/bond/bondp_types.h          |   4 +-
+ src/urma/lib/urma/bond/bondp_wr_buf.c         |   2 +
+ 9 files changed, 301 insertions(+), 114 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 43592c0f..59000529 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -1528,6 +1528,7 @@ urma_target_jetty_t *bondp_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjet
+         bdp_tjetty->import_token_value = *token_value;
+         bdp_tjetty->import_token_valid = true;
+     }
++    atomic_init(&bdp_tjetty->use_cnt.atomic_cnt, 1);
+ 
+     urma_bond_id_info_out_t rvjetty_info = {0};
+     if (bondp_import_vjetty(ctx, rjetty, token_value, bdp_tjetty, &rvjetty_info) != 0) {
+@@ -1592,7 +1593,7 @@ FREE_TJETTY:
+     return NULL;
+ }
+ 
+-urma_status_t bondp_unimport_jetty(urma_target_jetty_t *target_jetty)
++static urma_status_t bondp_unimport_jetty_inner(urma_target_jetty_t *target_jetty)
+ {
+     bondp_target_jetty_t *bdp_tjetty = CONTAINER_OF_FIELD(target_jetty, bondp_target_jetty_t, v_tjetty);
+     bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(target_jetty->urma_ctx, bondp_context_t, v_ctx);
+@@ -1610,6 +1611,20 @@ urma_status_t bondp_unimport_jetty(urma_target_jetty_t *target_jetty)
+     return ret;
+ }
+ 
++static void bondp_put_remote_jetty(urma_target_jetty_t *target_jetty)
++{
++    bondp_target_jetty_t *bdp_tjetty = CONTAINER_OF_FIELD(target_jetty, bondp_target_jetty_t, v_tjetty);
++    if (atomic_fetch_sub(&bdp_tjetty->use_cnt.atomic_cnt, 1) == 1) {
++        bondp_unimport_jetty_inner(target_jetty);
++    }
++}
++
++urma_status_t bondp_unimport_jetty(urma_target_jetty_t *target_jetty)
++{
++    bondp_put_remote_jetty(target_jetty);
++    return URMA_SUCCESS;
++}
++
+ urma_status_t bondp_bind_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty)
+ {
+     bondp_comp_t *bdp_jetty = CONTAINER_OF_FIELD(jetty, bondp_comp_t, v_jetty);
+@@ -1768,6 +1783,7 @@ urma_target_jetty_t *bondp_import_jfr(urma_context_t *ctx, urma_rjfr_t *rjfr, ur
+         URMA_LOG_ERR("Failed to alloc target jetty\n");
+         return NULL;
+     }
++    atomic_init(&bdp_tjetty->use_cnt.atomic_cnt, 1);
+ 
+     urma_bond_id_info_out_t udata_out = {0};
+     if (bondp_import_vjfr(ctx, rjfr, token_value, bdp_tjetty, &udata_out) != 0) {
+@@ -1808,7 +1824,7 @@ FREE_TJFR:
+     return NULL;
+ }
+ 
+-urma_status_t bondp_unimport_jfr(urma_target_jetty_t *target_jfr)
++static urma_status_t bondp_unimport_jfr_inner(urma_target_jetty_t *target_jfr)
+ {
+     bondp_target_jetty_t *bdp_tjetty = CONTAINER_OF_FIELD(target_jfr, bondp_target_jetty_t, v_tjetty);
+     urma_status_t ret = URMA_SUCCESS;
+@@ -1823,6 +1839,35 @@ urma_status_t bondp_unimport_jfr(urma_target_jetty_t *target_jfr)
+     return ret;
+ }
+ 
++static void bondp_put_remote_jfr(urma_target_jetty_t *target_jfr)
++{
++    bondp_target_jetty_t *bdp_tjetty = CONTAINER_OF_FIELD(target_jfr, bondp_target_jetty_t, v_tjetty);
++    if (atomic_fetch_sub(&bdp_tjetty->use_cnt.atomic_cnt, 1) == 1) {
++        bondp_unimport_jfr_inner(target_jfr);
++    }
++}
++
++urma_status_t bondp_unimport_jfr(urma_target_jetty_t *target_jfr)
++{
++    bondp_put_remote_jfr(target_jfr);
++    return URMA_SUCCESS;
++}
++
++void bondp_tjetty_get(urma_target_jetty_t *target_jetty)
++{
++    bondp_target_jetty_t *bdp_tjetty = CONTAINER_OF_FIELD(target_jetty, bondp_target_jetty_t, v_tjetty);
++    atomic_fetch_add(&bdp_tjetty->use_cnt.atomic_cnt, 1);
++}
++
++void bondp_tjetty_put(urma_target_jetty_t *target_jetty)
++{
++    if (target_jetty->type == URMA_JFR) {
++        bondp_put_remote_jfr(target_jetty);
++    } else {
++        bondp_put_remote_jetty(target_jetty);
++    }
++}
++
+ urma_status_t bondp_rearm_jfc(urma_jfc_t *jfc, bool solicited_only)
+ {
+     bondp_jfc_t *bdp_jfc = CONTAINER_OF_FIELD(jfc, bondp_jfc_t, v_jfc);
+diff --git a/src/urma/lib/urma/bond/bondp_api.h b/src/urma/lib/urma/bond/bondp_api.h
+index e3761f0f..460b8241 100644
+--- a/src/urma/lib/urma/bond/bondp_api.h
++++ b/src/urma/lib/urma/bond/bondp_api.h
+@@ -49,6 +49,10 @@ urma_target_jetty_t *bondp_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjet
+ 
+ urma_status_t bondp_unimport_jetty(urma_target_jetty_t *target_jetty);
+ 
++void bondp_tjetty_get(urma_target_jetty_t *target_jetty);
++
++void bondp_tjetty_put(urma_target_jetty_t *target_jetty);
++
+ urma_status_t bondp_bind_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty);
+ 
+ urma_status_t bondp_unbind_jetty(urma_jetty_t *jetty);
+diff --git a/src/urma/lib/urma/bond/bondp_datapath.c b/src/urma/lib/urma/bond/bondp_datapath.c
+index 7114569d..333869b8 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath.c
++++ b/src/urma/lib/urma/bond/bondp_datapath.c
+@@ -328,21 +328,24 @@ static urma_status_t bondp_post_send_wr_and_store(bondp_comp_t *bdp_comp, urma_j
+         goto FREE_PWR;
+     }
+ 
++    add_vwr_use_cnt(pwr);
+     ret = convert_jfs_vwr_to_pwr(pwr, send_idx, target_idx, bdp_comp, v_conn);
+     if (ret != 0) {
+         URMA_LOG_ERR("Failed to convert jfs wr\n");
+-        goto FREE_PWR;
++        goto RELEASE_WR;
+     }
+ 
+     pwr->user_ctx = wr_entry->wr_id;
+     ret = comp_post_send(bdp_comp, send_idx, pwr, bad_wr);
+     if (ret != URMA_SUCCESS) {
+         URMA_LOG_ERR("Failed to post send wr\n");
+-        goto FREE_PWR;
++        goto RELEASE_WR;
+     }
+-
+     return URMA_SUCCESS;
+ 
++RELEASE_WR:
++    convert_jfs_pwr_to_vwr_resend(pwr, &wr_entry->v_conn->target_vjetty->v_tjetty);
++    release_vwr_use_cnt(pwr);
+ FREE_PWR:
+     free_jfs_wr(pwr);
+     jfs_wr_buf_release(wr_entry);
+@@ -652,26 +655,24 @@ typedef enum cr_convert_ret {
+ 
+ static int resend_jfs_wr(jfs_wr_entry_t *wr_entry, int send_idx, int target_idx)
+ {
+-    int ret;
+-
+     wr_entry->send_idx = send_idx;
+     wr_entry->target_idx = target_idx;
+     urma_jfs_wr_t *wr = &wr_entry->wr;
+-    urma_target_jetty_t *vtjetty = (urma_target_jetty_t *)(wr_entry->v_conn->target_vjetty);
+-    ret = convert_jfs_pwr_to_another_path(wr, vtjetty, send_idx, target_idx);
+-    if (ret != 0) {
+-        URMA_LOG_ERR("Failed to convert when resend\n");
+-        return -1;
+-    }
++    urma_target_jetty_t *vtjetty = wr->tjetty;
++    convert_jfs_pwr_to_vwr_resend(wr, vtjetty);
++    convert_jfs_vwr_to_pwr_for_resend(wr, send_idx, target_idx);
+ 
+     urma_jfs_wr_t *bad_wr = NULL;
+-    ret = comp_post_send(wr_entry->bdp_comp, send_idx, wr, &bad_wr);
++    int ret = comp_post_send(wr_entry->bdp_comp, send_idx, wr, &bad_wr);
++
+     if (ret != URMA_SUCCESS) {
+-        URMA_LOG_ERR("Failed to resend wr\n");
+-        return -1;
++        convert_jfs_pwr_to_vwr_resend(wr, vtjetty);
++        release_vwr_use_cnt(wr);
++        free_jfs_wr(wr);
++        jfs_wr_buf_release(wr_entry);
+     }
+ 
+-    return 0;
++    return ret;
+ }
+ 
+ static bondp_comp_t *get_comp_by_cr(bondp_context_t *bdp_ctx, int dev_idx, urma_cr_t *cr)
+@@ -838,6 +839,8 @@ CONVERT_CR:
+     cr->local_id = get_comp_urma_jetty_id(bdp_comp)->id;
+     cr->user_ctx = wr_entry->user_ctx;
+ 
++    convert_jfs_pwr_to_vwr_resend(&wr_entry->wr, &wr_entry->v_conn->target_vjetty->v_tjetty);
++    release_vwr_use_cnt(&wr_entry->wr);
+     free_jfs_wr(&wr_entry->wr);
+     jfs_wr_buf_release(wr_entry);
+     return CONVERT_SUCCESS;
+diff --git a/src/urma/lib/urma/bond/bondp_datapath_convert.c b/src/urma/lib/urma/bond/bondp_datapath_convert.c
+index 4647fa14..977ce828 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath_convert.c
++++ b/src/urma/lib/urma/bond/bondp_datapath_convert.c
+@@ -8,6 +8,8 @@
+  * History: 2026-04-02   Create File
+  */
+ 
++#include "bondp_api.h"
++#include "bondp_segment.h"
+ #include "bondp_types.h"
+ #include "topo_info.h"
+ #include "urma_log.h"
+@@ -71,7 +73,7 @@ static int copy_sg_list(const urma_sg_t *src, urma_sg_t *dst, urma_sge_t *preall
+  *   URMA_OPC_SEND, URMA_OPC_SEND_IMM, URMA_OPC_SEND_INVALIDATE
+  */
+ urma_status_t copy_jfs_wr(const urma_jfs_wr_t *src, urma_jfs_wr_t *dst,
+-            urma_sge_t *prealloc_src_sge, urma_sge_t *prealloc_dst_sge)
++                          urma_sge_t *prealloc_src_sge, urma_sge_t *prealloc_dst_sge)
+ {
+     *dst = *src;
+     dst->next = NULL;
+@@ -95,7 +97,7 @@ urma_status_t copy_jfs_wr(const urma_jfs_wr_t *src, urma_jfs_wr_t *dst,
+  * Performs a deep copy of a JFR work request.
+  */
+ urma_status_t copy_jfr_wr(const urma_jfr_wr_t *src, urma_jfr_wr_t *dst,
+-    urma_sge_t *prealloc_src_sge)
++                          urma_sge_t *prealloc_src_sge)
+ {
+     *dst = *src;
+     dst->next = NULL;
+@@ -173,96 +175,69 @@ static inline urma_target_seg_t *get_p_tseg(urma_target_seg_t *tseg, int local_i
+     }
+ }
+ 
+-static urma_status_t set_send_wr_ptseg_ptjetty(urma_jfs_wr_t *send_wr, urma_target_jetty_t *vtjetty,
+-                                               int send_idx, int target_idx)
++static inline urma_target_seg_t *get_v_tseg(urma_target_seg_t *tseg)
++{
++    return (urma_target_seg_t *)(uintptr_t)tseg->handle;
++}
++
++static void map_send_vwr_to_path(urma_jfs_wr_t *send_wr, int send_idx, int target_idx)
+ {
+     if (send_wr->send.src.num_sge > 0 && send_wr->send.src.sge != NULL) {
+         for (int i = 0; i < send_wr->send.src.num_sge; ++i) {
+-            urma_target_seg_t *vtseg = send_wr->send.src.sge[i].tseg;
+-            vtseg = (urma_target_seg_t *)vtseg->handle;
+-            send_wr->send.src.sge[i].tseg = get_p_tseg(vtseg, send_idx, target_idx);
++            send_wr->send.src.sge[i].tseg = get_p_tseg(send_wr->send.src.sge[i].tseg, send_idx, target_idx);
+         }
+     }
+-    send_wr->tjetty = get_p_tjetty(vtjetty, send_idx, target_idx);
+-    return URMA_SUCCESS;
++    send_wr->tjetty = get_p_tjetty(send_wr->tjetty, send_idx, target_idx);
+ }
+ 
+-static urma_status_t set_write_wr_ptseg_ptjetty(urma_jfs_wr_t *send_wr, urma_target_jetty_t *vtjetty,
+-                                                int send_idx, int target_idx)
++static void restore_send_pwr_to_vwr(urma_jfs_wr_t *send_wr, urma_target_jetty_t *vtjetty)
++{
++    if (send_wr->send.src.num_sge > 0 && send_wr->send.src.sge != NULL) {
++        for (int i = 0; i < send_wr->send.src.num_sge; ++i) {
++            send_wr->send.src.sge[i].tseg = get_v_tseg(send_wr->send.src.sge[i].tseg);
++        }
++    }
++    send_wr->tjetty = vtjetty;
++}
++
++static void map_write_vwr_to_path(urma_jfs_wr_t *send_wr, int send_idx, int target_idx)
+ {
+-    urma_target_seg_t *vtseg = NULL;
+     for (int i = 0; i < send_wr->rw.src.num_sge; ++i) {
+-        vtseg = send_wr->rw.src.sge[i].tseg;
+-        vtseg = (urma_target_seg_t *)vtseg->handle;
+-        send_wr->rw.src.sge[i].tseg = get_p_tseg(vtseg, send_idx, target_idx);
++        send_wr->rw.src.sge[i].tseg = get_p_tseg(send_wr->rw.src.sge[i].tseg, send_idx, target_idx);
+     }
+     for (int i = 0; i < send_wr->rw.dst.num_sge; ++i) {
+-        vtseg = send_wr->rw.dst.sge[i].tseg;
+-        vtseg = (urma_target_seg_t *)vtseg->handle;
+-        send_wr->rw.dst.sge[i].tseg = get_p_tseg(vtseg, send_idx, target_idx);
++        send_wr->rw.dst.sge[i].tseg = get_p_tseg(send_wr->rw.dst.sge[i].tseg, send_idx, target_idx);
+     }
+-    send_wr->tjetty = get_p_tjetty(vtjetty, send_idx, target_idx);
+-    return URMA_SUCCESS;
++    send_wr->tjetty = get_p_tjetty(send_wr->tjetty, send_idx, target_idx);
+ }
+ 
+-static urma_status_t set_cas_wr_ptseg_pjetty(urma_jfs_wr_t *send_wr, urma_target_jetty_t *vtjetty,
+-                                             int send_idx, int target_idx)
++static void restore_write_pwr_to_vwr(urma_jfs_wr_t *send_wr, urma_target_jetty_t *vtjetty)
+ {
+-    if (send_wr->cas.src == NULL || send_wr->cas.dst == NULL) {
+-        URMA_LOG_ERR("when set cas_wr, one of src or dst is NULL.\n");
+-        return URMA_EINVAL;
++    for (int i = 0; i < send_wr->rw.src.num_sge; ++i) {
++        send_wr->rw.src.sge[i].tseg = get_v_tseg(send_wr->rw.src.sge[i].tseg);
+     }
+-    urma_target_seg_t *vtseg = NULL;
+-    vtseg = (urma_target_seg_t *)send_wr->cas.src->tseg;
+-    if (vtseg == NULL) {
+-        URMA_LOG_ERR("Failed to set ptseg, vtseg is NULL\n");
+-        return URMA_EINVAL;
++    for (int i = 0; i < send_wr->rw.dst.num_sge; ++i) {
++        send_wr->rw.dst.sge[i].tseg = get_v_tseg(send_wr->rw.dst.sge[i].tseg);
+     }
+-
+-    vtseg = (urma_target_seg_t *)vtseg->handle;
+-    send_wr->cas.src->tseg = get_p_tseg(vtseg, send_idx, target_idx);
+-    vtseg = (urma_target_seg_t *)send_wr->cas.dst->tseg;
+-    if (vtseg == NULL) {
+-        URMA_LOG_ERR("Failed to set ptseg, vtseg is NULL\n");
+-        return URMA_EINVAL;
+-    }
+-    send_wr->cas.dst->tseg = get_p_tseg(vtseg, send_idx, target_idx);
+-
+-    send_wr->tjetty = get_p_tjetty(vtjetty, send_idx, target_idx);
+-    return URMA_SUCCESS;
++    send_wr->tjetty = vtjetty;
+ }
+ 
+-static urma_status_t set_fadd_wr_ptseg_pjetty(urma_jfs_wr_t *send_wr, urma_target_jetty_t *vtjetty,
+-                                              int send_idx, int target_idx)
++static void map_cas_vwr_to_path(urma_jfs_wr_t *send_wr, int send_idx, int target_idx)
+ {
+-    if (send_wr->faa.src == NULL || send_wr->faa.dst == NULL) {
+-        URMA_LOG_ERR("when set faa_wr, one of src or dst is NULL.\n");
+-        return URMA_EINVAL;
+-    }
+-    urma_target_seg_t *vtseg = NULL;
+-    vtseg = (urma_target_seg_t *)send_wr->faa.src->tseg;
+-    if (vtseg == NULL) {
+-        URMA_LOG_ERR("Failed to set ptseg, vtseg is NULL\n");
+-        return URMA_EINVAL;
+-    }
++    send_wr->cas.src->tseg = get_p_tseg(send_wr->cas.src->tseg, send_idx, target_idx);
++    send_wr->cas.dst->tseg = get_p_tseg(send_wr->cas.dst->tseg, send_idx, target_idx);
++    send_wr->tjetty = get_p_tjetty(send_wr->tjetty, send_idx, target_idx);
++}
+ 
+-    vtseg = (urma_target_seg_t *)vtseg->handle;
+-    send_wr->faa.src->tseg = get_p_tseg(vtseg, send_idx, target_idx);
+-
+-    vtseg = (urma_target_seg_t *)send_wr->faa.dst->tseg;
+-    if (vtseg == NULL) {
+-        URMA_LOG_ERR("Failed to set ptseg, vtseg is NULL\n");
+-        return URMA_EINVAL;
+-    }
+-
+-    vtseg = (urma_target_seg_t *)send_wr->faa.dst->tseg->handle;
+-    send_wr->faa.dst->tseg = get_p_tseg(vtseg, send_idx, target_idx);
+-    send_wr->tjetty = get_p_tjetty(vtjetty, send_idx, target_idx);
+-    return URMA_SUCCESS;
++static void map_fadd_vwr_to_path(urma_jfs_wr_t *send_wr, int send_idx, int target_idx)
++{
++    send_wr->faa.src->tseg = get_p_tseg(send_wr->faa.src->tseg, send_idx, target_idx);
++    send_wr->faa.dst->tseg = get_p_tseg(send_wr->faa.dst->tseg, send_idx, target_idx);
++    send_wr->tjetty = get_p_tjetty(send_wr->tjetty, send_idx, target_idx);
+ }
+ 
+ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target_idx,
+-    bondp_comp_t *bdp_comp, bdp_v_conn_t *v_conn)
++                                     bondp_comp_t *bdp_comp, bdp_v_conn_t *v_conn)
+ {
+     uint64_t opcode_tag = 0;
+ 
+@@ -285,7 +260,8 @@ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target
+                 wr->send.imm_data);
+             v_conn->msn = (v_conn->msn + 1) % BONDP_MAX_BITMAP_SIZE;
+ 
+-            return set_send_wr_ptseg_ptjetty(wr, wr->tjetty, send_idx, target_idx);
++            map_send_vwr_to_path(wr, send_idx, target_idx);
++            return URMA_SUCCESS;
+         case URMA_OPC_WRITE_IMM:
+         case URMA_OPC_WRITE:
+         case URMA_OPC_READ:
+@@ -298,11 +274,14 @@ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target
+                     wr->rw.notify_data);
+                 v_conn->msn = (v_conn->msn + 1) % BONDP_MAX_BITMAP_SIZE;
+             }
+-            return set_write_wr_ptseg_ptjetty(wr, wr->tjetty, send_idx, target_idx);
++            map_write_vwr_to_path(wr, send_idx, target_idx);
++            return URMA_SUCCESS;
+         case URMA_OPC_CAS:
+-            return set_cas_wr_ptseg_pjetty(wr, wr->tjetty, send_idx, target_idx);
++            map_cas_vwr_to_path(wr, send_idx, target_idx);
++            return URMA_SUCCESS;
+         case URMA_OPC_FADD:
+-            return set_fadd_wr_ptseg_pjetty(wr, wr->tjetty, send_idx, target_idx);
++            map_fadd_vwr_to_path(wr, send_idx, target_idx);
++            return URMA_SUCCESS;
+         default:
+             URMA_LOG_ERR("Unsupported send opcode\n");
+             return URMA_EINVAL;
+@@ -310,6 +289,108 @@ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target
+     return URMA_SUCCESS;
+ }
+ 
++void convert_jfs_pwr_to_vwr_resend(urma_jfs_wr_t *wr, urma_target_jetty_t *vtjetty)
++{
++    switch (wr->opcode) {
++        case URMA_OPC_SEND:
++        case URMA_OPC_SEND_IMM:
++        case URMA_OPC_SEND_INVALIDATE:
++            restore_send_pwr_to_vwr(wr, vtjetty);
++            return;
++        case URMA_OPC_WRITE:
++        case URMA_OPC_WRITE_IMM:
++        case URMA_OPC_WRITE_NOTIFY:
++        case URMA_OPC_READ:
++            restore_write_pwr_to_vwr(wr, vtjetty);
++            return;
++        default:
++            return;
++    }
++}
++
++void convert_jfs_vwr_to_pwr_for_resend(urma_jfs_wr_t *wr, int send_idx, int target_idx)
++{
++    switch (wr->opcode) {
++        case URMA_OPC_SEND:
++        case URMA_OPC_SEND_IMM:
++        case URMA_OPC_SEND_INVALIDATE:
++            map_send_vwr_to_path(wr, send_idx, target_idx);
++            return;
++        case URMA_OPC_WRITE:
++        case URMA_OPC_WRITE_IMM:
++        case URMA_OPC_WRITE_NOTIFY:
++        case URMA_OPC_READ:
++            map_write_vwr_to_path(wr, send_idx, target_idx);
++            return;
++        default:
++            return;
++    }
++}
++
++void add_vwr_use_cnt(urma_jfs_wr_t *wr)
++{
++    if (wr->tjetty != NULL) {
++        bondp_tjetty_get(wr->tjetty);
++    }
++
++    switch (wr->opcode) {
++        case URMA_OPC_SEND:
++        case URMA_OPC_SEND_IMM:
++        case URMA_OPC_SEND_INVALIDATE:
++            if (wr->send.src.sge != NULL) {
++                for (int i = 0; i < wr->send.src.num_sge; ++i) {
++                    bondp_tseg_get(wr->send.src.sge[i].tseg);
++                }
++            }
++            return;
++        case URMA_OPC_WRITE:
++        case URMA_OPC_WRITE_IMM:
++        case URMA_OPC_WRITE_NOTIFY:
++        case URMA_OPC_READ:
++            for (int i = 0; i < wr->rw.src.num_sge; ++i) {
++                bondp_tseg_get(wr->rw.src.sge[i].tseg);
++            }
++            for (int i = 0; i < wr->rw.dst.num_sge; ++i) {
++                bondp_tseg_get(wr->rw.dst.sge[i].tseg);
++            }
++            return;
++        default:
++            return;
++    }
++}
++
++void release_vwr_use_cnt(urma_jfs_wr_t *wr)
++{
++    if (wr->tjetty != NULL) {
++        bondp_tjetty_put(wr->tjetty);
++    }
++
++    switch (wr->opcode) {
++        case URMA_OPC_SEND:
++        case URMA_OPC_SEND_IMM:
++        case URMA_OPC_SEND_INVALIDATE:
++            if (wr->send.src.sge != NULL) {
++                for (int i = 0; i < wr->send.src.num_sge; ++i) {
++                    bondp_tseg_put(wr->send.src.sge[i].tseg);
++                }
++            }
++            return;
++        case URMA_OPC_WRITE:
++        case URMA_OPC_WRITE_IMM:
++        case URMA_OPC_WRITE_NOTIFY:
++        case URMA_OPC_READ:
++            for (int i = 0; i < wr->rw.src.num_sge; ++i) {
++                bondp_tseg_put(wr->rw.src.sge[i].tseg);
++            }
++            for (int i = 0; i < wr->rw.dst.num_sge; ++i) {
++                bondp_tseg_put(wr->rw.dst.sge[i].tseg);
++            }
++            return;
++        default:
++            return;
++    }
++}
++
+ urma_status_t convert_jfr_vwr_to_pwr(urma_jfr_wr_t *wr, int recv_idx)
+ {
+     for (int i = 0; i < wr->src.num_sge; ++i) {
+@@ -318,25 +399,6 @@ urma_status_t convert_jfr_vwr_to_pwr(urma_jfr_wr_t *wr, int recv_idx)
+     return URMA_SUCCESS;
+ }
+ 
+-int convert_jfs_pwr_to_another_path(urma_jfs_wr_t *wr, urma_target_jetty_t *vtjetty, int send_idx, int target_idx)
+-{
+-    switch (wr->opcode) {
+-        case URMA_OPC_SEND:
+-        case URMA_OPC_SEND_IMM:
+-        case URMA_OPC_SEND_INVALIDATE:
+-            return set_send_wr_ptseg_ptjetty(wr, vtjetty, send_idx, target_idx);
+-        case URMA_OPC_WRITE:
+-        case URMA_OPC_WRITE_IMM:
+-        case URMA_OPC_WRITE_NOTIFY:
+-        case URMA_OPC_READ:
+-            return set_write_wr_ptseg_ptjetty(wr, vtjetty, send_idx, target_idx);
+-        default:
+-            URMA_LOG_ERR("Unsupported send opcode\n");
+-            return URMA_EINVAL;
+-    }
+-    return URMA_SUCCESS;
+-}
+-
+ void convert_pcr_to_vcr(urma_cr_t *cr, bondp_context_t *bdp_ctx, uint32_t *msn)
+ {
+     if (is_recv_cr(cr)) {
+diff --git a/src/urma/lib/urma/bond/bondp_datapath_convert.h b/src/urma/lib/urma/bond/bondp_datapath_convert.h
+index c959ed13..8eba69f8 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath_convert.h
++++ b/src/urma/lib/urma/bond/bondp_datapath_convert.h
+@@ -37,9 +37,15 @@ void free_jfs_wr(urma_jfs_wr_t *wr);
+ urma_status_t convert_jfs_vwr_to_pwr(urma_jfs_wr_t *wr, int send_idx, int target_idx,
+                                      bondp_comp_t *bdp_comp, bdp_v_conn_t *v_conn);
+ 
+-urma_status_t convert_jfr_vwr_to_pwr(urma_jfr_wr_t *wr, int recv_idx);
++void convert_jfs_pwr_to_vwr_resend(urma_jfs_wr_t *wr, urma_target_jetty_t *vtjetty);
+ 
+-int convert_jfs_pwr_to_another_path(urma_jfs_wr_t *wr, urma_target_jetty_t *vtjetty, int send_idx, int target_idx);
++void convert_jfs_vwr_to_pwr_for_resend(urma_jfs_wr_t *wr, int send_idx, int target_idx);
++
++void add_vwr_use_cnt(urma_jfs_wr_t *wr);
++
++void release_vwr_use_cnt(urma_jfs_wr_t *wr);
++
++urma_status_t convert_jfr_vwr_to_pwr(urma_jfr_wr_t *wr, int recv_idx);
+ 
+ void convert_pcr_to_vcr(urma_cr_t *cr, bondp_context_t *bdp_ctx, uint32_t *msn);
+ 
+diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
+index f99b6cfd..b7c185fc 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.c
++++ b/src/urma/lib/urma/bond/bondp_segment.c
+@@ -200,7 +200,7 @@ urma_target_seg_t *bondp_register_seg(urma_context_t *ctx, urma_seg_cfg_t *seg_c
+ 
+     bdp_seg->bondp_ctx = bdp_ctx;
+     bdp_seg->dev_num = bdp_ctx->dev_num;
+-    atomic_init(&bdp_seg->use_cnt.atomic_cnt, 0);
++    atomic_init(&bdp_seg->use_cnt.atomic_cnt, 1);
+ 
+     if (bondp_create_pseg(bdp_ctx, bdp_seg, seg_cfg) != 0) {
+         URMA_LOG_ERR("Failed to create pseg\n");
+@@ -221,7 +221,7 @@ FREE_BDP_SEG:
+     return NULL;
+ }
+ 
+-urma_status_t bondp_unregister_seg(urma_target_seg_t *target_seg)
++static urma_status_t bondp_unregister_seg_inner(urma_target_seg_t *target_seg)
+ {
+     int ret = URMA_SUCCESS;
+     bondp_tseg_t *bdp_seg = CONTAINER_OF_FIELD(target_seg, bondp_tseg_t, v_tseg);
+@@ -242,6 +242,26 @@ urma_status_t bondp_unregister_seg(urma_target_seg_t *target_seg)
+     return ret;
+ }
+ 
++static void bondp_get_local_seg(urma_target_seg_t *target_seg)
++{
++    bondp_tseg_t *bdp_seg = CONTAINER_OF_FIELD(target_seg, bondp_tseg_t, v_tseg);
++    atomic_fetch_add(&bdp_seg->use_cnt.atomic_cnt, 1);
++}
++
++static void bondp_put_local_seg(urma_target_seg_t *target_seg)
++{
++    bondp_tseg_t *bdp_seg = CONTAINER_OF_FIELD(target_seg, bondp_tseg_t, v_tseg);
++    if (atomic_fetch_sub(&bdp_seg->use_cnt.atomic_cnt, 1) == 1) {
++        bondp_unregister_seg_inner(target_seg);
++    }
++}
++
++urma_status_t bondp_unregister_seg(urma_target_seg_t *target_seg)
++{
++    bondp_put_local_seg(target_seg);
++    return URMA_SUCCESS;
++}
++
+ static bondp_ret_t import_pseg(bondp_context_t *bdp_ctx, bondp_seg_cfg_t *seg_cfg,
+                                int local_idx, int target_idx)
+ {
+@@ -420,6 +440,7 @@ urma_target_seg_t *bondp_import_seg(urma_context_t *ctx, urma_seg_t *seg,
+     bdp_tseg->local_dev_num = bdp_ctx->dev_num;
+     bdp_tseg->target_dev_num = URMA_UBAGG_DEV_MAX_NUM;
+     bdp_tseg->is_reused = false;
++    atomic_init(&bdp_tseg->use_cnt.atomic_cnt, 1);
+ 
+     bondp_udata_import_seg_t udata_out = {0};
+     if (g_seg_cache_enable) {
+@@ -479,7 +500,7 @@ free_bdp_tseg:
+     return NULL;
+ }
+ 
+-urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg)
++static urma_status_t bondp_unimport_seg_inner(urma_target_seg_t *target_seg)
+ {
+     bondp_import_tseg_t *bdp_tseg = CONTAINER_OF_FIELD(target_seg, bondp_import_tseg_t, v_tseg);
+     urma_status_t ret = URMA_SUCCESS;
+@@ -495,3 +516,41 @@ urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg)
+     free(bdp_tseg);
+     return ret;
+ }
++
++static void bondp_get_remote_seg(urma_target_seg_t *target_seg)
++{
++    bondp_import_tseg_t *bdp_seg = CONTAINER_OF_FIELD(target_seg, bondp_import_tseg_t, v_tseg);
++    atomic_fetch_add(&bdp_seg->use_cnt.atomic_cnt, 1);
++}
++
++static void bondp_put_remote_seg(urma_target_seg_t *target_seg)
++{
++    bondp_import_tseg_t *bdp_seg = CONTAINER_OF_FIELD(target_seg, bondp_import_tseg_t, v_tseg);
++    if (atomic_fetch_sub(&bdp_seg->use_cnt.atomic_cnt, 1) == 1) {
++        bondp_unimport_seg_inner(target_seg);
++    }
++}
++
++urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg)
++{
++    bondp_put_remote_seg(target_seg);
++    return URMA_SUCCESS;
++}
++
++void bondp_tseg_get(urma_target_seg_t *target_seg)
++{
++    if (target_seg->token_id != NULL) {
++        bondp_get_local_seg(target_seg);
++    } else {
++        bondp_get_remote_seg(target_seg);
++    }
++}
++
++void bondp_tseg_put(urma_target_seg_t *target_seg)
++{
++    if (target_seg->token_id != NULL) {
++        bondp_put_local_seg(target_seg);
++    } else {
++        bondp_put_remote_seg(target_seg);
++    }
++}
+diff --git a/src/urma/lib/urma/bond/bondp_segment.h b/src/urma/lib/urma/bond/bondp_segment.h
+index 33e96e07..7d17fda2 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.h
++++ b/src/urma/lib/urma/bond/bondp_segment.h
+@@ -30,4 +30,8 @@ urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg);
+ 
+ void bondp_toggle_seg_cache(bool enable);
+ 
++void bondp_tseg_get(urma_target_seg_t *target_seg);
++
++void bondp_tseg_put(urma_target_seg_t *target_seg);
++
+ #endif // BONDP_SEGMENT_H
+diff --git a/src/urma/lib/urma/bond/bondp_types.h b/src/urma/lib/urma/bond/bondp_types.h
+index a12c7126..a7a0c53e 100644
+--- a/src/urma/lib/urma/bond/bondp_types.h
++++ b/src/urma/lib/urma/bond/bondp_types.h
+@@ -179,7 +179,7 @@ typedef struct bondp_tseg {
+     urma_target_seg_t *p_tseg[URMA_UBAGG_DEV_MAX_NUM];
+     int dev_num;
+     bondp_context_t *bondp_ctx;
+-    urma_ref_t use_cnt; /* Initialize to 0 */
++    urma_ref_t use_cnt;
+     uint64_t p_orig_handle[URMA_UBAGG_DEV_MAX_NUM];
+     uint64_t v_orig_handle;
+ } bondp_tseg_t;
+@@ -257,6 +257,7 @@ typedef struct bondp_target_jetty {
+     uint32_t active_indices[URMA_UBAGG_DEV_MAX_NUM];
+     uint32_t active_count;
+     bool valid[URMA_UBAGG_DEV_MAX_NUM];
++    urma_ref_t use_cnt;
+ } bondp_target_jetty_t;
+ 
+ typedef struct bondp_import_target_seg {
+@@ -265,6 +266,7 @@ typedef struct bondp_import_target_seg {
+     int local_dev_num;
+     int target_dev_num;
+     bool is_reused;
++    urma_ref_t use_cnt;
+     uint64_t p_orig_handle[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
+     uint64_t v_orig_handle;
+ } bondp_import_tseg_t;
+diff --git a/src/urma/lib/urma/bond/bondp_wr_buf.c b/src/urma/lib/urma/bond/bondp_wr_buf.c
+index b745f787..d8818553 100644
+--- a/src/urma/lib/urma/bond/bondp_wr_buf.c
++++ b/src/urma/lib/urma/bond/bondp_wr_buf.c
+@@ -12,6 +12,7 @@
+ #include <string.h>
+ 
+ #include "bondp_datapath_convert.h"
++#include "bondp_segment.h"
+ #include "bondp_types.h"
+ #include "ub_hash.h"
+ #include "ub_hmap.h"
+@@ -50,6 +51,7 @@ void wr_buf_uninit(wr_buf_t *buf)
+ 
+         if (entry_hdr->entry_type == WR_BUF_ENTRY_JFS) {
+             jfs_wr_entry_t *entry = (jfs_wr_entry_t *)__wr_buf_idx(buf, idx);
++            release_vwr_use_cnt(&entry->wr);
+             free_jfs_wr(&entry->wr);
+         } else if (entry_hdr->entry_type == WR_BUF_ENTRY_JFR) {
+             jfr_wr_entry_t *entry = (jfr_wr_entry_t *)__wr_buf_idx(buf, idx);
+-- 
+GitCode
+
