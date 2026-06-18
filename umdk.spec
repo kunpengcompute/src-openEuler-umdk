@@ -31,6 +31,9 @@
 # add --with dlock option, i.e. disable dlock by default
 %bcond_with dlock
 
+# add --with extra_ubcore_symbols option, i.e. disable by default
+%bcond_with extra_ubcore_symbols
+
 %ifarch aarch64
 %define with_64kb  %{?_with_64kb: 1} %{?!_with_64kb: 0}
 %else
@@ -75,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B008
+    %define rpm_release B009
 %endif
 
 Name          : umdk
@@ -335,6 +338,10 @@ between UMS kernel modules via TLS 1.3 channel.
 %endif
 %if %{without udma_stb64_disable}
     -DUDMA_ST64B="enable" \
+%endif
+
+%if %{with extra_ubcore_symbols}
+    -DBUILD_EXTRA_UBCORE_SYMBOLS="enable" \
 %endif
 
 make %{?_smp_mflags}
@@ -600,6 +607,12 @@ fi
 %endif
 
 %changelog
+* Thu Jun 18 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B009
+- umdk: update docs clarify UMDK build, ums Adapting Compilation for, update urpc dev config, and cam format master a2
+- urma: update urma/admin reserve nul when, urma/perftest reject zero size, using nlattr to query, and fix the data plane
+- umq: update add shared transport public, jetty pool management, adapt urma_get_rjetty, support create/deatroy logic umq, and support logic umq post/poll
+- umdk: drop stale paths from refreshed tarball
+
 * Tue Jun 16 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B008
 - urma: update recv wr list bath, add cna field to, add multi-transport types FLUSH_DMA, and enable without backup wr
 - umq: update handle fc rx buf, optimize post recv wr, and optimize ub_imm structure with
