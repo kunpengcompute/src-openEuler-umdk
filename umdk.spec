@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B009
+    %define rpm_release B010
 %endif
 
 Name          : umdk
@@ -607,6 +607,11 @@ fi
 %endif
 
 %changelog
+* Mon Jun 22 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B010
+- urpc: update urpc/perftest bound framework eid, urpc/perftest bound concurrent latency, and fix urma_seg_t ext value
+- umq: update umq/perftest bound string option, set correct rjetty flag, fix umq post tx, packet deduplication, and support wr trace
+- urma: update fix potential out-of-bounds access, perftest log register need, umra fix rqe_cnt in, and remove stale netlink declarations
+- umdk: update umq update max bind, converge related bug fix, urpc case fix, and cam fix linewidth and
 * Thu Jun 18 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B009
 - umdk: update docs clarify UMDK build, ums Adapting Compilation for, update urpc dev config, and cam format master a2
 - urma: update urma/admin reserve nul when, urma/perftest reject zero size, using nlattr to query, and fix the data plane
