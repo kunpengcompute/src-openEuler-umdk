@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B010
+    %define rpm_release B011
 %endif
 
 Name          : umdk
@@ -607,6 +607,11 @@ fi
 %endif
 
 %changelog
+* Tue Jun 23 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B011
+- umq: update flow-control SGE management, revert the patch that, add func str for, and reduce empty poll operations
+- urma: update split common UT files, add print cna for, disable failback and health, and fix perftest tp aware
+- umdk: update cam fix Chinese comments, ums new test cases, umq suport tp_type/tp_mode configration, and revise code according to
+- umdk: drop stale paths from refreshed tarball
 * Mon Jun 22 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B010
 - urpc: update urpc/perftest bound framework eid, urpc/perftest bound concurrent latency, and fix urma_seg_t ext value
 - umq: update umq/perftest bound string option, set correct rjetty flag, fix umq post tx, packet deduplication, and support wr trace
