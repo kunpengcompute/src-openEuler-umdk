@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B011
+    %define rpm_release B012
 %endif
 
 Name          : umdk
@@ -607,6 +607,10 @@ fi
 %endif
 
 %changelog
+* Wed Jun 24 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B012
+- urma: update fix show_stats failed log, add param check when, refactor failback task management, del_tag_in_user, and refine log level for
+- umdk: update cam fix cam docs
+- umq: update support configuring the port and fix incorrect __ATOMIC_RELAXED usage
 * Tue Jun 23 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B011
 - umq: update flow-control SGE management, revert the patch that, add func str for, and reduce empty poll operations
 - urma: update split common UT files, add print cna for, disable failback and health, and fix perftest tp aware
