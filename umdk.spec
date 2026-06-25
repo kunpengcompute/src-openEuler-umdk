@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B012
+    %define rpm_release B013
 %endif
 
 Name          : umdk
@@ -607,6 +607,11 @@ fi
 %endif
 
 %changelog
+* Thu Jun 25 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B013
+- umdk: update ums fix orphan socket, test add ums ut, fix urpc case name, and fix urma case name
+- urma: update optimize bondp_post_jetty_send_wr, copy extra vwr to, split remaining URMA UT, add thread local cache, and fix rqe_cnt err when
+- umq: update add validation for rjetty_size, extract common qbuf pool, expose duplicate flow control, and add trace point and
+- umdk: drop stale paths from refreshed tarball
 * Wed Jun 24 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B012
 - urma: update fix show_stats failed log, add param check when, refactor failback task management, del_tag_in_user, and refine log level for
 - umdk: update cam fix cam docs
