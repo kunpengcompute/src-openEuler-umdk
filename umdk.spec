@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B014
+    %define rpm_release B015
 %endif
 
 Name          : umdk
@@ -607,6 +607,10 @@ fi
 %endif
 
 %changelog
+* Sat Jun 27 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B015
+- umdk: update cam Add structs for, reinforce ums smoke test, and fix ums case fail
+- umq: update fix invalide poll tx, fix coredump in umq_uninit, add option timestamp, and add tiny qbuf pool
+- urma: update DFX function adds interrupt, simplify urma_perftest socket api, refactor failback trigger in, and resend failed cr one
 * Fri Jun 26 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B014
 - urma: update optimize bond rearm jfc, optimization messages in get, use source MAC for, and correct spelling mistakes in
 - umq: update add reference counting for, reset alloc/free trace, add param validate for, and resolve coredump caused by
