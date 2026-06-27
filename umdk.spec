@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B013
+    %define rpm_release B014
 %endif
 
 Name          : umdk
@@ -607,6 +607,9 @@ fi
 %endif
 
 %changelog
+* Fri Jun 26 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B014
+- urma: update optimize bond rearm jfc, optimization messages in get, use source MAC for, and correct spelling mistakes in
+- umq: update add reference counting for, reset alloc/free trace, add param validate for, and resolve coredump caused by
 * Thu Jun 25 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B013
 - umdk: update ums fix orphan socket, test add ums ut, fix urpc case name, and fix urma case name
 - urma: update optimize bondp_post_jetty_send_wr, copy extra vwr to, split remaining URMA UT, add thread local cache, and fix rqe_cnt err when
