@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B093
+    %define rpm_release B095
 %endif
 
 Name          : umdk
@@ -614,6 +614,15 @@ fi
 %endif
 
 %changelog
+* Mon Jun 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B095
+- umq: update fix ipc free core, support flow control status, fix the blk_num data, and fix interrupt problem
+- urma: update urma_perftest support wait_jfc with, remove netdev info for, ut bug_fix, add dv121 relation feature, and Resolved existing issues in
+- umdk: update cam add fused_deep_moe op, cam add moe dispatch, cam add moe combine, and cam add basic files
+- urpc: update fix share jfr queue, update doc/ch/urpc/UMQ Buffer ch, fix umq log bug, umdk test, and umdk urpclib test code
+- dlock: fix modify jetty/jfs to error, support ub token, fix UT compilation issues, test folder commit, and umdk test
+- uvs: update rpm reorganize umdk spec and fix cleancode issue
+- umdk: drop stale paths from refreshed tarball
+
 * Fri Jun 26 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B093
 - umdk: update OE SP4
 * Wed Jun 10 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B092
