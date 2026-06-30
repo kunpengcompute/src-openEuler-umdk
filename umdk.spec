@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B095
+    %define rpm_release B096
 %endif
 
 Name          : umdk
@@ -614,6 +614,10 @@ fi
 %endif
 
 %changelog
+* Tue Jun 30 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B096
+- umq: update add qbuf alloc/free perf, revert fc sge management, adaptive send threshold, and fix logic umq return
+- urma: update fix perftest bond_mode balance, add API fuzz coverage, urma_perftest comm use cfg-based, and fix urma_perftest log level
+- umdk: drop stale paths from refreshed tarball
 * Mon Jun 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B095
 - umq: update fix ipc free core, support flow control status, fix the blk_num data, and fix interrupt problem
 - urma: update urma_perftest support wait_jfc with, remove netdev info for, ut bug_fix, add dv121 relation feature, and Resolved existing issues in
