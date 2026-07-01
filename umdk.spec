@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B015
+    %define rpm_release B016
 %endif
 
 Name          : umdk
@@ -607,6 +607,11 @@ fi
 %endif
 
 %changelog
+* Wed Jul 1 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B016
+- umdk: update cam change cpp operator, cam add adaptation to, ums add UT for, and cam add shmem rdma_basckend_base
+- umq: update fix get fc_event failed, revert fc sge management, revert qbuf cnt, adaptive send threshold, and add qbuf alloc/free perf
+- urma: update fix bond jetty shared, git-test, fix typo for CNA, add API fuzz coverage, fix perftest bond_mode balance, and build
+- umdk: drop stale paths from refreshed tarball
 * Sat Jun 27 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B015
 - umdk: update cam Add structs for, reinforce ums smoke test, and fix ums case fail
 - umq: update fix invalide poll tx, fix coredump in umq_uninit, add option timestamp, and add tiny qbuf pool
