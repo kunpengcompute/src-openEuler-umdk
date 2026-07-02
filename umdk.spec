@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B097
+    %define rpm_release B098
 %endif
 
 Name          : umdk
@@ -614,6 +614,10 @@ fi
 %endif
 
 %changelog
+* Thu Jul 2 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B098
+- urma: update optimize bondp_poll_jfc and handle_send_cr_with_store, fix urma_perftest for tpid, fix UT script on, and forbid massive illegal state
+- umq: update fix umq thread closure, fix the error in, change spin lock to, and support jfr lock_free
+- umdk: drop stale paths from refreshed tarball
 * Wed Jul 1 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B097
 - umq: update qbuf DFX tiny pool, delete ipc/ubmm code, fix the coredump that, and fix perftest in enqueue/dequeue
 - urma: update add trans_mode/tp_type/order_type combination check, optimize handle_recv_cr_without_backup, add fork constraint to, build, and disable urma_admin netlink auto
