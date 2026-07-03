@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B098
+    %define rpm_release B099
 %endif
 
 Name          : umdk
@@ -614,6 +614,9 @@ fi
 %endif
 
 %changelog
+* Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B099
+- urma: update harden urma_perftest TCP connection, bug fix for balance, change type of bdp_tseg, and Use drv ext to
+- umq: update intercept logical umq when
 * Thu Jul 2 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B098
 - urma: update optimize bondp_poll_jfc and handle_send_cr_with_store, fix urma_perftest for tpid, fix UT script on, and forbid massive illegal state
 - umq: update fix umq thread closure, fix the error in, change spin lock to, and support jfr lock_free
