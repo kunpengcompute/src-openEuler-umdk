@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B099
+    %define rpm_release B100
 %endif
 
 Name          : umdk
@@ -614,6 +614,10 @@ fi
 %endif
 
 %changelog
+* Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B100
+- urma: update refactor perftest communication into, inline perftest communication fields, allocate bond topo map, and fix bond datapath get
+- umq: update fix the return value
+- umdk: drop stale paths from refreshed tarball
 * Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B099
 - urma: update harden urma_perftest TCP connection, bug fix for balance, change type of bdp_tseg, and Use drv ext to
 - umq: update intercept logical umq when
