@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B100
+    %define rpm_release B101
 %endif
 
 Name          : umdk
@@ -614,6 +614,8 @@ fi
 %endif
 
 %changelog
+* Sat Jul 4 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B101
+- urma: bondp unregister pseg when user call unregister
 * Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B100
 - urma: update refactor perftest communication into, inline perftest communication fields, allocate bond topo map, and fix bond datapath get
 - umq: update fix the return value
