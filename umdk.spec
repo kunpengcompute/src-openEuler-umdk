@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B101
+    %define rpm_release B102
 %endif
 
 Name          : umdk
@@ -614,6 +614,11 @@ fi
 %endif
 
 %changelog
+* Mon Jul 6 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B102
+- umq: update add jetty pool alloc
+- urma: update udma drop blanket -Wno-error, reject out-of-range order_type in, fix route failover of, and remove redundant per-jetty recv_wr_buf
+- umdk: update fix spell error
+- umdk: drop stale paths from refreshed tarball
 * Sat Jul 4 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B101
 - urma: bondp unregister pseg when user call unregister
 * Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B100
