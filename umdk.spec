@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B102
+    %define rpm_release B103
 %endif
 
 Name          : umdk
@@ -614,6 +614,9 @@ fi
 %endif
 
 %changelog
+* Tue Jul 7 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B103
+- umq: update add trace for post and Fix the issue of
+- urma: update clarify bond WR conversion
 * Mon Jul 6 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B102
 - umq: update add jetty pool alloc
 - urma: update udma drop blanket -Wno-error, reject out-of-range order_type in, fix route failover of, and remove redundant per-jetty recv_wr_buf
