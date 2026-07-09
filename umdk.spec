@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B104
+    %define rpm_release B105
 %endif
 
 Name          : umdk
@@ -614,6 +614,9 @@ fi
 %endif
 
 %changelog
+* Thu Jul 9 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B105
+- umq: update umq fix the expansion and add sub_umq_id for poll
+- umdk: update ums remove TFO to
 * Wed Jul 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B104
 - urma: update fix UT mock stability, init enabled_indices at create_context, fix log format for, and fix rate limit log
 - umq: update fix logic umq credit_clean_up, add trace timestamp/umq_id, and fix trace bug of
