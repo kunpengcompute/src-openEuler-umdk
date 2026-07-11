@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B105
+    %define rpm_release B106
 %endif
 
 Name          : umdk
@@ -614,6 +614,9 @@ fi
 %endif
 
 %changelog
+* Sat Jul 11 2026 caihongxu <caihongxu@huawei.com> - 25.12.0-B106
+- urma: Fix missing is_msn_enabled in JFR import causing recv CR loss
+- umq: fix credit starvation issue
 * Thu Jul 9 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B105
 - umq: update umq fix the expansion and add sub_umq_id for poll
 - umdk: update ums remove TFO to
