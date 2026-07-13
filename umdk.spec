@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B017
+    %define rpm_release B018
 %endif
 
 Name          : umdk
@@ -607,6 +607,11 @@ fi
 %endif
 
 %changelog
+* Mon Jul 13 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B018
+- umdk: update cam Add implementation of, cam Add FP8/FP4 dtype, cam Add integration of, and cam Adapt to shmem
+- urma: update fix failback second roll, Fix the issue where, fix bonding wr list, and avoid to alloc wr_buffer
+- umq: update add trace for post, Fix the issue of, fix logic umq credit_clean_up, and add trace timestamp/umq_id
+- umdk: drop stale paths from refreshed tarball
 * Mon Jul 6 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B017
 - urma: update udma drop blanket -Wno-error, reject out-of-range order_type in, add uboe combination, and change type of bdp_tseg
 - umdk: update cam Add WQE filling, fix umq test code, fix -p 2 not, module updates, and cam Add static checks
