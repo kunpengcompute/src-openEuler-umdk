@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B106
+    %define rpm_release B107
 %endif
 
 Name          : umdk
@@ -614,6 +614,10 @@ fi
 %endif
 
 %changelog
+* Mon Jul 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B107
+- umq: update prevent resource-exhaustion DoS attacks, optimize perf thread local, fix credit starvation issue, and fix issue of delayed
+- urma: update perftest support delegated connection, bondp_poll_jfc supports cocurrent access, check failover route by, and fix perftest connect failed
+- umdk: drop stale paths from refreshed tarball
 * Sat Jul 11 2026 caihongxu <caihongxu@huawei.com> - 25.12.0-B106
 - urma: Fix missing is_msn_enabled in JFR import causing recv CR loss
 - umq: fix credit starvation issue
