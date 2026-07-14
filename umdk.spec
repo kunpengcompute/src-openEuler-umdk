@@ -75,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B107
+    %define rpm_release B108
 %endif
 
 Name          : umdk
@@ -614,6 +614,9 @@ fi
 %endif
 
 %changelog
+* Tue Jul 14 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B108
+- urma: update perftest_run_test Fix memory leak, perftest_resources Fix incompatible sizeof, urma_sample Add NULL check, and bondp_api Add NULL check
+- umq: update optimize log, fix the issue where, do not allocate credit, fix null pointer access, and fix mismatch param type/num
 * Mon Jul 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B107
 - umq: update prevent resource-exhaustion DoS attacks, optimize perf thread local, fix credit starvation issue, and fix issue of delayed
 - urma: update perftest support delegated connection, bondp_poll_jfc supports cocurrent access, check failover route by, and fix perftest connect failed
