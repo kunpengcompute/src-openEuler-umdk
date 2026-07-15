@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B110
+    %define rpm_release B111
 %endif
 
 Name          : umdk
@@ -575,6 +575,9 @@ fi
 %endif
 
 %changelog
+* Wed Jul 15 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B111
+- urma: update fix perf command netlink and support bonding link health
+- umq: update fix buf overflow problem and fix the issue of
 * Wed Jul 15 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B110
 - umdk: git reset to B108
 * Wed Jul 15 2026 huying <huying21@huawei.com> - 25.12.0-B109
