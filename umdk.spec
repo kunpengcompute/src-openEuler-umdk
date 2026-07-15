@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B109
+    %define rpm_release B110
 %endif
 
 Name          : umdk
@@ -237,11 +237,11 @@ This package contains all the executable examples of dlock.
 %endif
 
 %if %{build_all} || %{with ums}
-%package ums	 
-Summary:        kmod file of ums	 
-BuildRequires:  glib2-devel, libnl3-devel, kernel-devel	 
-Requires:       glib2, libnl3	 
-%description ums	 
+%package ums
+Summary:        kmod file of ums
+BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
+Requires:       glib2, libnl3
+%description ums
 kmod file of ums
 
 %package ums-tools
@@ -575,6 +575,8 @@ fi
 %endif
 
 %changelog
+* Wed Jul 15 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B110
+- umdk: git reset to B108
 * Wed Jul 15 2026 huying <huying21@huawei.com> - 25.12.0-B109
 - ums: remove umdk-ums-64kb build and roll back to B105
 * Tue Jul 14 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B108
