@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B111
+    %define rpm_release B112
 %endif
 
 Name          : umdk
@@ -364,7 +364,6 @@ fi
     %{_includedir}/ub/umdk/urma/uvs_types.h
     %{_includedir}/ub/umdk/urma/uvs_api.h
 %if %{with udma}
-    %{_libdir}/urma/liburma-udma.so
     %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/udma/udma_u_ctl.h
 %endif
@@ -575,6 +574,11 @@ fi
 %endif
 
 %changelog
+* Sat Jul 18 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B112
+- urma: update remove legacy bond health, fix potential data race, print error code when, and fix duplicate UDMA library
+- umq: update only one qbuf can, support thread_key register ops, add headroom param check, and total allocated credit is
+- umdk: update ums fix kmod build
+- umdk: drop stale paths from refreshed tarball
 * Wed Jul 15 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B111
 - urma: update fix perf command netlink and support bonding link health
 - umq: update fix buf overflow problem and fix the issue of
