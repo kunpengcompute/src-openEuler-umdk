@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B112
+    %define rpm_release B113
 %endif
 
 Name          : umdk
@@ -574,6 +574,9 @@ fi
 %endif
 
 %changelog
+* Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B113
+- urma: update fix bondp tjetty valid, encapsulate bond topology map, make bond CR batch, and fix tp_aware ty_type error
+- umq: update fix poll rx core and fix errno and update
 * Sat Jul 18 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B112
 - urma: update remove legacy bond health, fix potential data race, print error code when, and fix duplicate UDMA library
 - umq: update only one qbuf can, support thread_key register ops, add headroom param check, and total allocated credit is
