@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B018
+    %define rpm_release B019
 %endif
 
 Name          : umdk
@@ -378,7 +378,6 @@ fi
     %{_libdir}/liburma.so
     %{_libdir}/liburma_common.so
     %{_libdir}/urma/liburma_ubagg.so
-    %{_libdir}/urma/liburma-udma.so
     %dir %{_includedir}/ub/umdk/urma
     %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/urma_*.h
@@ -607,6 +606,12 @@ fi
 %endif
 
 %changelog
+* Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B019
+- urma: update docs sync URMA API, docs fix URMA Jetty, docs number segment context, and docs fix delete notifier
+- umdk: update cam build NDA module, fix umq fost rx, cam fix cann8 5, and ums fix kmod build
+- umq: update do not allocate credit, avoid fc send eagain, fix the issue where, optimize log, and fix mismatch param type/num
+- umdk: drop stale paths from refreshed tarball
+
 * Mon Jul 13 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B018
 - umdk: update cam Add implementation of, cam Add FP8/FP4 dtype, cam Add integration of, and cam Adapt to shmem
 - urma: update fix failback second roll, Fix the issue where, fix bonding wr list, and avoid to alloc wr_buffer
