@@ -1,0 +1,33 @@
+From c8bee40cc94344ca6ef4f1412e6d696479f6c040 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=AE=B5=E5=BB=B7=E4=BC=9F?= <2624934035@qq.com>
+Date: Mon, 11 May 2026 17:26:05 +0800
+Subject: [PATCH] urma: fix warning typo in support matrix
+
+Correct the warning spelling in the bonding sample support matrix so the example table reads cleanly and consistently.
+
+Signed-off-by: 段廷伟 <2624934035@qq.com>
+(cherry picked from commit 8fd5749062d2a32152c98218c0b5661bee604160)
+---
+ src/urma/examples/README.md | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/urma/examples/README.md b/src/urma/examples/README.md
+index d419aedc..e2593ccf 100644
+--- a/src/urma/examples/README.md
++++ b/src/urma/examples/README.md
+@@ -45,9 +45,9 @@ Usage:
+ - Here are the supported use cases:
+ | **device**  | **trnas_mode(m)** | **multi_path(u)**      | **tp_type(t)**             | **server command**                     | **client command**                                        |
+ |-------------|-------------------|------------------------|----------------------------|----------------------------------------|-----------------------------------------------------------|
+-| **bonding** | RM（0）           | TRUE                   | unsupported param,warnning | ./urma_sample -m 0 -u -d bonding_dev_0 | ./urma_sample -m 0 -u -d bonding_dev_0 -i 192.168.100.100 |
+-| **bonding** | RC（1）           | TRUE                   | unsupported param,warnning | ./urma_sample -m 1 -u -d bonding_dev_0 | ./urma_sample -m 1 -u -d bonding_dev_0 -i 192.168.100.100 |
+-| **bonding** | RC（1）           | FALSE                  | unsupported param,warnning | ./urma_sample -m 1 -d bonding_dev_0    | ./urma_sample -m 1 -d bonding_dev_0 -i 192.168.100.100    |
++| **bonding** | RM（0）           | TRUE                   | unsupported param,warning  | ./urma_sample -m 0 -u -d bonding_dev_0 | ./urma_sample -m 0 -u -d bonding_dev_0 -i 192.168.100.100 |
++| **bonding** | RC（1）           | TRUE                   | unsupported param,warning  | ./urma_sample -m 1 -u -d bonding_dev_0 | ./urma_sample -m 1 -u -d bonding_dev_0 -i 192.168.100.100 |
++| **bonding** | RC（1）           | FALSE                  | unsupported param,warning  | ./urma_sample -m 1 -d bonding_dev_0    | ./urma_sample -m 1 -d bonding_dev_0 -i 192.168.100.100    |
+ | **udma**    | RM（0）           | unsupported param,err! | URMA_RTP(0)                | ./urma_sample -m 0 -t 0 -d udma2       | ./urma_sample -m 0 -t 0 -d udma2 -i 192.168.100.100       |
+ | **udma**    | RC（1）           | unsupported param,err! | URMA_RTP(0)                | ./urma_sample -m 1 -t 0 -d udma2       | ./urma_sample -m 1 -t 0 -d udma2 -i 192.168.100.100       |
+ | **udma**    | RM（0）           | unsupported param,err! | URMA_CTP(1)                | ./urma_sample -m 0 -t 1 -d udma2       | ./urma_sample -m 0 -t 1 -d udma2 -i 192.168.100.100       |
+-- 
+2.43.0
+

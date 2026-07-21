@@ -1,0 +1,26 @@
+diff --git a/src/urma/tools/urma_admin/CMakeLists.txt b/src/urma/tools/urma_admin/CMakeLists.txt
+index 730018e14cc5246ccb19d031ef6e8e75efb63ff6..8b880ee2ac0be0cc54493d91b5ad3b35853c267b 100644
+--- a/src/urma/tools/urma_admin/CMakeLists.txt
++++ b/src/urma/tools/urma_admin/CMakeLists.txt
+@@ -31,7 +31,7 @@ target_include_directories(urma_admin
+ 
+ target_link_libraries(urma_admin
+     PRIVATE
+-        nl-genl-3 nl-3 urma_static
++        nl-genl-3 nl-3 urma
+ )
+ 
+ install(TARGETS urma_admin
+diff --git a/src/urma/tools/urma_admin/admin_cmd_agg.c b/src/urma/tools/urma_admin/admin_cmd_agg.c
+index 1d138b3a96778e363370e4a7db101ef8bca64ebe..e1008681d924d175221a96d309d0487917fafc92 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_agg.c
++++ b/src/urma/tools/urma_admin/admin_cmd_agg.c
+@@ -89,7 +89,7 @@ static int admin_cmd_agg_del(urma_eid_t eid)
+ 
+     urma_init(&init_attr);
+     urma_device_t *urma_dev = urma_get_device_by_eid(eid, URMA_TRANSPORT_UB);
+-    bool is_dev_disallowed = strcmp(urma_dev->name, "bonding_dev_0");
++    bool is_dev_disallowed = urma_dev != NULL && strcmp(urma_dev->name, "bonding_dev_0");
+     urma_uninit();
+ 
+     if (is_dev_disallowed == 0) {

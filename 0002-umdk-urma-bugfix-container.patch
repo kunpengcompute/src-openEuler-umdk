@@ -1,0 +1,1036 @@
+diff --git a/src/urma/lib/urma/bond/utils/topo_info.c b/src/urma/lib/urma/bond/utils/topo_info.c
+index 77b8dc1..e113669 100644
+--- a/src/urma/lib/urma/bond/utils/topo_info.c
++++ b/src/urma/lib/urma/bond/utils/topo_info.c
+@@ -116,15 +116,33 @@ static int update_each_direct_dev_table_entry(topo_map_t *topo_map, bondp_topo_a
+     return 0;
+ }
+ 
++static inline bool is_empty_eid(urma_eid_t *eid)
++{
++    return eid->in6.interface_id == 0 && eid->in6.subnet_prefix == 0;
++}
++
+ int update_direct_dev_table_entry(topo_map_t *topo_map,
+     bondp_topo_link_t *local_map_idx, bondp_topo_link_t* target_map_idx)
+ {
+-    bondp_topo_agg_dev_t *topo_info = NULL;
+-    int ret = 0;
++    bondp_topo_node_t *node_info = NULL;
++    for (uint32_t node_idx = 0; node_idx < MAX_NODE_NUM; ++node_idx) {
++        if (topo_map->topo_infos[node_idx].id == target_map_idx->peer_node) {
++            node_info = &topo_map->topo_infos[node_idx];
++            break;
++        }
++    }
++    if (node_info == NULL) {
++        URMA_LOG_ERR("Failed to find target node info in topo map %d\n", target_map_idx->peer_node);
++        return -1;
++    }
+ 
++    bondp_topo_agg_dev_t *topo_info = NULL;
+     for (uint32_t dev_idx = 0; dev_idx < DEV_NUM; ++dev_idx) {
+-        topo_info = &topo_map->topo_infos[target_map_idx->peer_node].agg_devs[dev_idx];
+-        ret = update_each_direct_dev_table_entry(topo_map, topo_info, local_map_idx, target_map_idx);
++        topo_info = &node_info->agg_devs[dev_idx];
++        if (is_empty_eid((urma_eid_t *)topo_info->agg_eid)) {
++            continue;
++        }
++        int ret = update_each_direct_dev_table_entry(topo_map, topo_info, local_map_idx, target_map_idx);
+         if (ret) {
+             URMA_LOG_ERR("Failed to add direct dev hash table %d\n", ret);
+             return -1;
+@@ -133,11 +151,6 @@ int update_direct_dev_table_entry(topo_map_t *topo_map,
+     return 0;
+ }
+ 
+-static inline bool is_empty_eid(urma_eid_t *eid)
+-{
+-    return eid->in6.interface_id == 0 && eid->in6.subnet_prefix == 0;
+-}
+-
+ static inline bool is_eid_equal(urma_eid_t *eid1, urma_eid_t *eid2)
+ {
+     return !memcmp(eid1, eid2, sizeof(urma_eid_t));
+@@ -156,7 +169,7 @@ int update_direct_dev_table(topo_map_t *topo_map, uint32_t cur_node_idx)
+                 continue;
+             }
+             bondp_topo_link_t local_map_idx = {
+-                .peer_node = cur_node_idx,
++                .peer_node = cur_node->id,
+                 .peer_iodie = plane_idx,
+                 .peer_port = port_idx
+             };
+@@ -167,6 +180,26 @@ int update_direct_dev_table(topo_map_t *topo_map, uint32_t cur_node_idx)
+             }
+         }
+     }
++
++    bondp_topo_agg_dev_t *topo_dev = NULL;
++    for (uint32_t plane_idx = 0; plane_idx < IODIE_NUM; ++plane_idx) {
++        for (uint32_t dev_idx = 0; dev_idx < DEV_NUM; ++dev_idx) {
++            topo_dev = &cur_node->agg_devs[dev_idx];
++            if (is_empty_eid((urma_eid_t *)topo_dev->agg_eid)) {
++                continue;
++            }
++            bondp_topo_link_t local_map_idx = {
++                .peer_node = cur_node->id,
++                .peer_iodie = plane_idx,
++                .peer_port = 0,
++            };
++            int ret = update_each_direct_dev_table_entry(topo_map, topo_dev, &local_map_idx, &local_map_idx);
++            if (ret) {
++                URMA_LOG_ERR("Failed to add direct dev hash table %d\n", ret);
++                return -1;
++            }
++        }
++    }
+     return 0;
+ }
+ 
+@@ -300,4 +333,4 @@ direct_dev_info_t *get_direct_dev_info_by_agg_eid(topo_map_t *topo_map, urma_eid
+         return NULL;
+     }
+     return &node->direct_dev_info;
+-}
+\ No newline at end of file
++}
+diff --git a/src/urma/tools/urma_admin/CMakeLists.txt b/src/urma/tools/urma_admin/CMakeLists.txt
+index 8b880ee..1660163 100644
+--- a/src/urma/tools/urma_admin/CMakeLists.txt
++++ b/src/urma/tools/urma_admin/CMakeLists.txt
+@@ -31,7 +31,7 @@ target_include_directories(urma_admin
+ 
+ target_link_libraries(urma_admin
+     PRIVATE
+-        nl-genl-3 nl-3 urma
++        nl-genl-3 nl-3
+ )
+ 
+ install(TARGETS urma_admin
+diff --git a/src/urma/tools/urma_admin/admin.c b/src/urma/tools/urma_admin/admin.c
+index d03f71a..59713fc 100644
+--- a/src/urma/tools/urma_admin/admin.c
++++ b/src/urma/tools/urma_admin/admin.c
+@@ -19,8 +19,6 @@
+ #include <sys/types.h>
+ #include <unistd.h>
+ 
+-#include "urma_api.h"
+-
+ #include "admin_cmd.h"
+ #include "admin_file_ops.h"
+ #include "admin_log.h"
+@@ -59,11 +57,6 @@ static void admin_log_cmd(int argc, char *argv[], int ret)
+ 
+ int main(int argc, char *argv[])
+ {
+-    urma_init_attr_t attr = {
+-        .token = 0,
+-        .uasid = 0,
+-    };
+-    urma_init(&attr);
+     if (admin_check_cmd_len(argc, argv) != 0) {
+         printf("user: %s, cmd len out of range.\n", getlogin());
+         return EXIT_FAILURE;
+@@ -89,11 +82,9 @@ int main(int argc, char *argv[])
+     }
+ 
+     admin_log_cmd(argc, argv, ret);
+-    urma_uninit();
+     return EXIT_SUCCESS;
+ 
+ fail:
+     admin_log_cmd(argc, argv, ret);
+-    urma_uninit();
+     return EXIT_FAILURE;
+ }
+diff --git a/src/urma/tools/urma_admin/admin_cmd.c b/src/urma/tools/urma_admin/admin_cmd.c
+index 82ab8cf..361e25d 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.c
++++ b/src/urma/tools/urma_admin/admin_cmd.c
+@@ -45,6 +45,8 @@ static int cmd_main_usage(admin_config_t *cfg)
+     (void)printf("\n");
+     (void)printf("Command syntax:\n");
+     (void)printf("  show [--dev] [--whole]                                 show all UB devices info.\n");
++    (void)printf("  show topo [node_id]                                      show topo_info of the specified node.\n");
++    (void)printf("                                                           when node_id is empty, will show the current node.\n");
+     (void)printf("  add_eid <--dev> <--idx> [--ns /proc/$pid/ns/net]       add eid of UB device, only for uvs,\n");
+     (void)printf("                                                           control plane not support.\n");
+     (void)printf("  del_eid <--dev> <--idx>                                del eid of UB device, only for uvs,\n");
+@@ -54,7 +56,6 @@ static int cmd_main_usage(admin_config_t *cfg)
+     (void)printf("  set_reserved_jetty <--dev> <--min_id> <--max_id>       set reserved jetty id range.\n");
+     (void)printf("  show_stats <--dev> <--resource_type> <--key>           show run stats of UB device, \n");
+     (void)printf("                                                           control plane not support.\n");
+-    (void)printf("  show_topo                                              show topo_info of bonding device.\n");
+     (void)printf("  show_res <--dev> <--resource_type> <--key> [--key_ext]                                  \n");
+     (void)printf("           <--key_cnt>                                   show resources of UB device.\n");
+     (void)printf("  list_res <--dev> <--resource_type> [--key] [--key_ext]                               \n");
+diff --git a/src/urma/tools/urma_admin/admin_cmd.h b/src/urma/tools/urma_admin/admin_cmd.h
+index 113f514..347965c 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.h
++++ b/src/urma/tools/urma_admin/admin_cmd.h
+@@ -164,12 +164,22 @@ struct cmd_agg_del_arg {
+     } in;
+ };
+ 
++typedef struct admin_device_info {
++    char dev_name[URMA_ADMIN_MAX_DEV_NAME];
++    urma_device_attr_t dev_attr;
++    urma_transport_type_t tp_type;
++    urma_eid_info_t *eid_list;
++    char net_dev_name[URMA_ADMIN_MAX_DEV_NAME];
++} admin_device_info_t;
++
+ bool is_ubc(const char *dev_name);
+ int exec_cmd(admin_config_t *cfg, const admin_cmd_t *cmds);
+-int admin_cmd_dev_expose(const char *dev_name, const char *ns);
+-int admin_cmd_dev_unexpose(const char *dev_name, const char *ns);
+-int admin_cmd_eid_set_eid_ns(const char *dev_name, uint32_t eid_idx, const char *ns);
++int admin_nl_expose_dev_ns(const char *dev_name, int ns_fd);
++int admin_nl_unexpose_dev_ns(const char *dev_name, int ns_fd);
++int admin_nl_set_eid_ns(const char *dev_name, uint32_t eid_idx, int ns_fd);
+ int admin_cmd_get_topo_info(tool_topo_map_t *topo_map);
++int admin_get_device_name_by_eid(const urma_eid_t *eid, char *dev_name, size_t dev_name_len);
++int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *dev_info);
+ 
+ // Legacy command
+ int admin_cmd_show_stats_legacy(admin_config_t *cfg);
+diff --git a/src/urma/tools/urma_admin/admin_cmd_agg.c b/src/urma/tools/urma_admin/admin_cmd_agg.c
+index 6237974..d51244d 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_agg.c
++++ b/src/urma/tools/urma_admin/admin_cmd_agg.c
+@@ -119,15 +119,6 @@ static inline bool urma_eid_is_valid(urma_eid_t *eid)
+     return !(eid->in6.interface_id == 0 && eid->in6.subnet_prefix == 0);
+ }
+ 
+-static urma_device_t* get_urma_device_by_eid(const char *eid)
+-{
+-    urma_device_t *ub_dev = NULL;
+-    urma_eid_t urma_eid = {0};
+-    memcpy(&urma_eid, eid, sizeof(urma_eid_t));
+-    ub_dev = urma_get_device_by_eid(urma_eid, URMA_TRANSPORT_UB);
+-    return ub_dev;
+-}
+-
+ static tool_topo_agg_dev_t *get_topo_agg_dev_by_agg_eid(tool_topo_map_t *topo_map, urma_eid_t *agg_eid)
+ {
+     for (int i = 0; i < topo_map->node_num; i++) {
+@@ -143,68 +134,71 @@ static tool_topo_agg_dev_t *get_topo_agg_dev_by_agg_eid(tool_topo_map_t *topo_ma
+ }
+ 
+ // Expose VF device and its EIDs to the specified netns
+-static int nl_expose_device_by_eid(const char *eid, const char *netns)
++static int nl_expose_device_by_eid(const char *eid, int ns_fd)
+ {
+     int ret = 0;
+-    urma_device_t *ub_dev = NULL;
+-    ub_dev = get_urma_device_by_eid(eid);
+-    if (ub_dev == NULL) {
+-        printf("Failed to get dev by eid.\n");
+-        return -1;
+-    }
+-    printf("Exposing device %s in netns %s.\n", ub_dev->name, netns);
+-    ret = admin_cmd_dev_expose(ub_dev->name, netns);
++    admin_device_info_t dev_info = {0};
++    ret = admin_get_device_info_by_eid((urma_eid_t *)eid, &dev_info);
+     if (ret != 0) {
+-        (void)printf("Failed to expose device %s in netns %s, ret=%d.\n", ub_dev->name, netns, ret);
++        (void)printf("Failed to get device name by eid, ret=%d.\n", ret);
+         return ret;
+     }
+ 
+-    urma_eid_info_t *eid_infos = NULL;
+-    uint32_t eid_cnt = 0;
+-    eid_infos = urma_get_eid_list(ub_dev, &eid_cnt);
+-    for (int i = 0; i < eid_cnt; i++) {
+-        urma_eid_info_t *eid_info = &eid_infos[i];
+-        printf("Setting EID index %u in device %s, netns %s.\n", eid_info->eid_index, ub_dev->name, netns);
+-        ret = admin_cmd_eid_set_eid_ns(ub_dev->name, eid_info->eid_index, netns);
++    printf("Exposing device %s in netns %d.\n", dev_info.dev_name, ns_fd);
++    ret = admin_nl_expose_dev_ns(dev_info.dev_name, ns_fd);
++    if (ret != 0) {
++        (void)printf("Failed to expose device %s in netns %d, ret=%d.\n", dev_info.dev_name, ns_fd, ret);
++        free(dev_info.eid_list);
++        goto close_fd;
++    }
++
++    for (int i = 0; i < dev_info.dev_attr.dev_cap.max_eid_cnt; i++) {
++        urma_eid_info_t *eid_info = &dev_info.eid_list[i];
++        printf("Setting EID index %u in device %s, netns %d.\n", eid_info->eid_index, dev_info.dev_name, ns_fd);
++        ret = admin_nl_set_eid_ns(dev_info.dev_name, eid_info->eid_index, ns_fd);
+         if (ret != 0) {
+-            (void)printf("Failed to expose device %s in netns %s, ret=%d.\n", ub_dev->name, netns, ret);
++            (void)printf("Failed to expose device %s in netns %d, ret=%d.\n", dev_info.dev_name, ns_fd, ret);
+             goto unexpose_device;
+         }
+     }
+-    urma_free_eid_list(eid_infos);
++    free(dev_info.eid_list);
+     return ret;
+ unexpose_device:
+-    urma_free_eid_list(eid_infos);
+-    admin_cmd_dev_unexpose(ub_dev->name, netns);
++    free(dev_info.eid_list);
++    admin_nl_unexpose_dev_ns(dev_info.dev_name, ns_fd);
++close_fd:
++    close(ns_fd);
+     return ret;
+ }
+ 
+-static void nl_unexpose_device_by_eid(const char *eid, const char *netns)
++static void nl_unexpose_device_by_eid(const char *eid, int ns_fd)
+ {
+-    urma_device_t *ub_dev = NULL;
+-    ub_dev = get_urma_device_by_eid(eid);
+-    if (ub_dev == NULL) {
++    char dev_name[URMA_ADMIN_MAX_DEV_NAME];
++    int ret = admin_get_device_name_by_eid((urma_eid_t *)eid, dev_name, sizeof(dev_name));
++    if (ret != 0) {
+         printf("Failed to get dev by eid.\n");
++        return;
+     }
+-    printf("Unexposing device %s in netns %s.\n", ub_dev->name, netns);
+-    int ret = admin_cmd_dev_unexpose(ub_dev->name, netns);
++    printf("Unexposing device %s in netns %d.\n", dev_name, ns_fd);
++    ret = admin_nl_unexpose_dev_ns(dev_name, ns_fd);
+     if (ret != 0) {
+-        (void)printf("Failed to unexpose device %s in netns %s, ret=%d.\n", ub_dev->name, netns, ret);
++        (void)printf("Failed to unexpose device %s in netns %d, ret=%d.\n", dev_name, ns_fd, ret);
+     }
+ }
+ 
+-static int nl_expose_agg_device(struct tool_topo_agg_dev *agg_dev, const char *netns)
++static int nl_expose_agg_device(struct tool_topo_agg_dev *agg_dev, int ns_fd)
+ {
+     int ret = 0;
+     int ue_idx = 0;
+-    ret = nl_expose_device_by_eid(agg_dev->agg_eid, netns);
++
++    ret = nl_expose_device_by_eid(agg_dev->agg_eid, ns_fd);
+     if (ret != 0) {
+         printf("Failed to expose agg dev\n");
+         return ret;
+     }
+     for (ue_idx = 0; ue_idx < IODIE_NUM; ue_idx++) {
+         tool_topo_ue_t *ue = &agg_dev->ues[ue_idx];
+-        ret = nl_expose_device_by_eid(ue->primary_eid, netns);
++        ret = nl_expose_device_by_eid(ue->primary_eid, ns_fd);
+         if (ret != 0) {
+             printf("Failed to expose vf dev\n");
+             goto unexpose_agg_dev;
+@@ -213,15 +207,17 @@ static int nl_expose_agg_device(struct tool_topo_agg_dev *agg_dev, const char *n
+     return 0;
+ 
+ unexpose_agg_dev:
+-    for (int i = ue_idx - 1; i >= 0; i--) {
+-        tool_topo_ue_t *ue = &agg_dev->ues[i];
+-        nl_unexpose_device_by_eid(ue->primary_eid, netns);
++    if (ue_idx > 0) {
++        for (int i = ue_idx - 1; i >= 0; i--) {
++            tool_topo_ue_t *ue = &agg_dev->ues[i];
++            nl_unexpose_device_by_eid(ue->primary_eid, ns_fd);
++        }
+     }
+-    nl_unexpose_device_by_eid(agg_dev->agg_eid, netns);
++    nl_unexpose_device_by_eid(agg_dev->agg_eid, ns_fd);
+     return -1;
+ }
+ 
+-static int admin_cmd_agg_expose(urma_eid_t *eid, const char *netns)
++static int admin_cmd_agg_expose(urma_eid_t *eid, int ns_fd)
+ {
+     tool_topo_map_t *topo_map = calloc(1, sizeof(tool_topo_map_t));
+     if (topo_map == NULL) {
+@@ -238,7 +234,7 @@ static int admin_cmd_agg_expose(urma_eid_t *eid, const char *netns)
+         ret = -EINVAL;
+         goto free_topo;
+     }
+-    ret = nl_expose_agg_device(agg_dev, netns);
++    ret = nl_expose_agg_device(agg_dev, ns_fd);
+     if (ret != 0) {
+         (void)printf("Failed to expose agg device, ret=%d.\n", ret);
+         goto free_topo;
+@@ -257,11 +253,19 @@ static int cmd_agg_expose(admin_config_t *cfg)
+     if ((ret = pop_arg_ns(cfg)) != 0) {
+         return ret;
+     }
+-    ret = admin_cmd_agg_expose(&cfg->eid, cfg->ns);
++    int ns_fd = admin_get_ns_fd(cfg->ns);
++    if (ns_fd < 0) {
++        (void)printf("Failed to get ns fd, ns %s.\n", cfg->ns);
++        return ns_fd;
++    }
++
++    ret = admin_cmd_agg_expose(&cfg->eid, ns_fd);
+     if (ret != 0) {
+         printf("Failed to expose agg dev\n");
++        close(ns_fd);
+         return ret;
+     }
++    close(ns_fd);
+     return 0;
+ }
+ 
+diff --git a/src/urma/tools/urma_admin/admin_cmd_dev.c b/src/urma/tools/urma_admin/admin_cmd_dev.c
+index 5c21e64..24a9f84 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_dev.c
++++ b/src/urma/tools/urma_admin/admin_cmd_dev.c
+@@ -11,11 +11,66 @@
+ #include <stdio.h>
+ #include <unistd.h>
+ 
+-#include "admin_netlink.h"
+ #include "admin_file_ops.h"
++#include "admin_netlink.h"
+ 
+ #include "admin_cmd.h"
+ 
++int admin_nl_set_dev_sharing(bool enabled)
++{
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_NS_MODE, 0);
++    if (msg == NULL) {
++        return -ENOMEM;
++    }
++
++    admin_nl_put_u8(msg, UBCORE_ATTR_NS_MODE, (uint8_t)enabled);
++    int ret = admin_nl_send_recv_msg_default(msg);
++    admin_nl_free_msg(msg);
++    return ret;
++}
++
++int admin_nl_set_dev_ns(const char *dev_name, int ns_fd)
++{
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_NS, 0);
++    if (msg == NULL) {
++        return -ENOMEM;
++    }
++
++    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
++    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
++    int ret = admin_nl_send_recv_msg_default(msg);
++    admin_nl_free_msg(msg);
++    return ret;
++}
++
++int admin_nl_expose_dev_ns(const char *dev_name, int ns_fd)
++{
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_EXPOSE_DEV_NS, 0);
++    if (msg == NULL) {
++        return -ENOMEM;
++    }
++
++    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
++    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
++    int ret = admin_nl_send_recv_msg_default(msg);
++    admin_nl_free_msg(msg);
++    return ret;
++}
++
++int admin_nl_unexpose_dev_ns(const char *dev_name, int ns_fd)
++{
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_UNEXPOSE_DEV_NS, 0);
++    if (msg == NULL) {
++        return -ENOMEM;
++    }
++
++    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
++    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
++    int ret = admin_nl_send_recv_msg_default(msg);
++    admin_nl_free_msg(msg);
++    return ret;
++}
++
+ static int cmd_dev_usage(admin_config_t *cfg)
+ {
+     printf("Usage: urma_admin dev sharing { on | off }\n"
+@@ -34,17 +89,7 @@ static int cmd_dev_toggle_sharing(admin_config_t *cfg)
+         return ret;
+     }
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_NS_MODE, 0);
+-    if (msg == NULL) {
+-        return -ENOMEM;
+-    }
+-
+-    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, cfg->dev_name);
+-    admin_nl_put_u8(msg, UBCORE_ATTR_NS_MODE, cfg->ns_mode);
+-    ret = admin_nl_send_recv_msg_default(msg);
+-    admin_nl_free_msg(msg);
+-
+-    return ret;
++    return admin_nl_set_dev_sharing(cfg->ns_mode == 1);
+ }
+ 
+ static int cmd_dev_set_ns(admin_config_t *cfg)
+@@ -60,19 +105,12 @@ static int cmd_dev_set_ns(admin_config_t *cfg)
+         return ns_fd;
+     }
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_NS, 0);
+-    if (msg == NULL) {
+-        ret = -ENOMEM;
+-        goto close_ns_fd;
++    if ((ret = admin_nl_set_dev_ns(cfg->dev_name, ns_fd)) != 0) {
++        close(ns_fd);
++        return ret;
+     }
+ 
+-    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, cfg->dev_name);
+-    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
+-    ret = admin_nl_send_recv_msg_default(msg);
+-    admin_nl_free_msg(msg);
+-
+-close_ns_fd:
+-    (void)close(ns_fd);
++    close(ns_fd);
+     return ret;
+ }
+ 
+@@ -84,39 +122,13 @@ static int cmd_dev_set(admin_config_t *cfg)
+     }
+ 
+     static const admin_cmd_t cmds[] = {
+-        {NULL, cmd_dev_usage},            //
+-        {"ns", cmd_dev_set_ns},           //
+-        {0},                              //
++        {NULL, cmd_dev_usage},  //
++        {"ns", cmd_dev_set_ns}, //
++        {0},                    //
+     };
+     return exec_cmd(cfg, cmds);
+ }
+ 
+-int admin_cmd_dev_expose(const char *dev_name, const char *ns)
+-{
+-    int ret = 0;
+-
+-    int ns_fd = admin_get_ns_fd(ns);
+-    if (ns_fd < 0) {
+-        (void)printf("Failed to get ns fd, ns %s.\n", ns);
+-        return ns_fd;
+-    }
+-
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_EXPOSE_DEV_NS, 0);
+-    if (msg == NULL) {
+-        ret = -ENOMEM;
+-        goto close_ns_fd;
+-    }
+-
+-    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
+-    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
+-    ret = admin_nl_send_recv_msg_default(msg);
+-    admin_nl_free_msg(msg);
+-
+-close_ns_fd:
+-    (void)close(ns_fd);
+-    return ret;
+-}
+-
+ static int cmd_dev_expose(admin_config_t *cfg)
+ {
+     int ret = 0;
+@@ -126,37 +138,20 @@ static int cmd_dev_expose(admin_config_t *cfg)
+     if ((ret = pop_arg_ns(cfg)) != 0) {
+         return ret;
+     }
+-    ret = admin_cmd_dev_expose(cfg->dev_name, cfg->ns);
+-    if (ret != 0) {
+-        printf("Failed to expose dev\n");
+-        return ret;
+-    }
+-    return ret;
+-}
+ 
+-int admin_cmd_dev_unexpose(const char *dev_name, const char *ns)
+-{
+-    int ret = 0;
+-    int ns_fd = admin_get_ns_fd(ns);
++    int ns_fd = admin_get_ns_fd(cfg->ns);
+     if (ns_fd < 0) {
+-        (void)printf("Failed to get ns fd, ns %s.\n", ns);
++        (void)printf("Failed to get ns fd, ns %s.\n", cfg->ns);
+         return ns_fd;
+     }
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_UNEXPOSE_DEV_NS, 0);
+-    if (msg == NULL) {
+-        ret = -ENOMEM;
+-        goto close_ns_fd;
++    if ((ret = admin_nl_expose_dev_ns(cfg->dev_name, ns_fd)) != 0) {
++        close(ns_fd);
++        return ret;
+     }
+ 
+-    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, dev_name);
+-    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
+-    ret = admin_nl_send_recv_msg_default(msg);
+-    admin_nl_free_msg(msg);
+-
+-close_ns_fd:
+-    (void)close(ns_fd);
+-    return ret;
++    close(ns_fd);
++    return 0;
+ }
+ 
+ static int cmd_dev_unexpose(admin_config_t *cfg)
+@@ -168,12 +163,20 @@ static int cmd_dev_unexpose(admin_config_t *cfg)
+     if ((ret = pop_arg_ns(cfg)) != 0) {
+         return ret;
+     }
+-    ret = admin_cmd_dev_unexpose(cfg->dev_name, cfg->ns);
+-    if (ret != 0) {
+-        printf("Failed to unexpose dev\n");
++
++    int ns_fd = admin_get_ns_fd(cfg->ns);
++    if (ns_fd < 0) {
++        (void)printf("Failed to get ns fd, ns %s.\n", cfg->ns);
++        return ns_fd;
++    }
++
++    if ((ret = admin_nl_unexpose_dev_ns(cfg->dev_name, ns_fd)) != 0) {
++        close(ns_fd);
+         return ret;
+     }
+-    return ret;
++
++    close(ns_fd);
++    return 0;
+ }
+ 
+ int admin_cmd_dev(admin_config_t *cfg)
+@@ -182,12 +185,12 @@ int admin_cmd_dev(admin_config_t *cfg)
+         return cmd_dev_usage(cfg);
+     }
+     static const admin_cmd_t cmds[] = {
+-        {NULL, cmd_dev_usage},          //
+-        {"sharing", cmd_dev_toggle_sharing},       //
+-        {"set", cmd_dev_set},           //
+-        {"expose", cmd_dev_expose},     //
+-        {"unexpose", cmd_dev_unexpose}, //
+-        {0},                            //
++        {NULL, cmd_dev_usage},               //
++        {"sharing", cmd_dev_toggle_sharing}, //
++        {"set", cmd_dev_set},                //
++        {"expose", cmd_dev_expose},          //
++        {"unexpose", cmd_dev_unexpose},      //
++        {0},                                 //
+     };
+     return exec_cmd(cfg, cmds);
+ }
+@@ -195,17 +198,7 @@ int admin_cmd_dev(admin_config_t *cfg)
+ // Legacy cmd
+ int admin_cmd_set_ns_mode_legacy(admin_config_t *cfg)
+ {
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_NS_MODE, 0);
+-    if (msg == NULL) {
+-        return -ENOMEM;
+-    }
+-
+-    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, cfg->dev_name);
+-    admin_nl_put_u8(msg, UBCORE_ATTR_NS_MODE, cfg->ns_mode);
+-
+-    int ret = admin_nl_send_recv_msg_default(msg);
+-    admin_nl_free_msg(msg);
+-    return ret;
++    return admin_nl_set_dev_sharing(cfg->ns_mode == 1);
+ }
+ 
+ int admin_cmd_set_dev_ns_legacy(admin_config_t *cfg)
+@@ -216,17 +209,12 @@ int admin_cmd_set_dev_ns_legacy(admin_config_t *cfg)
+         return ns_fd;
+     }
+ 
+-    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_NS, 0);
+-    if (msg == NULL) {
++    int ret = admin_nl_set_dev_ns(cfg->dev_name, ns_fd);
++    if (ret != 0) {
+         close(ns_fd);
+-        return -ENOMEM;
++        return ret;
+     }
+ 
+-    admin_nl_put_string(msg, UBCORE_ATTR_DEV_NAME, cfg->dev_name);
+-    admin_nl_put_u32(msg, UBCORE_ATTR_NS_FD, ns_fd);
+-
+-    int ret = admin_nl_send_recv_msg_default(msg);
+-    admin_nl_free_msg(msg);
+     close(ns_fd);
+     return ret;
+ }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_eid.c b/src/urma/tools/urma_admin/admin_cmd_eid.c
+index 7d5b72e..2c8cc54 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_eid.c
++++ b/src/urma/tools/urma_admin/admin_cmd_eid.c
+@@ -16,11 +16,11 @@
+ 
+ #include "admin_cmd.h"
+ 
+-static int nl_set_eid_mode(const admin_config_t *cfg)
++static int admin_nl_set_eid_mode(const char *dev_name, bool is_dynamic)
+ {
+     admin_core_cmd_set_eid_mode_t arg = {0};
+-    (void)memcpy(arg.in.dev_name, cfg->dev_name, URMA_ADMIN_MAX_DEV_NAME);
+-    arg.in.eid_mode = cfg->dynamic_eid_mode;
++    (void)memcpy(arg.in.dev_name, dev_name, URMA_ADMIN_MAX_DEV_NAME);
++    arg.in.eid_mode = is_dynamic;
+ 
+     struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_CMD_SET_EID_MODE, 0);
+     if (msg == NULL) {
+@@ -35,17 +35,10 @@ static int nl_set_eid_mode(const admin_config_t *cfg)
+     return ret;
+ }
+ 
+-int admin_cmd_eid_set_eid_ns(const char *dev_name, uint32_t eid_idx, const char *ns)
++int admin_nl_set_eid_ns(const char *dev_name, uint32_t eid_idx, int ns_fd)
+ {
+-    int ns_fd = admin_get_ns_fd(ns);
+-    if (ns_fd < 0) {
+-        (void)printf("Failed to get ns fd, ns %s.\n", ns);
+-        return ns_fd;
+-    }
+-
+     struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_SET_DEV_EID_NS, 0);
+     if (msg == NULL) {
+-        close(ns_fd);
+         return -ENOMEM;
+     }
+ 
+@@ -55,7 +48,6 @@ int admin_cmd_eid_set_eid_ns(const char *dev_name, uint32_t eid_idx, const char
+ 
+     int ret = admin_nl_send_recv_msg_default(msg);
+     admin_nl_free_msg(msg);
+-    close(ns_fd);
+     return ret;
+ }
+ 
+@@ -152,7 +144,7 @@ static int cmd_eid_add(admin_config_t *cfg)
+     }
+ 
+     /* Automatically switch to static mode */
+-    if ((ret = nl_set_eid_mode(cfg)) != 0) {
++    if ((ret = admin_nl_set_eid_mode(cfg->dev_name, false)) != 0) {
+         printf("Failed to set eid mode, ret:%d\n", ret);
+         return ret;
+     }
+@@ -174,7 +166,7 @@ static int cmd_eid_del(admin_config_t *cfg)
+     }
+ 
+     /* Automatically switch to static mode */
+-    if ((ret = nl_set_eid_mode(cfg)) < 0) {
++    if ((ret = admin_nl_set_eid_mode(cfg->dev_name, false)) < 0) {
+         printf("Failed to set eid mode, ret:%d\n", ret);
+         return ret;
+     }
+@@ -191,7 +183,7 @@ static int cmd_eid_set_mode(admin_config_t *cfg)
+     if ((ret = pop_arg_eid_mode(cfg)) != 0) {
+         return ret;
+     }
+-    if ((ret = nl_set_eid_mode(cfg)) != 0) {
++    if ((ret = admin_nl_set_eid_mode(cfg->dev_name, cfg->dynamic_eid_mode)) != 0) {
+         return ret;
+     }
+     return 0;
+@@ -203,9 +195,19 @@ static int cmd_eid_set_ns(admin_config_t *cfg)
+     if ((ret = pop_arg_ns(cfg)) != 0) {
+         return ret;
+     }
+-    if ((ret = admin_cmd_eid_set_eid_ns(cfg->dev_name, cfg->idx, cfg->ns)) != 0) {
++
++    int ns_fd = admin_get_ns_fd(cfg->ns);
++    if (ns_fd < 0) {
++        (void)printf("Failed to get ns fd, ns %s.\n", cfg->ns);
++        return ns_fd;
++    }
++
++    if ((ret = admin_nl_set_eid_ns(cfg->dev_name, cfg->idx, ns_fd)) != 0) {
++        close(ns_fd);
+         return ret;
+     }
++
++    close(ns_fd);
+     return 0;
+ }
+ 
+@@ -254,7 +256,7 @@ int admin_cmd_add_eid_legacy(admin_config_t *cfg)
+     int ret;
+ 
+     /* Automatically switch to static mode */
+-    if ((ret = nl_set_eid_mode(cfg)) != 0) {
++    if ((ret = admin_nl_set_eid_mode(cfg->dev_name, false)) != 0) {
+         printf("Failed to set eid mode, ret:%d\n", ret);
+         return ret;
+     }
+@@ -276,7 +278,7 @@ int admin_cmd_del_eid_legacy(admin_config_t *cfg)
+     int ret;
+ 
+     /* Automatically switch to static mode */
+-    if ((ret = nl_set_eid_mode(cfg)) < 0) {
++    if ((ret = admin_nl_set_eid_mode(cfg->dev_name, false)) < 0) {
+         printf("Failed to set eid mode, ret:%d\n", ret);
+         return ret;
+     }
+@@ -294,5 +296,5 @@ int admin_cmd_set_eid_mode_legacy(admin_config_t *cfg)
+         (void)printf("This operation is not supported on ubc dev.\n");
+         return -1;
+     }
+-    return nl_set_eid_mode(cfg);
++    return admin_nl_set_eid_mode(cfg->dev_name, cfg->dynamic_eid_mode);
+ }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index 6956ae2..cad6e1d 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -495,6 +495,97 @@ free_list:
+     return ret;
+ }
+ 
++static bool is_eid_equal(const urma_eid_t *eid1, const urma_eid_t *eid2)
++{
++    for (int i = 0; i < URMA_EID_SIZE; i++) {
++        if (eid1->raw[i] != eid2->raw[i]) {
++            return false;
++        }
++    }
++    return true;
++}
++
++int admin_get_device_name_by_eid(const urma_eid_t *eid, char *dev_name, size_t dev_name_len)
++{
++    int ret = 0;
++    struct ub_list ubep_list;
++    admin_show_ubep_t *ubep, *next;
++    admin_config_t cfg = {0};
++    cfg.specify_device = false;
++
++    ub_list_init(&ubep_list);
++    ret = find_ubep_list(&ubep_list, &cfg);
++    if (ret != 0) {
++        (void)printf("Failed to find ubep.\n");
++        goto free_list;
++    }
++
++    UB_LIST_FOR_EACH_SAFE (ubep, next, node, &ubep_list) {
++        if (ubep == NULL) {
++            break;
++        }
++        for (uint32_t i = 0; i < ubep->dev_attr.dev_cap.max_eid_cnt; i++) {
++            if (is_eid_equal(&ubep->eid_list[i].eid, eid)) {
++                strncpy(dev_name, ubep->dev_name, dev_name_len);
++                goto free_list;
++            }
++        }
++    }
++    ret = -1; // not found
++
++free_list:
++    free_ubep_list(&ubep_list);
++    return ret;
++}
++
++int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *device_info)
++{
++    int ret = 0;
++    struct ub_list ubep_list;
++    admin_show_ubep_t *ubep, *next;
++    admin_config_t cfg = {0};
++    cfg.specify_device = false;
++    admin_show_ubep_t *ubep_info = NULL;
++
++    ub_list_init(&ubep_list);
++    ret = find_ubep_list(&ubep_list, &cfg);
++    if (ret != 0) {
++        (void)printf("Failed to find ubep.\n");
++        goto free_list;
++    }
++
++    UB_LIST_FOR_EACH_SAFE (ubep, next, node, &ubep_list) {
++        if (ubep == NULL) {
++            break;
++        }
++        for (uint32_t i = 0; i < ubep->dev_attr.dev_cap.max_eid_cnt; i++) {
++            if (is_eid_equal(&ubep->eid_list[i].eid, eid)) {
++                ubep_info = ubep;
++                break;
++            }
++        }
++    }
++    ret = (ubep_info != NULL) ? 0 : -1;
++    if (ret == 0) {
++        memcpy(device_info->dev_name, ubep_info->dev_name, sizeof(device_info->dev_name));
++        memcpy(device_info->net_dev_name, ubep_info->net_dev_name, sizeof(device_info->net_dev_name));
++        memcpy(&device_info->dev_attr, &ubep_info->dev_attr, sizeof(urma_device_attr_t));
++        memcpy(&device_info->tp_type, &ubep_info->tp_type, sizeof(urma_transport_type_t));
++
++        device_info->eid_list = calloc(1, ubep_info->dev_attr.dev_cap.max_eid_cnt * sizeof(urma_eid_info_t));
++        if (device_info->eid_list == NULL) {
++            (void)printf("Failed to malloc eid_list.\n");
++            ret = -1;
++            goto free_list;
++        }
++        memcpy(device_info->eid_list, ubep_info->eid_list,
++               ubep_info->dev_attr.dev_cap.max_eid_cnt * sizeof(urma_eid_info_t));
++    }
++free_list:
++    free_ubep_list(&ubep_list);
++    return ret;
++}
++
+ bool admin_is_eid_valid(const char *eid)
+ {
+     for (int i = 0; i < EID_LEN; i++) {
+@@ -579,7 +670,17 @@ static void urma_eid_to_ipv6_str(const urma_eid_t *eid, char *out, size_t out_le
+ void admin_print_topo_map(tool_topo_map_t *topo_map, uint32_t node_id)
+ {
+     (void)printf("========================== topo map start =============================\n");
+-    tool_topo_info_t *cur_node_info = topo_map->topo_infos + node_id;
++    tool_topo_info_t *cur_node_info = NULL;
++    for (uint32_t i = 0; i < topo_map->node_num; i++) {
++        if (topo_map->topo_infos[i].id == node_id) {
++            cur_node_info = &topo_map->topo_infos[i];
++            break;
++        }
++    }
++    if (cur_node_info == NULL) {
++        (void)printf("Node %d topo info not found.\n", node_id);
++        return;
++    }
+     (void)printf("===================== show node %d topo info =======================\n", node_id);
+     for (uint32_t iodie_idx = 0; iodie_idx < IODIE_NUM; iodie_idx++) {
+         (void)printf("IODie %d:\n", iodie_idx);
+@@ -596,24 +697,31 @@ void admin_print_topo_map(tool_topo_map_t *topo_map, uint32_t node_id)
+         (void)printf("\n");
+     }
+     char eid_str[INET6_ADDRSTRLEN];
++    char dev_name[URMA_ADMIN_MAX_DEV_NAME];
+     for (uint32_t agg_dev_idx = 0; agg_dev_idx < DEV_NUM; agg_dev_idx++) {
+         tool_topo_agg_dev_t *agg_dev = &cur_node_info->agg_devs[agg_dev_idx];
+         if (!admin_is_eid_valid(agg_dev->agg_eid)) {
+-            (void)printf("Dev %d bonding_dev_%d: Invalid EID\n", agg_dev_idx, agg_dev_idx);
+             continue;
+         }
+         urma_eid_to_ipv6_str((urma_eid_t *)agg_dev->agg_eid, eid_str, sizeof(eid_str));
+-        (void)printf("Dev %d bonding_dev_%d: %s\n", agg_dev_idx, agg_dev_idx, eid_str);
++        if (admin_get_device_name_by_eid((urma_eid_t *)agg_dev->agg_eid, dev_name, sizeof(dev_name)) == 0) {
++            (void)printf("Dev %d %s: %s\n", agg_dev_idx, dev_name, eid_str);
++        } else {
++            (void)printf("Dev %d: %s\n", agg_dev_idx, eid_str);
++        }
+         for (uint32_t iodie_idx = 0; iodie_idx < IODIE_NUM; iodie_idx++) {
+             tool_topo_ue_t *ue = &agg_dev->ues[iodie_idx];
+-            printf("\t UE %d:\n", iodie_idx);
+-            printf("\t\t Socket id: %d\n", ue->socket_id);
+-            printf("\t\t Primary eid:\n");
+             if (!admin_is_eid_valid(ue->primary_eid)) {
+-                (void)printf("\t\t\t Invalid EID\n");
+                 continue;
+             }
+             urma_eid_to_ipv6_str((urma_eid_t *)ue->primary_eid, eid_str, sizeof(eid_str));
++            if (admin_get_device_name_by_eid((urma_eid_t *)ue->primary_eid, dev_name, sizeof(dev_name)) == 0) {
++                (void)printf("\t UE %d %s:\n", iodie_idx, dev_name);
++            } else {
++                printf("\t UE %d:\n", iodie_idx);
++            }
++            printf("\t\t Socket id: %d\n", ue->socket_id);
++            printf("\t\t Primary eid:\n");
+             printf("\t\t\t %s\n", eid_str);
+ 
+             printf("\t\t Port eid:\n");
+@@ -636,7 +744,7 @@ static uint32_t get_cur_node_id(tool_topo_map_t *topo_map)
+     for (uint32_t i = 0; i < topo_map->node_num; i++) {
+         tool_topo_info_t *cur_node_info = topo_map->topo_infos + i;
+         if (cur_node_info->is_current) {
+-            node_id = i;
++            node_id = cur_node_info->id;
+             break;
+         }
+     }
+@@ -683,17 +791,23 @@ free_topo:
+ 
+ static int cmd_show_topo(admin_config_t *cfg)
+ {
++    uint32_t node_id;
++    int ret;
+     tool_topo_map_t *topo_map = calloc(1, sizeof(tool_topo_map_t));
+     if (topo_map == NULL) {
+         return -ENOMEM;
+     }
+-    int ret = admin_cmd_get_topo_info(topo_map);
+-    if (ret != 0) {
++    if ((ret = admin_cmd_get_topo_info(topo_map)) != 0) {
+         (void)printf("Failed to get topo info, ret=%d.\n", ret);
+         goto free_topo;
+     }
+-
+-    uint32_t node_id = get_cur_node_id(topo_map);
++    char *arg = pop_arg(cfg);
++    ret = admin_str_to_u16(arg, &cfg->idx);
++    if (ret == 0) {
++        node_id = cfg->idx;
++    } else {
++        node_id = get_cur_node_id(topo_map);
++    }
+     admin_print_topo_map(topo_map, node_id);
+     free(topo_map);
+     return 0;
+diff --git a/src/urma/tools/urma_admin/admin_parameters.c b/src/urma/tools/urma_admin/admin_parameters.c
+index af0c363..5c005e6 100644
+--- a/src/urma/tools/urma_admin/admin_parameters.c
++++ b/src/urma/tools/urma_admin/admin_parameters.c
+@@ -20,6 +20,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
++#include <ctype.h>
+ 
+ #include "admin_file_ops.h"
+ #include "admin_log.h"
+@@ -420,6 +421,21 @@ int pop_arg_eid_mode(admin_config_t *cfg)
+ /* The minimum length of path2: $pid occupies at least 1 character */
+ #define ADMIN_NET_NS_PATH2_MIN_LEN 14
+ 
++/**
++ * @brief 检查字符串是否为非空纯数字串（仅包含 '0'-'9'）
++ * @param s 输入字符串
++ * @return 1 表示是纯数字，0 表示不是或为空
++ */
++static bool is_numeric_string(const char *s) {
++    if (!s || *s == '\0') return false;
++    for (const char *p = s; *p != '\0'; ++p) {
++        if (!isdigit((unsigned char)*p)) {
++            return false;
++        }
++    }
++    return true;
++}
++
+ static bool urma_validate_ns_path(const char *path)
+ {
+     /* ns path is a special symbolic link, cannot be checked by realpath */
+@@ -476,14 +492,21 @@ static bool urma_validate_ns_path(const char *path)
+ int admin_get_ns_fd(const char *ns)
+ {
+     int ns_fd;
++    char path[ADMIN_NET_NS_PATH_MAX_LEN];
++    if (is_numeric_string(ns)) {
++        snprintf(path, sizeof(path), "/proc/%s/ns/net", ns);
++    } else {
++        snprintf(path, sizeof(path), "%s", ns);
++    }
+     /* validate input */
+-    if (urma_validate_ns_path(ns) == false) {
+-        return -1;
++    if (urma_validate_ns_path(path) == false) {
++        (void)printf("ns path is invalid: %s.\n", path);
++        return -EINVAL;
+     }
+ 
+-    ns_fd = open(ns, O_RDONLY | O_CLOEXEC);
++    ns_fd = open(path, O_RDONLY | O_CLOEXEC);
+     if (ns_fd == -1) {
+-        (void)printf("failed to open ns file %s, errno:%d", ns, errno);
++        (void)printf("failed to open ns file %s, errno:%d", path, errno);
+         return ns_fd;
+     }
+     return ns_fd;

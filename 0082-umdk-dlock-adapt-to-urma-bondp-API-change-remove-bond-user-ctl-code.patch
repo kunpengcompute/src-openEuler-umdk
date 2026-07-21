@@ -1,0 +1,538 @@
+From 947272764dbe75daa9fbaee06c74b7bfb5f73a95 Mon Sep 17 00:00:00 2001
+From: huying <huying21@huawei.com>
+Date: Mon, 16 Mar 2026 15:38:30 +0800
+Subject: [PATCH] dlock: adapt to urma bondp API change, remove bond user ctl
+ code
+
+(cherry picked from commit 047ab4291a233742cbaa5068fec066c9b4c90f44)
+---
+ doc/ch/ulock/dlock/DLock User Guide.ch.md     |  2 -
+ doc/en/ulock/dlock/DLock User Guide.md        |  2 -
+ src/ulock/dlock/CMakeLists.txt                |  9 ----
+ src/ulock/dlock/lib/common/dlock_common.h     |  8 ---
+ src/ulock/dlock/lib/common/jetty_mgr.cpp      | 18 -------
+ src/ulock/dlock/lib/common/jetty_mgr.h        |  9 ----
+ .../dlock/lib/common/jetty_mgr_sepconn.cpp    | 49 -------------------
+ .../dlock/lib/common/jetty_mgr_sepconn.h      | 12 -----
+ .../dlock/lib/common/jetty_mgr_uniconn.cpp    | 49 -------------------
+ .../dlock/lib/common/jetty_mgr_uniconn.h      | 12 -----
+ src/ulock/dlock/lib/common/urma_ctx.cpp       | 11 -----
+ src/ulock/dlock/lib/common/urma_ctx.h         | 10 ----
+ src/ulock/dlock/lib/common/utils.cpp          | 16 ------
+ src/ulock/dlock/lib/common/utils.h            |  2 -
+ umdk.spec                                     |  6 ---
+ 15 files changed, 215 deletions(-)
+
+diff --git a/doc/ch/ulock/dlock/DLock User Guide.ch.md b/doc/ch/ulock/dlock/DLock User Guide.ch.md
+index daaaae08..2166d179 100644
+--- a/doc/ch/ulock/dlock/DLock User Guide.ch.md	
++++ b/doc/ch/ulock/dlock/DLock User Guide.ch.md	
+@@ -17,7 +17,6 @@ rpmbuild -ba umdk.spec --with dlock
+ 
+ **DLock额外编译选项说明**
+ - RPM Compilation Options: \
+---with ubagg_disable                      (option, i.e. enable ubagg by default) \
+ --with asan                                       (option, i.e. disable asan by default) \
+ --with tsan                                        (option, i.e. disable tsan by default) \
+ --with gcov                                        (option, i.e. disable gcov by default)
+@@ -38,7 +37,6 @@ make && make install
+ 
+ **DLock额外编译选项说明**
+ - cmake Compilation Options: \
+--DUB_AGG_DIS=enable                               (option, i.e. enable ubagg by default) \
+ -DASAN=enable                                     (option, i.e. disable asan by default) \
+ -DTSAN=enable                                     (option, i.e. disable tsan by default) \
+ -DCODE_COVERAGE=enable                            (option, i.e. disable gcov by default)
+diff --git a/doc/en/ulock/dlock/DLock User Guide.md b/doc/en/ulock/dlock/DLock User Guide.md
+index 05a914d9..6515cea1 100644
+--- a/doc/en/ulock/dlock/DLock User Guide.md	
++++ b/doc/en/ulock/dlock/DLock User Guide.md	
+@@ -17,7 +17,6 @@ rpmbuild -ba umdk.spec --with dlock
+ 
+ **Explanation of Additional DLock Compilation Options**
+ - RPM Compilation Options: \
+---with ubagg_disable                              (option, i.e. enable ubagg by default) \
+ --with asan                                       (option, i.e. disable asan by default) \
+ --with tsan                                       (option, i.e. disable tsan by default) \
+ --with gcov                                       (option, i.e. disable gcov by default)
+@@ -38,7 +37,6 @@ make && make install
+ 
+ **Explanation of Additional DLock Compilation Options**
+ - cmake Compilation Options: \
+--DUB_AGG_DIS=enable                               (option, i.e. enable ubagg by default) \
+ -DASAN=enable                                     (option, i.e. disable asan by default) \
+ -DTSAN=enable                                     (option, i.e. disable tsan by default) \
+ -DCODE_COVERAGE=enable                            (option, i.e. disable gcov by default)
+diff --git a/src/ulock/dlock/CMakeLists.txt b/src/ulock/dlock/CMakeLists.txt
+index a18db5f3..ae0ab463 100644
+--- a/src/ulock/dlock/CMakeLists.txt
++++ b/src/ulock/dlock/CMakeLists.txt
+@@ -8,15 +8,6 @@ set(CMAKE_FLAGS_PUBILC " -Wall -Werror -Wfloat-equal -Wtrampolines -Wextra -Wno-
+ -fno-strict-aliasing -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie -fPIC -funsigned-char -Wformat=2 -Wdate-time -Wswitch-default -Wshadow \
+ -fno-common -s")
+ 
+-if("${UB_AGG_DIS}" STREQUAL "enable")
+-    set(UB_AGG "disable")
+-    message(STATUS "UB_AGG disable!")
+-else()
+-    message(STATUS "UB_AGG enable!")
+-    set(UB_AGG "enable")
+-    set(CMAKE_FLAGS_PUBILC "${CMAKE_FLAGS_PUBILC} -DUB_AGG")
+-endif()
+-
+ # ASAN ENABLE
+ if("${ASAN}" STREQUAL "enable")
+     set(CMAKE_FLAGS_ASAN "-fsanitize=address -fsanitize-recover=address -fsanitize=leak \
+diff --git a/src/ulock/dlock/lib/common/dlock_common.h b/src/ulock/dlock/lib/common/dlock_common.h
+index ddfca9ff..4bf8d2c8 100644
+--- a/src/ulock/dlock/lib/common/dlock_common.h
++++ b/src/ulock/dlock/lib/common/dlock_common.h
+@@ -18,9 +18,6 @@
+ #include <string>
+ 
+ #include "urma_types.h"
+-#ifdef UB_AGG
+-#include "urma_ubagg.h"
+-#endif /* UB_AGG */
+ #include "dlock_types.h"
+ 
+ namespace dlock {
+@@ -196,11 +193,6 @@ struct urma_init_body {
+     } flag;
+ 
+     uint32_t token; /* for jfr/jetty */
+-
+-#ifdef UB_AGG
+-    bool is_bond;
+-    urma_bond_id_info_out_t bond_id_info;
+-#endif /* UB_AGG */
+ };
+ 
+ struct client_init_req_body {
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr.cpp b/src/ulock/dlock/lib/common/jetty_mgr.cpp
+index 2cd98962..95ff29b0 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr.cpp
++++ b/src/ulock/dlock/lib/common/jetty_mgr.cpp
+@@ -643,24 +643,6 @@ dlock_status_t jetty_mgr::post_cas_and_get_res(uint64_t wr_id, uint32_t offset,
+     return DLOCK_SUCCESS;
+ }
+ 
+-#ifdef UB_AGG
+-dlock_status_t jetty_mgr::construct_urma_bond_id_xchg_info(struct urma_init_body *jetty_info) const
+-{
+-    if (m_urma_ctx->is_ub_bonding_dev()) {
+-        jetty_info->is_bond = true;
+-        if (get_urma_bond_id_info(&jetty_info->bond_id_info) != DLOCK_SUCCESS) {
+-            DLOCK_LOG_ERR("failed to get ub bond id info");
+-            return DLOCK_FAIL;
+-        }
+-        return DLOCK_SUCCESS;
+-    }
+-
+-    jetty_info->is_bond = false;
+-    static_cast<void>(memset(&jetty_info->bond_id_info, 0, sizeof(urma_bond_id_info_out_t)));
+-    return DLOCK_SUCCESS;
+-}
+-#endif /* UB_AGG */
+-
+ void jetty_mgr::wait_flush_err_done(void)
+ {
+     if ((m_p_server == nullptr) || m_flush_err_done || (!m_urma_ctx->is_m_jfc_polling())) {
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr.h b/src/ulock/dlock/lib/common/jetty_mgr.h
+index f306726d..ac0db310 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr.h
++++ b/src/ulock/dlock/lib/common/jetty_mgr.h
+@@ -16,10 +16,6 @@
+ #include <vector>
+ #include <cstring>
+ 
+-#ifdef UB_AGG
+-#include "urma_ubagg.h"
+-#endif /* UB_AGG */
+-
+ #include "dlock_types.h"
+ #include "urma_ctx.h"
+ #include "dlock_cipher.h"
+@@ -152,11 +148,6 @@ private:
+     void fill_cas_wr(urma_jfs_wr_t *wr, urma_sge_t *src_sge,
+         urma_sge_t *dst_sge, uint64_t cmp_data, uint64_t swap_data) const;
+ 
+-#ifdef UB_AGG
+-    virtual dlock_status_t get_urma_bond_id_info(urma_bond_id_info_out_t *bond_id_info) const = 0;
+-    dlock_status_t construct_urma_bond_id_xchg_info(struct urma_init_body *jetty_info) const;
+-#endif /* UB_AGG */
+-
+     void wait_flush_err_done(void);
+ 
+     uint32_t m_local_id; /* local jetty/jfs id. */
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp b/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp
+index 05470023..8d765c11 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp
++++ b/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp
+@@ -211,11 +211,7 @@ dlock_status_t jetty_mgr_sepconn::construct_jetty_xchg_info(struct urma_init_bod
+     jetty_info->token = get_jfr_token();
+     jetty_info->flag.bs.token_policy = get_token_policy();
+ 
+-#ifdef UB_AGG
+-    return construct_urma_bond_id_xchg_info(jetty_info);
+-#else
+     return DLOCK_SUCCESS;
+-#endif /* UB_AGG */
+ }
+ 
+ dlock_status_t jetty_mgr_sepconn::import_jfr(const urma_jfr_id_t jfr_id, uint32_t token_policy, uint32_t token)
+@@ -402,49 +398,4 @@ dlock_status_t jetty_mgr_sepconn::post_cas(uint32_t offset, uint64_t cmp_data, u
+ 
+     return DLOCK_SUCCESS;
+ }
+-
+-#ifdef UB_AGG
+-dlock_status_t jetty_mgr_sepconn::get_urma_bond_id_info(urma_bond_id_info_out_t *bond_id_info) const
+-{
+-    urma_bond_id_info_in_t in = {0};
+-    in.jfr = m_jfr;
+-    in.type = URMA_JFR;
+-
+-    urma_user_ctl_in_t user_ctl_in = {
+-        .addr = (uint64_t)&in,
+-        .len = sizeof(urma_bond_id_info_in_t),
+-        .opcode = URMA_USER_CTL_BOND_GET_ID_INFO,
+-    };
+-
+-    urma_user_ctl_out_t user_ctl_out = {
+-        .addr = (uint64_t)bond_id_info,
+-        .len = sizeof(urma_bond_id_info_out_t),
+-    };
+-
+-    if (urma_user_ctl(m_jfr->urma_ctx, &user_ctl_in, &user_ctl_out)) {
+-        DLOCK_LOG_ERR("failed to get ub bond jfr id info");
+-        return DLOCK_FAIL;
+-    }
+-    return DLOCK_SUCCESS;
+-}
+-
+-dlock_status_t jetty_mgr_sepconn::add_urma_bond_rjfr_id_info(urma_bond_add_rjfr_id_info_in_t *info) const
+-{
+-    urma_user_ctl_in_t user_ctl_in = {
+-        .addr = (uint64_t)info,
+-        .len = sizeof(urma_bond_add_rjfr_id_info_in_t),
+-        .opcode = URMA_USER_CTL_BOND_ADD_RJFR_ID_INFO,
+-    };
+-    urma_user_ctl_out_t user_ctl_out = {
+-        .addr = 0,
+-        .len = 0,
+-    };
+-
+-    if (urma_user_ctl(m_urma_ctx->m_urma_ctx, &user_ctl_in, &user_ctl_out)) {
+-        DLOCK_LOG_ERR("failed to add urma bond rjfr id info");
+-        return DLOCK_FAIL;
+-    }
+-    return DLOCK_SUCCESS;
+-}
+-#endif /* UB_AGG */
+ };
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr_sepconn.h b/src/ulock/dlock/lib/common/jetty_mgr_sepconn.h
+index 421c02f9..9b24da81 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr_sepconn.h
++++ b/src/ulock/dlock/lib/common/jetty_mgr_sepconn.h
+@@ -14,10 +14,6 @@
+ 
+ #include <mutex>
+ 
+-#ifdef UB_AGG
+-#include "urma_ubagg.h"
+-#endif /* UB_AGG */
+-
+ #include "dlock_types.h"
+ #include "urma_ctx.h"
+ #include "dlock_cipher.h"
+@@ -53,10 +49,6 @@ public:
+     dlock_status_t post_faa(uint32_t offset, uint64_t operand, uint64_t wr_id) const override;
+     dlock_status_t post_cas(uint32_t offset, uint64_t cmp_data, uint64_t swap_data, uint64_t wr_id) const override;
+ 
+-#ifdef UB_AGG
+-    dlock_status_t add_urma_bond_rjfr_id_info(urma_bond_add_rjfr_id_info_in_t *info) const;
+-#endif /* UB_AGG */
+-
+ private:
+     dlock_status_t create_jfs(void);
+     dlock_status_t create_jfr(void);
+@@ -68,10 +60,6 @@ private:
+ 
+     void fill_base_wr(urma_jfs_wr_t *wr, uint64_t wr_id) const override;
+ 
+-#ifdef UB_AGG
+-    dlock_status_t get_urma_bond_id_info(urma_bond_id_info_out_t *bond_id_info) const override;
+-#endif /* UB_AGG */
+-
+     urma_jfs_t *m_jfs;
+     urma_jfr_t *m_jfr;
+ 
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp b/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp
+index 52a94ae0..f31d2c15 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp
++++ b/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp
+@@ -231,11 +231,7 @@ dlock_status_t jetty_mgr_uniconn::construct_jetty_xchg_info(struct urma_init_bod
+     jetty_info->token = get_jfr_token();
+     jetty_info->flag.bs.token_policy = get_token_policy();
+ 
+-#ifdef UB_AGG
+-    return construct_urma_bond_id_xchg_info(jetty_info);
+-#else
+     return DLOCK_SUCCESS;
+-#endif /* UB_AGG */
+ }
+ 
+ dlock_status_t jetty_mgr_uniconn::import_jetty(const urma_jetty_id_t jetty_id, uint32_t token_policy, uint32_t token)
+@@ -530,49 +526,4 @@ dlock_status_t jetty_mgr_uniconn::post_cas(uint32_t offset, uint64_t cmp_data, u
+ 
+     return DLOCK_SUCCESS;
+ }
+-
+-#ifdef UB_AGG
+-dlock_status_t jetty_mgr_uniconn::get_urma_bond_id_info(urma_bond_id_info_out_t *bond_id_info) const
+-{
+-    urma_bond_id_info_in_t in = {0};
+-    in.jetty = m_jetty;
+-    in.type = URMA_JETTY;
+-
+-    urma_user_ctl_in_t user_ctl_in = {
+-        .addr = (uint64_t)&in,
+-        .len = sizeof(urma_bond_id_info_in_t),
+-        .opcode = URMA_USER_CTL_BOND_GET_ID_INFO,
+-    };
+-
+-    urma_user_ctl_out_t user_ctl_out = {
+-        .addr = (uint64_t)bond_id_info,
+-        .len = sizeof(urma_bond_id_info_out_t),
+-    };
+-
+-    if (urma_user_ctl(m_jetty->urma_ctx, &user_ctl_in, &user_ctl_out)) {
+-        DLOCK_LOG_ERR("failed to get ub bond jetty id info");
+-        return DLOCK_FAIL;
+-    }
+-    return DLOCK_SUCCESS;
+-}
+-
+-dlock_status_t jetty_mgr_uniconn::add_urma_bond_rjetty_id_info(urma_bond_add_rjetty_id_info_in_t *info) const
+-{
+-    urma_user_ctl_in_t user_ctl_in = {
+-        .addr = (uint64_t)info,
+-        .len = sizeof(urma_bond_add_rjetty_id_info_in_t),
+-        .opcode = URMA_USER_CTL_BOND_ADD_RJETTY_ID_INFO,
+-    };
+-    urma_user_ctl_out_t user_ctl_out = {
+-        .addr = 0,
+-        .len = 0,
+-    };
+-
+-    if (urma_user_ctl(m_urma_ctx->m_urma_ctx, &user_ctl_in, &user_ctl_out)) {
+-        DLOCK_LOG_ERR("failed to add urma bond rjetty id info");
+-        return DLOCK_FAIL;
+-    }
+-    return DLOCK_SUCCESS;
+-}
+-#endif /* UB_AGG */
+ };
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr_uniconn.h b/src/ulock/dlock/lib/common/jetty_mgr_uniconn.h
+index 6a352192..cdb573d9 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr_uniconn.h
++++ b/src/ulock/dlock/lib/common/jetty_mgr_uniconn.h
+@@ -14,10 +14,6 @@
+ 
+ #include <mutex>
+ 
+-#ifdef UB_AGG
+-#include "urma_ubagg.h"
+-#endif /* UB_AGG */
+-
+ #include "dlock_types.h"
+ #include "urma_ctx.h"
+ #include "dlock_cipher.h"
+@@ -59,10 +55,6 @@ public:
+     dlock_status_t post_faa(uint32_t offset, uint64_t operand, uint64_t wr_id) const override;
+     dlock_status_t post_cas(uint32_t offset, uint64_t cmp_data, uint64_t swap_data, uint64_t wr_id) const override;
+ 
+-#ifdef UB_AGG
+-    dlock_status_t add_urma_bond_rjetty_id_info(urma_bond_add_rjetty_id_info_in_t *info) const;
+-#endif /* UB_AGG */
+-
+ private:
+     inline uint32_t get_jfr_depth(void) const
+     {
+@@ -81,10 +73,6 @@ private:
+ 
+     void fill_base_wr(urma_jfs_wr_t *wr, uint64_t wr_id) const override;
+ 
+-#ifdef UB_AGG
+-    dlock_status_t get_urma_bond_id_info(urma_bond_id_info_out_t *bond_id_info) const override;
+-#endif /* UB_AGG */
+-
+     urma_jfr_t *m_share_jfr; /* for UB dev */
+     urma_jetty_t *m_jetty;
+     /* client only */
+diff --git a/src/ulock/dlock/lib/common/urma_ctx.cpp b/src/ulock/dlock/lib/common/urma_ctx.cpp
+index af49263e..958f3839 100644
+--- a/src/ulock/dlock/lib/common/urma_ctx.cpp
++++ b/src/ulock/dlock/lib/common/urma_ctx.cpp
+@@ -129,7 +129,6 @@ dlock_status_t urma_ctx::check_urma_device_state(char *dev_name)
+     }
+ 
+     if (urma_query_device(urma_dev, &m_dev_attr) == URMA_SUCCESS) {
+-#ifdef UB_AGG
+         /* The port_cnt value of the ub bonding device is 0 now, and the eid index is not related to the port index.
+          * dlock cannot obtain the association between eid and port.
+          * Therefore, we do not check whether the device port state is active.
+@@ -146,10 +145,8 @@ dlock_status_t urma_ctx::check_urma_device_state(char *dev_name)
+             }
+             m_dev_name = dev_name;
+             m_eid_index = eid_index;
+-            m_is_ub_bonding_dev = true;
+             return DLOCK_SUCCESS;
+         }
+-#endif /* UB_AGG */
+ 
+         for (port_idx = 0; port_idx < m_dev_attr.port_cnt; port_idx++) {
+             if (m_dev_attr.port_attr[port_idx].state == URMA_PORT_ACTIVE) {
+@@ -189,7 +186,6 @@ dlock_status_t urma_ctx::check_urma_device_state_by_eid(const dlock_eid_t eid)
+     }
+ 
+     if (urma_query_device(urma_dev, &m_dev_attr) == URMA_SUCCESS) {
+-#ifdef UB_AGG
+         /* The port_cnt value of the ub bonding device is 0 now, and the eid index is not related to the port index.
+          * dlock cannot obtain the association between eid and port.
+          * Therefore, we do not check whether the device port state is active.
+@@ -206,10 +202,8 @@ dlock_status_t urma_ctx::check_urma_device_state_by_eid(const dlock_eid_t eid)
+             }
+             m_dev_name = urma_dev->name;
+             m_eid_index = eid_index;
+-            m_is_ub_bonding_dev = true;
+             return DLOCK_SUCCESS;
+         }
+-#endif /* UB_AGG */
+         for (port_idx = 0; port_idx < m_dev_attr.port_cnt; port_idx++) {
+             if (m_dev_attr.port_attr[port_idx].state == URMA_PORT_ACTIVE) {
+                 m_dev_name = urma_dev->name;
+@@ -453,13 +447,8 @@ void urma_ctx::delete_urma_context(void) noexcept
+ }
+ 
+ urma_ctx::urma_ctx(const struct urma_ctx_cfg &cfg)
+-#ifdef UB_AGG
+-    : m_is_ub_bonding_dev(false), m_eid_index(0), m_tp_mode(cfg.tp_mode), m_urma_ctx(nullptr), m_jfce(nullptr),
+-      m_jfc(nullptr), m_jfc_polling(false), m_ub_token_disable(cfg.ub_token_disable), m_va(nullptr),
+-#else
+     : m_eid_index(0), m_tp_mode(cfg.tp_mode), m_urma_ctx(nullptr), m_jfce(nullptr), m_jfc(nullptr),
+       m_jfc_polling(false), m_ub_token_disable(cfg.ub_token_disable), m_va(nullptr),
+-#endif /* UB_AGG */
+     m_local_tseg(nullptr), m_p_buf_head(nullptr), m_ctx_inited(false)
+ {
+     m_local_tseg_token.token = 0;
+diff --git a/src/ulock/dlock/lib/common/urma_ctx.h b/src/ulock/dlock/lib/common/urma_ctx.h
+index f423e0f0..4d4bce53 100644
+--- a/src/ulock/dlock/lib/common/urma_ctx.h
++++ b/src/ulock/dlock/lib/common/urma_ctx.h
+@@ -93,13 +93,6 @@ public:
+         return (m_ub_token_disable ? URMA_TOKEN_NONE : URMA_TOKEN_PLAIN_TEXT);
+     }
+ 
+-#ifdef UB_AGG
+-    inline bool is_ub_bonding_dev(void) const
+-    {
+-        return m_is_ub_bonding_dev;
+-    }
+-#endif /* UB_AGG */
+-
+ private:
+     dlock_status_t init_urma_ctx(void);
+     dlock_status_t uninit_urma_ctx(void) noexcept;
+@@ -118,9 +111,6 @@ private:
+     void delete_urma_context(void) noexcept;
+ 
+     std::string m_dev_name;
+-    #ifdef UB_AGG
+-        bool m_is_ub_bonding_dev;
+-    #endif /* UB_AGG */
+     uint32_t m_eid_index;
+     trans_mode_t m_tp_mode;
+     urma_context_t *m_urma_ctx;
+diff --git a/src/ulock/dlock/lib/common/utils.cpp b/src/ulock/dlock/lib/common/utils.cpp
+index 6156e19f..81cc86bf 100644
+--- a/src/ulock/dlock/lib/common/utils.cpp
++++ b/src/ulock/dlock/lib/common/utils.cpp
+@@ -616,14 +616,6 @@ dlock_status_t set_jetty_connection(jetty_mgr *p_jetty_mgr, struct urma_init_bod
+     if (tp_mode == SEPERATE_CONN) {
+         jetty_mgr_sepconn *p_mgr_sepconn = dynamic_cast<jetty_mgr_sepconn *>(p_jetty_mgr);
+ 
+-#ifdef UB_AGG
+-        if (jetty_info->is_bond &&
+-            (p_mgr_sepconn->add_urma_bond_rjfr_id_info(&jetty_info->bond_id_info) != DLOCK_SUCCESS)) {
+-            DLOCK_LOG_ERR("add urma bond rjfr id info error");
+-            return DLOCK_FAIL;
+-        }
+-#endif /* UB_AGG */
+-
+         ret = p_mgr_sepconn->import_jfr(jetty_info->jfr_id, jetty_info->flag.bs.token_policy, jetty_info->token);
+         if (ret != DLOCK_SUCCESS) {
+             DLOCK_LOG_ERR("import jfr error");
+@@ -632,14 +624,6 @@ dlock_status_t set_jetty_connection(jetty_mgr *p_jetty_mgr, struct urma_init_bod
+     } else {
+         jetty_mgr_uniconn *p_mgr_uniconn = dynamic_cast<jetty_mgr_uniconn *>(p_jetty_mgr);
+ 
+-#ifdef UB_AGG
+-        if (jetty_info->is_bond &&
+-            (p_mgr_uniconn->add_urma_bond_rjetty_id_info(&jetty_info->bond_id_info) != DLOCK_SUCCESS)) {
+-            DLOCK_LOG_ERR("add urma bond rjetty id info error");
+-            return DLOCK_FAIL;
+-        }
+-#endif /* UB_AGG */
+-
+         ret = p_mgr_uniconn->import_jetty(jetty_info->jetty_id, jetty_info->flag.bs.token_policy, jetty_info->token);
+         if (ret != DLOCK_SUCCESS) {
+             DLOCK_LOG_ERR("import jetty error");
+diff --git a/src/ulock/dlock/lib/common/utils.h b/src/ulock/dlock/lib/common/utils.h
+index b7900b7a..72ec2795 100644
+--- a/src/ulock/dlock/lib/common/utils.h
++++ b/src/ulock/dlock/lib/common/utils.h
+@@ -88,7 +88,6 @@ inline bool check_msg_body_len_invalid(struct dlock_control_hdr *msg_hdr, uint16
+     return ((msg_hdr->total_len - msg_hdr->hdr_len) != expected_msg_body_len);
+ }
+ 
+-#ifdef UB_AGG
+ inline bool check_if_ub_bonding_dev(const urma_device_t *urma_dev)
+ {
+     /* If the device name contains "bonding", it is a ub bonding device.
+@@ -97,7 +96,6 @@ inline bool check_if_ub_bonding_dev(const urma_device_t *urma_dev)
+     return ((strstr(urma_dev->name, "bonding") != NULL) &&
+         (urma_dev->type == URMA_TRANSPORT_UB));
+ }
+-#endif /* UB_AGG */
+ 
+ };
+ #endif
+diff --git a/umdk.spec b/umdk.spec
+index 45dc9bcd..a0bf8e23 100644
+--- a/umdk.spec
++++ b/umdk.spec
+@@ -10,9 +10,6 @@
+ # add --with test option, i.e. disable test by default
+ %bcond_with test
+ 
+-# add --with ubagg_disable option, i.e. enable ubagg by default
+-%bcond_with ubagg_disable
+-
+ # add --with release_enable option, i.e. disable release by default
+ %bcond_with release_enable
+ 
+@@ -262,9 +259,6 @@ tools of ums, contains ums_run
+     -DKERNEL_RELEASE=%{kernel_version} \
+     -DKERNEL_PATH=%{kernel_build_path} \
+ %endif
+-%if %{without ubagg_disable}
+-    -DUB_AGG="enable" \
+-%endif
+ %if %{with dfx_tool}
+     -DDFX_TOOL="enable" \
+ %endif
+-- 
+2.28.0.windows.1
+

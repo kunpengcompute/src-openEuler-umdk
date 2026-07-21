@@ -1,0 +1,27 @@
+From 97ef9f33e575dbf96ba2291d39d61e3ae72f5b50 Mon Sep 17 00:00:00 2001
+From: Bi Shulei <bishulei@huawei.com>
+Date: Fri, 8 May 2026 11:46:17 +0800
+Subject: [PATCH] urma: fix correct bonding mode opcode mismatch in
+ urma_set_context_opt
+
+(cherry picked from commit 5a29e10555bb0dd6e7dc5f6420c5a044672e87fb)
+---
+ src/urma/lib/urma/core/urma_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/urma/lib/urma/core/urma_main.c b/src/urma/lib/urma/core/urma_main.c
+index c7cebd46..3746e93e 100644
+--- a/src/urma/lib/urma/core/urma_main.c
++++ b/src/urma/lib/urma/core/urma_main.c
+@@ -596,7 +596,7 @@ urma_status_t urma_set_context_opt(urma_context_t *ctx, urma_opt_name_t opt_name
+                 URMA_LOG_ERR("Cannot set aggregated mode for non-aggregated device.\n");
+                 return URMA_EINVAL;
+             }
+-            const uint32_t URMA_USER_CTL_BOND_SET_AGGR_MODE = 5;
++            const uint32_t URMA_USER_CTL_BOND_SET_AGGR_MODE = 4;
+             urma_user_ctl_in_t in = {
+                 .opcode = URMA_USER_CTL_BOND_SET_AGGR_MODE,
+                 .addr = (uint64_t)opt_value,
+-- 
+2.43.0
+

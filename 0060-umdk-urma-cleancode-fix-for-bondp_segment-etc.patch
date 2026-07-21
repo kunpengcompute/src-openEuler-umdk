@@ -1,0 +1,85 @@
+From a7c52723796d49222fc3d18fc741d49fecfeb623 Mon Sep 17 00:00:00 2001
+From: youyilin <youyilin2@huawei.com>
+Date: Mon, 9 Mar 2026 19:13:21 +0800
+Subject: [PATCH] [sync]urma: cleancode fix for bondp_segment etc.
+
+---
+ src/urma/lib/urma/bond/bondp_provider_ops.c | 4 +---
+ src/urma/lib/urma/bond/bondp_segment.c      | 4 ++--
+ src/urma/lib/urma/bond/utils/bdp_queue.c    | 2 +-
+ src/urma/lib/urma/bond/utils/bdp_queue.h    | 2 +-
+ 4 files changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_provider_ops.c b/src/urma/lib/urma/bond/bondp_provider_ops.c
+index 96000767..2424f2aa 100644
+--- a/src/urma/lib/urma/bond/bondp_provider_ops.c
++++ b/src/urma/lib/urma/bond/bondp_provider_ops.c
+@@ -8,10 +8,8 @@
+  * History: 2025-02-05
+  */
+ 
+-#include <endian.h>
+ #include <arpa/inet.h>
+ #include <net/if.h>
+-#include <sys/ioctl.h>
+ #include <dirent.h>
+ #include <stdatomic.h>
+ #include <sys/epoll.h>
+@@ -335,7 +333,7 @@ static void bondp_uninit_ctx_table(bondp_context_t *bond_ctx)
+     bondp_bitmap_uninit(&bond_ctx->token_id_bitmap);
+ }
+ 
+-static bondp_context_t* bondp_create_ctx()
++static bondp_context_t* bondp_create_ctx(void)
+ {
+     bondp_context_t *bond_ctx = NULL;
+ 
+diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
+index 2591f37a..c32efe88 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.c
++++ b/src/urma/lib/urma/bond/bondp_segment.c
+@@ -66,13 +66,13 @@ bool comp_func_va_vtseg_tbl(hmap_node_t *node, void *key)
+     return va_vtseg_info->va == *(uint64_t *)key;
+ }
+ 
+-void free_func_va_vtseg_tbl(hmap_node_t *node)
++static void free_func_va_vtseg_tbl(hmap_node_t *node)
+ {
+     bdp_va_vtseg_info_t *va_vtseg_info = CONTAINER_OF_FIELD(node, bdp_va_vtseg_info_t, hmap_node);
+     free(va_vtseg_info);
+ }
+ 
+-uint32_t hash_func_va_vtseg_tbl(void *key)
++static uint32_t hash_func_va_vtseg_tbl(void *key)
+ {
+     return ub_hash_bytes(key, sizeof(uint64_t), BDP_VA_VTSEG_INFO_HASH_BASIS);
+ }
+diff --git a/src/urma/lib/urma/bond/utils/bdp_queue.c b/src/urma/lib/urma/bond/utils/bdp_queue.c
+index eef612b6..cc199fbb 100644
+--- a/src/urma/lib/urma/bond/utils/bdp_queue.c
++++ b/src/urma/lib/urma/bond/utils/bdp_queue.c
+@@ -104,7 +104,7 @@ int bdp_queue_pop_tail(bdp_queue_t *q, void **data)
+     return 0;
+ }
+ 
+-bool bdp_queue_is_empty(bdp_queue_t *q)
++bool bdp_queue_is_empty(const bdp_queue_t *q)
+ {
+     return STAILQ_EMPTY(&q->head);
+ }
+diff --git a/src/urma/lib/urma/bond/utils/bdp_queue.h b/src/urma/lib/urma/bond/utils/bdp_queue.h
+index fbf71436..4f5a7a6e 100644
+--- a/src/urma/lib/urma/bond/utils/bdp_queue.h
++++ b/src/urma/lib/urma/bond/utils/bdp_queue.h
+@@ -50,7 +50,7 @@ int bdp_queue_pop_head(bdp_queue_t *q, void **data);
+ 
+ int bdp_queue_pop_tail(bdp_queue_t *q, void **data);
+ 
+-bool bdp_queue_is_empty(bdp_queue_t *q);
++bool bdp_queue_is_empty(const bdp_queue_t *q);
+ 
+ void bdp_queue_for_each(bdp_queue_t *q, bdp_queue_visit_func_t func);
+ 
+-- 
+GitCode
+

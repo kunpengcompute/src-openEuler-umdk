@@ -1,0 +1,120 @@
+From 3f66c719acae49c097acad3bf403296565b6a38e Mon Sep 17 00:00:00 2001
+From: Bi Shulei <bishulei@huawei.com>
+Date: Fri, 13 Feb 2026 19:56:05 +0800
+Subject: [PATCH] urma: optimize efficiency of expose agg dev
+
+---
+ src/urma/tools/urma_admin/admin_cmd.h      |  5 ++++-
+ src/urma/tools/urma_admin/admin_cmd_agg.c  |  6 +++--
+ src/urma/tools/urma_admin/admin_cmd_show.c | 26 +++++++++++-----------
+ 3 files changed, 21 insertions(+), 16 deletions(-)
+
+diff --git a/src/urma/tools/urma_admin/admin_cmd.h b/src/urma/tools/urma_admin/admin_cmd.h
+index d9e9b41..d0e7ba6 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.h
++++ b/src/urma/tools/urma_admin/admin_cmd.h
+@@ -11,6 +11,8 @@
+ #ifndef ADMIN_CMD_H
+ #define ADMIN_CMD_H
+ 
++#include "ub_list.h"
++
+ #include "admin_parameters.h"
+ 
+ typedef struct admin_core_cmd_show_utp {
+@@ -187,7 +189,8 @@ int admin_nl_unexpose_dev_ns(const char *dev_name, int ns_fd);
+ int admin_nl_set_eid_ns(const char *dev_name, uint32_t eid_idx, int ns_fd);
+ int admin_cmd_get_topo_info(tool_topo_map_t *topo_map);
+ int admin_get_device_name_by_eid(const urma_eid_t *eid, char *dev_name, size_t dev_name_len);
+-int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *dev_info);
++int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *device_info, 
++                                 struct ub_list *ubep_list);
+ 
+ // Legacy command
+ int admin_cmd_show_stats_legacy(admin_config_t *cfg);
+diff --git a/src/urma/tools/urma_admin/admin_cmd_agg.c b/src/urma/tools/urma_admin/admin_cmd_agg.c
+index 81f244f..f6b235b 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_agg.c
++++ b/src/urma/tools/urma_admin/admin_cmd_agg.c
+@@ -166,11 +166,13 @@ static void nl_unexpose_device_by_eid(const char *eid, int ns_fd)
+ 
+ static int nl_expose_agg_device(struct tool_topo_agg_dev *agg_dev, int ns_fd)
+ {
++    struct ub_list ubep_list;
+     int ret = 0;
+     int ue_idx = 0;
+     admin_device_info_t bonding_dev_info = {0};
+ 
+-    ret = admin_get_device_info_by_eid((urma_eid_t *)agg_dev->agg_eid, &bonding_dev_info);
++    ub_list_init(&ubep_list);
++    ret = admin_get_device_info_by_eid((urma_eid_t *)agg_dev->agg_eid, &bonding_dev_info, &ubep_list);
+     if (ret != 0) {
+         printf("Failed to get device info for bonding device, ret=%d\n", ret);
+         return ret;
+@@ -205,7 +207,7 @@ static int nl_expose_agg_device(struct tool_topo_agg_dev *agg_dev, int ns_fd)
+         tool_topo_ue_t *ue = &agg_dev->ues[ue_idx];
+         admin_device_info_t primary_dev_info = {0};
+ 
+-        ret = admin_get_device_info_by_eid((urma_eid_t *)ue->primary_eid, &primary_dev_info);
++        ret = admin_get_device_info_by_eid((urma_eid_t *)ue->primary_eid, &primary_dev_info, &ubep_list);
+         if (ret != 0) {
+             printf("Failed to get device info for primary device, ret=%d\n", ret);
+             goto unexpose_agg_dev;
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index 4d9f1d7..1ad9fa1 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -578,23 +578,24 @@ free_list:
+     return ret;
+ }
+ 
+-int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *device_info)
++int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *device_info, 
++                                 struct ub_list *ubep_list)
+ {
+     int ret = 0;
+-    struct ub_list ubep_list;
+     admin_show_ubep_t *ubep, *next;
+     admin_config_t cfg = {0};
+     cfg.specify_device = false;
+     admin_show_ubep_t *ubep_info = NULL;
+ 
+-    ub_list_init(&ubep_list);
+-    ret = find_ubep_list(&ubep_list, &cfg);
+-    if (ret != 0) {
+-        (void)printf("Failed to find ubep.\n");
+-        goto free_list;
++    if (ub_list_is_empty(ubep_list)) {
++        ret = find_ubep_list(ubep_list, &cfg);
++        if (ret != 0) {
++            (void)printf("Failed to find ubep.\n");
++            return ret;
++        }
+     }
+ 
+-    UB_LIST_FOR_EACH_SAFE (ubep, next, node, &ubep_list) {
++    UB_LIST_FOR_EACH_SAFE(ubep, next, node, ubep_list) {
+         if (ubep == NULL) {
+             break;
+         }
+@@ -616,13 +617,12 @@ int admin_get_device_info_by_eid(const urma_eid_t *eid, admin_device_info_t *dev
+         if (device_info->eid_list == NULL) {
+             (void)printf("Failed to malloc eid_list.\n");
+             ret = -1;
+-            goto free_list;
++        } else {
++            memcpy(device_info->eid_list, ubep_info->eid_list,
++                   ubep_info->dev_attr.dev_cap.max_eid_cnt * sizeof(urma_eid_info_t));
+         }
+-        memcpy(device_info->eid_list, ubep_info->eid_list,
+-               ubep_info->dev_attr.dev_cap.max_eid_cnt * sizeof(urma_eid_info_t));
+     }
+-free_list:
+-    free_ubep_list(&ubep_list);
++
+     return ret;
+ }
+ 
+-- 
+2.28.0.windows.1
+

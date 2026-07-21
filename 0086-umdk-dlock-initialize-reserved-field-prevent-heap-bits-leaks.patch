@@ -1,0 +1,38 @@
+From ec400a5412d65bf9accec8fb74aa2f5919dd7166 Mon Sep 17 00:00:00 2001
+From: huying <huying21@huawei.com>
+Date: Thu, 19 Mar 2026 19:40:50 +0800
+Subject: [PATCH] dlock: initialize reserved field, prevent heap bits leaks
+
+(cherry picked from commit 947f621af323bf81989de6b2b3affa16760adb82)
+---
+ src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp | 1 +
+ src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp b/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp
+index 5ae9f785..c0c8dafd 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp
++++ b/src/ulock/dlock/lib/common/jetty_mgr_sepconn.cpp
+@@ -225,6 +225,7 @@ dlock_status_t jetty_mgr_sepconn::construct_jetty_xchg_info(struct urma_init_bod
+     static_cast<void>(memcpy(&(jetty_info->jfr_id), &(p_sepconn_mgr->m_jfr->jfr_id), sizeof(urma_jfr_id_t)));
+     jetty_info->token = get_jfr_token();
+     jetty_info->flag.bs.token_policy = get_token_policy();
++    jetty_info->flag.bs.reserved = 0;
+ 
+     return DLOCK_SUCCESS;
+ }
+diff --git a/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp b/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp
+index 5d04e0d8..e8211eca 100644
+--- a/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp
++++ b/src/ulock/dlock/lib/common/jetty_mgr_uniconn.cpp
+@@ -245,6 +245,7 @@ dlock_status_t jetty_mgr_uniconn::construct_jetty_xchg_info(struct urma_init_bod
+     static_cast<void>(memcpy(&(jetty_info->jetty_id), &(p_mgr_uniconn->m_jetty->jetty_id), sizeof(urma_jetty_id_t)));
+     jetty_info->token = get_jfr_token();
+     jetty_info->flag.bs.token_policy = get_token_policy();
++    jetty_info->flag.bs.reserved = 0;
+ 
+     return DLOCK_SUCCESS;
+ }
+-- 
+2.28.0.windows.1
+

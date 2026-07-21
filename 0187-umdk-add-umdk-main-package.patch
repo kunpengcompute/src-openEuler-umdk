@@ -1,0 +1,44 @@
+From e08b5b23fe024ea2cc119f7278688660fe1a64d0 Mon Sep 17 00:00:00 2001
+From: jillwu <wujie66@huawei.com>
+Date: Thu, 21 May 2026 20:06:09 +0800
+Subject: [PATCH] umdk:add umdk main package
+
+Description:
+Modify umdk spec file to add umdk main
+package which is actually a meta package.
+---
+ umdk.spec | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/umdk.spec b/umdk.spec
+index 3e302fdd..bd7c43c6 100644
+--- a/umdk.spec
++++ b/umdk.spec
+@@ -72,6 +72,24 @@ Requires: libasan
+ %if %{with tsan}
+ Requires: libtsan
+ %endif
++%if %{build_all}
++Requires: umdk-urma-lib = %{version}
++Requires: umdk-urma-devel = %{version}
++Requires: umdk-urma-tools = %{version}
++Requires: umdk-urma-bin = %{version}
++Requires: umdk-urpc-framework = %{version}
++Requires: umdk-urpc-framework-devel = %{version}
++Requires: umdk-urpc-framework-tools = %{version}
++Requires: umdk-urpc-umq = %{version}
++Requires: umdk-urpc-umq-devel = %{version}
++Requires: umdk-urpc-umq-tools = %{version}
++Requires: umdk-dlock-lib = %{version}
++Requires: umdk-dlock-devel = %{version}
++Requires: umdk-ums = %{version}
++Requires: umdk-ums-tools = %{version}
++Requires: umdk-ums-agent = %{version}
++%files
++%endif
+ 
+ %description
+ A new system interconnect architecture
+-- 
+2.53.0.windows.1
+

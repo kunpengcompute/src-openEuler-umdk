@@ -1,0 +1,75 @@
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.c b/src/urma/tools/urma_perftest/perftest_parameters.c
+index 32694c56e360cb956c382cd31b6568309d52c0e2..790f433a54b9e0fb960eab027a46e2353f84d0a1 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.c
++++ b/src/urma/tools/urma_perftest/perftest_parameters.c
+@@ -948,6 +948,21 @@ bool is_jfr_depth_valid(perftest_config_t *cfg)
+     return (cfg->jfr_depth * (cfg->jettys / cfg->jettys_pre_jfr)) >= (cfg->jettys * cfg->jfr_post_list);
+ }
+ 
++static int check_ctp_single_path_cfg(const perftest_config_t *cfg)
++{
++    if (cfg->single_path && cfg->use_ctp) {
++        (void)fprintf(stderr, "Invalid config: --single_path: true conflicts with --ctp: true.\n");
++        return -1;
++    }
++
++    if (!cfg->single_path && !cfg->use_ctp) {
++        (void)fprintf(stderr, "Invalid config: --single_path: false requires --ctp: false.\n");
++        return -1;
++    }
++ 
++ 	return 0;
++}
++
+ int check_local_cfg(perftest_config_t *cfg)
+ {
+     if (cfg == NULL) {
+@@ -959,9 +974,13 @@ int check_local_cfg(perftest_config_t *cfg)
+         return -1;
+     }
+ 
+-    if (strstr(cfg->dev_name, "bonding_dev") != NULL && !cfg->single_path && !cfg->use_ctp) {
+-        cfg->use_ctp = true;
+-        (void)fprintf(stderr, "Warning: ctp is enabled, and bonding_dev multi_path requires ctp to be enabled.\n");
++    if (strstr(cfg->dev_name, "bonding_dev") != NULL && check_ctp_single_path_cfg(cfg) != 0) {
++ 	  	return -1;
++ 	}
++
++    if (cfg->priority != PERFTEST_INVALID_PRIORITY && cfg->priority > URMA_MAX_PRIORITY) {
++        (void)fprintf(stderr, "Invalid parameter(priority): %hhu, should be 0-15.\n", cfg->priority);
++        return -1;
+     }
+ 
+     if (check_time_type(cfg) != 0) {
+diff --git a/src/urma/tools/urma_perftest/perftest_resources.c b/src/urma/tools/urma_perftest/perftest_resources.c
+index 9d8b2a188d475ca800367a2f6b7159b638f975d6..64e816aa888719fc63da3633c0ad074a217ba229 100644
+--- a/src/urma/tools/urma_perftest/perftest_resources.c
++++ b/src/urma/tools/urma_perftest/perftest_resources.c
+@@ -193,12 +193,25 @@ static int init_device(perftest_context_t *ctx, perftest_config_t *cfg)
+             tp_type.bs.rtp = 1;
+             cfg->priority = (uint8_t)get_jetty_priority_by_tp_type(&ctx->dev_attr, tp_type);
+         }
++        (void)fprintf(stderr, "Warning: %s should set priority to %hhu.\n",
++                (cfg->use_ctp == true ? "ctp" : "rtp"), cfg->priority);
++    } else {
+         if (cfg->priority > URMA_MAX_PRIORITY) {
+             (void)fprintf(stderr, "The priority parameter %hhu is invalid; it should be 0-15.\n",
+                 cfg->priority);
++        }
++        if (cfg->use_ctp) {
++            tp_type.bs.ctp = 1;
++            if (tp_type.value != ctx->dev_attr.dev_cap.priority_info[cfg->priority].tp_type.value) {
++                (void)fprintf(stderr, "You should set the priority of type CTP\n");
++                goto uninit;
++            }
+         } else {
+-            (void)fprintf(stderr, "Warning: %s should set priority to %hhu.\n",
+-                (cfg->use_ctp == true ? "ctp" : "rtp"), cfg->priority);
++            tp_type.bs.rtp = 1;
++            if (tp_type.value != ctx->dev_attr.dev_cap.priority_info[cfg->priority].tp_type.value) {
++                (void)fprintf(stderr, "You should set the priority of type RTP\n");
++                goto uninit;
++            }
+         }
+     }
+ 

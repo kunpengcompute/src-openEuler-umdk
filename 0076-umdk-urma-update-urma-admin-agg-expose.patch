@@ -1,0 +1,385 @@
+diff --git a/src/urma/lib/urma/core/include/urma_cmd.h b/src/urma/lib/urma/core/include/urma_cmd.h
+index b31f993..ac80089 100644
+--- a/src/urma/lib/urma/core/include/urma_cmd.h
++++ b/src/urma/lib/urma/core/include/urma_cmd.h
+@@ -43,6 +43,7 @@ typedef enum urma_core_cmd {
+     URMA_CORE_UNEXPOSE_DEV_NS,
+     URMA_CORE_SET_DEV_EID_NS,
+     URMA_CORE_GET_TOPO_INFO,
++    URMA_CORE_GET_TOPO_BONDING_DEV = 33,
+     URMA_CORE_SET_SL,
+ } urma_core_cmd_t;
+ 
+diff --git a/src/urma/tools/urma_admin/admin_cmd.h b/src/urma/tools/urma_admin/admin_cmd.h
+index d83715b..ae2ec7a 100644
+--- a/src/urma/tools/urma_admin/admin_cmd.h
++++ b/src/urma/tools/urma_admin/admin_cmd.h
+@@ -85,6 +85,28 @@ typedef struct admin_core_cmd_topo_info {
+     } out;
+ } admin_core_cmd_topo_info_t;
+ 
++typedef struct admin_urma_topo_physical_dev {
++    char dev_name[URMA_MAX_NAME];
++    uint32_t chip_id;
++    uint32_t primary_eid_idx;
++    uint32_t port_eid_idx[PORT_NUM];
++} admin_urma_topo_physical_dev_t;
++
++typedef struct admin_urma_topo_bonding_dev {
++    char dev_name[URMA_MAX_NAME];
++    uint32_t bonding_eid_idx;
++    admin_urma_topo_physical_dev_t physical_devs[IODIE_NUM];
++} admin_urma_topo_bonding_dev_t;
++
++typedef struct admin_core_cmd_topo_bonding_dev {
++    struct {
++        urma_eid_t agg_eid;
++    } in;
++    struct {
++        admin_urma_topo_bonding_dev_t bonding_dev;
++    } out;
++} admin_core_cmd_topo_bonding_dev_t;
++
+ typedef struct admin_core_cmd_sl_info {
+     struct {
+         char dev_name[URMA_MAX_NAME];
+@@ -190,9 +212,11 @@ int admin_nl_expose_dev_ns(const char *dev_name, int ns_fd);
+ int admin_nl_unexpose_dev_ns(const char *dev_name, int ns_fd);
+ int admin_nl_set_eid_ns(const char *dev_name, uint32_t eid_idx, int ns_fd);
+ int admin_cmd_get_topo_info(tool_topo_map_t *topo_map);
++int admin_cmd_get_topo_bonding_dev_by_eid(const urma_eid_t *agg_eid,
++                                          admin_urma_topo_bonding_dev_t *out);
+ int admin_get_device_name_by_eid(const urma_eid_t *eid, char *dev_name, size_t dev_name_len);
+ int admin_get_eid_list_by_eid(urma_eid_t *eid, urma_eid_info_t **eid_info_list,
+-                              char* dev_name);
++                              char *dev_name);
+ 
+ // Legacy command
+ int admin_cmd_show_stats_legacy(admin_config_t *cfg);
+diff --git a/src/urma/tools/urma_admin/admin_cmd_agg.c b/src/urma/tools/urma_admin/admin_cmd_agg.c
+index 06b9736..d059d38 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_agg.c
++++ b/src/urma/tools/urma_admin/admin_cmd_agg.c
+@@ -11,9 +11,9 @@
+ #include <stdio.h>
+ #include <sys/ioctl.h>
+ 
+-#include "ub_util.h"
++#include "ub_util.h"
+ #include "urma_api.h"
+-
++
+ #include "admin_cmd.h"
+ 
+ #define ADMIN_AGG_DEVICE_PATH "/dev/ubagg"
+@@ -133,192 +133,100 @@ static int cmd_agg_del(admin_config_t *cfg)
+     return 0;
+ }
+ 
+-static inline bool urma_eid_is_valid(const urma_eid_t *eid)
+-{
+-    return !(eid->in6.interface_id == 0 && eid->in6.subnet_prefix == 0);
+-}
+-
+-static tool_topo_agg_dev_t *get_topo_agg_dev_by_agg_eid(tool_topo_map_t *topo_map, urma_eid_t *agg_eid)
+-{
+-    for (int i = 0; i < topo_map->node_num; i++) {
+-        tool_topo_info_t *topo_info = &topo_map->topo_infos[i];
+-        for (uint32_t j = 0; j < DEV_NUM; j++) {
+-            tool_topo_agg_dev_t *agg_dev = &topo_info->agg_devs[j];
+-            if (memcmp(agg_dev->agg_eid, agg_eid, sizeof(urma_eid_t)) == 0) {
+-                return agg_dev;
+-            }
+-        }
+-    }
+-    return NULL;
+-}
+-
+-static int get_eid_idx_from_list(urma_eid_info_t *eid_list, urma_eid_t *target_eid)
++static void nl_unexpose_device_by_dev_name(char *dev_name, int ns_fd)
+ {
+-    if (urma_eid_is_valid(target_eid) == false) {
+-        return -1;
+-    }
+-
+-    for (uint32_t i = 0; i < URMA_MAX_EID_CNT; i++) {
+-        if (memcmp(&eid_list[i].eid, target_eid, sizeof(urma_eid_t)) == 0) {
+-            return eid_list[i].eid_index;
+-        }
+-    }
+-
+-    return -1;
+-}
+-
+-static void nl_unexpose_device_by_eid(const char *eid, int ns_fd)
+-{
+-    char dev_name[URMA_ADMIN_MAX_DEV_NAME];
+-    int ret = admin_get_device_name_by_eid((urma_eid_t *)eid, dev_name, sizeof(dev_name));
+-    if (ret != 0) {
+-        printf("Failed to get dev by eid.\n");
+-        return;
+-    }
+     printf("Unexposing device %s in netns %d.\n", dev_name, ns_fd);
+-    ret = admin_nl_unexpose_dev_ns(dev_name, ns_fd);
++    int ret = admin_nl_unexpose_dev_ns(dev_name, ns_fd);
+     if (ret != 0) {
+         (void)printf("Failed to unexpose device %s in netns %d, ret=%d.\n", dev_name, ns_fd, ret);
+     }
+ }
+ 
+-static int nl_expose_agg_device(struct tool_topo_agg_dev *agg_dev, int ns_fd)
++static int expose_agg_device(admin_urma_topo_bonding_dev_t *bonding_info, int ns_fd)
+ {
+     int ret = 0;
+     int ue_idx = 0;
+-    urma_eid_info_t *bonding_eid_list = NULL;
+-    char bonding_dev_name[URMA_MAX_NAME] = {0};
+ 
+-    (void)printf("bonding EID: " EID_FMT "\n", EID_RAW_ARGS(agg_dev->agg_eid));
+-
+-    ret = admin_get_eid_list_by_eid((urma_eid_t *)agg_dev->agg_eid, &bonding_eid_list, bonding_dev_name);
++    printf("Exposing bonding device %s in netns %d\n", bonding_info->dev_name, ns_fd);
++    ret = admin_nl_expose_dev_ns(bonding_info->dev_name, ns_fd);
++    if (ret != 0) {
++        printf("Failed to expose bonding device %s in netns %d, ret=%d\n", bonding_info->dev_name, ns_fd, ret);
++        return ret;
++    }
++
++    printf("Setting EID index %d in bonding device %s, netns %d\n", bonding_info->bonding_eid_idx, bonding_info->dev_name, ns_fd);
++    ret = admin_nl_set_eid_ns(bonding_info->dev_name, bonding_info->bonding_eid_idx, ns_fd);
+     if (ret != 0) {
+-        printf("Failed to get device info for bonding device, ret=%d\n", ret);
++        printf("Failed to set EID index %d in bonding device %s, netns %d, ret=%d\n", bonding_info->bonding_eid_idx,
++               bonding_info->dev_name, ns_fd, ret);
++        admin_nl_unexpose_dev_ns(bonding_info->dev_name, ns_fd);
+         return ret;
+     }
+-
+-    int bonding_eid_idx = get_eid_idx_from_list(bonding_eid_list, (urma_eid_t *)agg_dev->agg_eid);
+-    if (bonding_eid_idx < 0) {
+-        printf("Failed to get EID index for bonding device\n");
+-        urma_free_eid_list(bonding_eid_list);
+-        return -EINVAL;
+-    }
+-
+-    printf("Exposing bonding device %s in netns %d\n", bonding_dev_name, ns_fd);
+-    ret = admin_nl_expose_dev_ns(bonding_dev_name, ns_fd);
+-    if (ret != 0) {
+-        printf("Failed to expose bonding device %s in netns %d, ret=%d\n", bonding_dev_name, ns_fd, ret);
+-        urma_free_eid_list(bonding_eid_list);
+-        return ret;
+-    }
+-
+-    printf("Setting EID index %d in bonding device %s, netns %d\n", bonding_eid_idx, bonding_dev_name, ns_fd);
+-    ret = admin_nl_set_eid_ns(bonding_dev_name, bonding_eid_idx, ns_fd);
+-    if (ret != 0) {
+-        printf("Failed to set EID index %d in bonding device %s, netns %d, ret=%d\n", bonding_eid_idx,
+-               bonding_dev_name, ns_fd, ret);
+-        admin_nl_unexpose_dev_ns(bonding_dev_name, ns_fd);
+-        urma_free_eid_list(bonding_eid_list);
+-        return ret;
+-    }
+-
++
+     for (ue_idx = 0; ue_idx < IODIE_NUM; ue_idx++) {
+-        tool_topo_ue_t *ue = &agg_dev->ues[ue_idx];
+-        urma_eid_info_t *primary_eid_list = NULL;
+-        char primary_dev_name[URMA_MAX_NAME] = {0};
+-        ret = admin_get_eid_list_by_eid((urma_eid_t *)ue->primary_eid, &primary_eid_list, primary_dev_name);
++        admin_urma_topo_physical_dev_t *dev_info = &bonding_info->physical_devs[ue_idx];
++        if (dev_info->primary_eid_idx == UINT32_MAX) {
++            printf("DIE %u is empty.\n", ue_idx);
++            continue;
++        }
++        printf("Exposing primary device %s in netns %d\n", dev_info->dev_name, ns_fd);
++        ret = admin_nl_expose_dev_ns(dev_info->dev_name, ns_fd);
++        if (ret != 0) {
++            printf("Failed to expose primary device %s in netns %d, ret=%d\n", dev_info->dev_name, ns_fd, ret);
++            goto unexpose_agg_dev;
++        }
++
++        printf("Setting EID index %d in primary device %s, netns %d\n", dev_info->primary_eid_idx, dev_info->dev_name,
++               ns_fd);
++        ret = admin_nl_set_eid_ns(dev_info->dev_name, dev_info->primary_eid_idx, ns_fd);
+         if (ret != 0) {
+-            printf("Failed to get device info for primary device, ret=%d\n", ret);
++            printf("Failed to set EID index %d in primary device %s, netns %d, ret=%d\n", dev_info->primary_eid_idx,
++                    dev_info->dev_name, ns_fd, ret);
++            admin_nl_unexpose_dev_ns(dev_info->dev_name, ns_fd);
+             goto unexpose_agg_dev;
+         }
+-
+-        int primary_eid_idx = get_eid_idx_from_list(primary_eid_list, (urma_eid_t *)ue->primary_eid);
+-        if (primary_eid_idx < 0) {
+-            printf("Failed to get EID index for primary device\n");
+-            urma_free_eid_list(primary_eid_list);
+-            goto unexpose_agg_dev;
+-        }
+-
+-        printf("Exposing primary device %s in netns %d\n", primary_dev_name, ns_fd);
+-        ret = admin_nl_expose_dev_ns(primary_dev_name, ns_fd);
+-        if (ret != 0) {
+-            printf("Failed to expose primary device %s in netns %d, ret=%d\n", primary_dev_name, ns_fd, ret);
+-            urma_free_eid_list(primary_eid_list);
+-            goto unexpose_agg_dev;
+-        }
+-
+-        printf("Setting EID index %d in primary device %s, netns %d\n", primary_eid_idx, primary_dev_name,
+-               ns_fd);
+-        ret = admin_nl_set_eid_ns(primary_dev_name, primary_eid_idx, ns_fd);
+-        if (ret != 0) {
+-            printf("Failed to set EID index %d in primary device %s, netns %d, ret=%d\n", primary_eid_idx,
+-                   primary_dev_name, ns_fd, ret);
+-            admin_nl_unexpose_dev_ns(primary_dev_name, ns_fd);
+-            urma_free_eid_list(primary_eid_list);
+-            goto unexpose_agg_dev;
+-        }
+-
+-        for (int i = 0; i < PORT_NUM; i++) {
+-            int port_eid_idx = get_eid_idx_from_list(primary_eid_list, (urma_eid_t *)ue->port_eid[i]);
+-            if (port_eid_idx < 0) {
+-                continue;
+-            }
+-
+-            printf("Setting port EID index %d in primary device %s, netns %d\n", port_eid_idx,
+-                   primary_dev_name, ns_fd);
+-            ret = admin_nl_set_eid_ns(primary_dev_name, port_eid_idx, ns_fd);
+-            if (ret != 0) {
+-                printf("Failed to set port EID index %d in primary device %s, netns %d, ret=%d\n", port_eid_idx,
+-                       primary_dev_name, ns_fd, ret);
+-            }
+-        }
+-
+-        urma_free_eid_list(primary_eid_list);
++
++        for (int i = 0; i < PORT_NUM; i++) {
++            if (dev_info->port_eid_idx[i] == UINT32_MAX) {
++                printf("DIE %u port %u is empty.\n", ue_idx, i);
++                continue;
++            }
++            printf("Setting port EID index %d in primary device %s, netns %d\n", dev_info->port_eid_idx[i],
++                   dev_info->dev_name, ns_fd);
++            ret = admin_nl_set_eid_ns(dev_info->dev_name, dev_info->port_eid_idx[i], ns_fd);
++            if (ret != 0) {
++                printf("Failed to set port EID index %d in primary device %s, netns %d, ret=%d\n", dev_info->port_eid_idx[i],
++                       dev_info->dev_name, ns_fd, ret);
++            }
++        }
+     }
+-
+-    urma_free_eid_list(bonding_eid_list);
+-
++
+     return 0;
+ 
+ unexpose_agg_dev:
+     if (ue_idx > 0) {
+         for (int i = ue_idx - 1; i >= 0; i--) {
+-            tool_topo_ue_t *ue = &agg_dev->ues[i];
+-            nl_unexpose_device_by_eid(ue->primary_eid, ns_fd);
++            nl_unexpose_device_by_dev_name(bonding_info->physical_devs[i].dev_name, ns_fd);
+         }
+     }
+-
+-    admin_nl_unexpose_dev_ns(bonding_dev_name, ns_fd);
+-    urma_free_eid_list(bonding_eid_list);
+-
+-    return ret;
++
++    admin_nl_unexpose_dev_ns(bonding_info->dev_name, ns_fd);
++    return ret;
+ }
+ 
+ static int admin_cmd_agg_expose(urma_eid_t *eid, int ns_fd)
+ {
+-    tool_topo_map_t *topo_map = calloc(1, sizeof(tool_topo_map_t));
+-    if (topo_map == NULL) {
+-        return -ENOMEM;
+-    }
+-    int ret = admin_cmd_get_topo_info(topo_map);
+-    if (ret != 0) {
+-        (void)printf("Failed to get topo info, ret=%d.\n", ret);
+-        goto free_topo;
+-    }
+-    struct tool_topo_agg_dev *agg_dev = get_topo_agg_dev_by_agg_eid(topo_map, eid);
+-    if (agg_dev == NULL) {
+-        (void)printf("Failed to get agg dev by eid.\n");
+-        ret = -EINVAL;
+-        goto free_topo;
+-    }
+-    ret = nl_expose_agg_device(agg_dev, ns_fd);
++    admin_urma_topo_bonding_dev_t bonding_dev;
++    int ret;
++
++    (void)ns_fd;
++    ret = admin_cmd_get_topo_bonding_dev_by_eid(eid, &bonding_dev);
+     if (ret != 0) {
+-        (void)printf("Failed to expose agg device, ret=%d.\n", ret);
+-        goto free_topo;
++        (void)printf("Failed to get topo bonding dev by eid, ret=%d.\n", ret);
++        return ret;
+     }
+-free_topo:
+-    free(topo_map);
+-    return ret;
++    ret = expose_agg_device(&bonding_dev, ns_fd);
++    return 0;
+ }
+ 
+ static int cmd_agg_expose(admin_config_t *cfg)
+@@ -352,11 +260,11 @@ int admin_cmd_agg(admin_config_t *cfg)
+         return cmd_agg_usage(cfg);
+     }
+     static const admin_cmd_t cmds[] = {
+-        {NULL, cmd_agg_usage},
+-        {"add", cmd_agg_add},
+-        {"del", cmd_agg_del},
++        {NULL, cmd_agg_usage},
++        {"add", cmd_agg_add},
++        {"del", cmd_agg_del},
+         {"expose", cmd_agg_expose},
+-        {0},
++        {0},
+     };
+     return exec_cmd(cfg, cmds);
+ }
+diff --git a/src/urma/tools/urma_admin/admin_cmd_show.c b/src/urma/tools/urma_admin/admin_cmd_show.c
+index 998cc00..a24b468 100644
+--- a/src/urma/tools/urma_admin/admin_cmd_show.c
++++ b/src/urma/tools/urma_admin/admin_cmd_show.c
+@@ -868,6 +868,35 @@ free_topo:
+     return ret;
+ }
+ 
++int admin_cmd_get_topo_bonding_dev_by_eid(const urma_eid_t *agg_eid,
++    admin_urma_topo_bonding_dev_t *out)
++{
++    int ret;
++    admin_core_cmd_topo_bonding_dev_t *arg = NULL;
++
++    if (agg_eid == NULL || out == NULL)
++        return -EINVAL;
++
++    arg = calloc(1, sizeof(admin_core_cmd_topo_bonding_dev_t));
++    if (arg == NULL) {
++        return -ENOMEM;
++    }
++    arg->in.agg_eid = *agg_eid;
++
++    struct nl_msg *msg = admin_nl_alloc_msg(URMA_CORE_GET_TOPO_BONDING_DEV, 0);
++    if (msg == NULL) {
++        free(arg);
++        return -ENOMEM;
++    }
++    admin_nl_put_u64(msg, UBCORE_HDR_ARGS_ADDR, (uint64_t)(uintptr_t)arg);
++    ret = admin_nl_send_recv_msg_default(msg);
++
++    memcpy(out, &arg->out.bonding_dev, sizeof(admin_urma_topo_bonding_dev_t));
++    admin_nl_free_msg(msg);
++    free(arg);
++    return ret;
++}
++
+ static int cmd_show_topo(admin_config_t *cfg)
+ {
+     uint32_t node_id;

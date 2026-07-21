@@ -1,0 +1,75 @@
+From 2ce904ce8521d551865e1bef1e369cae7d307cdf Mon Sep 17 00:00:00 2001
+From: duelu <luyizhou1@huawei.com>
+Date: Mon, 25 May 2026 16:13:17 +0800
+Subject: [PATCH] urma: fix bazel compile problems
+
+(cherry picked from commit 49c2cb1378a8810935f562a9802996b1a0f1e7df)
+---
+ src/urma/BUILD.bazel | 16 ++++++++++++++--
+ src/urma/WORKSPACE   | 15 ++++++++++-----
+ 2 files changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/src/urma/BUILD.bazel b/src/urma/BUILD.bazel
+index d1aa81d9..571c9185 100644
+--- a/src/urma/BUILD.bazel
++++ b/src/urma/BUILD.bazel
+@@ -133,9 +133,21 @@ cc_library(
+     deps = [
+         ":urma",
+         ":urma_common",
+-    ],
++    ] + select({
++        ":build_udma_enabled": ["@libummu//:ummu_api"],
++        "//conditions:default": [],
++    }),
++    additional_linker_inputs = select({
++        ":build_udma_enabled": ["@libummu//:ummu_linklib"],
++        "//conditions:default": [],
++    }),
+     linkopts = select({
+-        ":build_udma_enabled": ["-lummu"],
++        ":build_udma_enabled": [
++            "-Wl,--no-as-needed",
++            "-L$(GENDIR)/external/libummu/linklib",
++            "-lummu",
++            "-Wl,--as-needed",
++        ],
+         "//conditions:default": [],
+     }),
+ )
+diff --git a/src/urma/WORKSPACE b/src/urma/WORKSPACE
+index d2b35055..a71349ef 100644
+--- a/src/urma/WORKSPACE
++++ b/src/urma/WORKSPACE
+@@ -4,6 +4,13 @@
+ workspace(name = "com_atomgit_openeuler_umdk_urma")
+ 
+ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
++load("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
++
++# libummu source tree (sibling of umdk checkout under urma_workspace).
++local_repository(
++    name = "libummu",
++    path = "../../../libummu",
++)
+ 
+ # Preload repositories that Bazel 7+ pulls from `DEFAULT.WORKSPACE.SUFFIX`
+ # (otherwise `rules_java_builtin` may try to fetch `rules_python` from the network).
+@@ -34,11 +41,9 @@ http_archive(
+ # `py_repositories()` may `maybe()` fetch `rules_cc` unless it is already defined.
+ http_archive(
+     name = "rules_cc",
+-    sha256 = "b8b918a85f9144c01f6cfe0f45e4f2838c7413961a8ff23bc0c6cdf8bb07a3b6",
+-    strip_prefix = "rules_cc-0.1.5",
+-    urls = [
+-        "https://github.com/bazelbuild/rules_cc/releases/download/0.1.5/rules_cc-0.1.5.tar.gz",
+-    ],
++    sha256 = "774fd6cb9f90f98f1d26c776896b16a517a1af65337fcfaa705261df175f04a6",
++    strip_prefix = "rules_cc-0.2.10",
++    url = "https://github.com/bazelbuild/rules_cc/releases/download/0.2.10/rules_cc-0.2.10.tar.gz",
+ )
+ 
+ load("@rules_python//python:repositories.bzl", "py_repositories")
+-- 
+2.43.0
+

@@ -1,0 +1,13 @@
+diff --git a/src/urma/lib/urma/core/urma_perf.c b/src/urma/lib/urma/core/urma_perf.c
+index ac7b15f5ed7cc884bfea898b408490da5f94c93d..c455cf815a566896b4b1bc1d91df16ec67d55d66 100644
+--- a/src/urma/lib/urma/core/urma_perf.c
++++ b/src/urma/lib/urma/core/urma_perf.c
+@@ -390,7 +390,7 @@ urma_status_t urma_step_perf(urma_perf_record_type_t type, uint64_t delta)
+ urma_status_t urma_get_perf_info(char *perf_buf, uint32_t *length)
+ {
+     urma_perf_stats_t perf_info = {0};
+-    char temp_buf[8192];
++    char temp_buf[8192] = {0};
+     int buffer_used = 0;
+     int ret;
+ 

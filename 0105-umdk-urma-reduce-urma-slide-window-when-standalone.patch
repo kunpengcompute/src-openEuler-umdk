@@ -1,0 +1,139 @@
+From 4fcab7561f11c865bae126db9b38c5ff16ddb377 Mon Sep 17 00:00:00 2001
+From: duelu <luyizhou1@huawei.com>
+Date: Thu, 2 Apr 2026 18:58:52 +0800
+Subject: [PATCH] 
+ urma: reduce urma slide window when standalone
+
+---
+ src/urma/lib/urma/bond/bondp_connection.c | 25 ++++++++++++++++-------
+ src/urma/lib/urma/bond/bondp_connection.h |  9 +++++---
+ src/urma/lib/urma/bond/bondp_datapath.c   |  5 +++--
+ 3 files changed, 24 insertions(+), 9 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_connection.c b/src/urma/lib/urma/bond/bondp_connection.c
+index 211b881..64bb235 100644
+--- a/src/urma/lib/urma/bond/bondp_connection.c
++++ b/src/urma/lib/urma/bond/bondp_connection.c
+@@ -87,7 +87,9 @@ static bool v_conn_comp(struct ub_hmap_node *node, void *key)
+ static void v_conn_free(struct ub_hmap_node *node)
+ {
+     bdp_v_conn_node_t *v_conn_node = CONTAINER_OF_FIELD(node, bdp_v_conn_node_t, hmap_node);
+-    bdp_v_conn_uninit(&v_conn_node->v_conn);
++    if (v_conn_node->v_conn.aggr_mode != URMA_AGGR_MODE_STANDALONE) {
++        bdp_v_conn_uninit(&v_conn_node->v_conn);
++    }
+     free(v_conn_node);
+ }
+ 
+@@ -104,7 +106,7 @@ int bdp_v_conn_table_create(bondp_hash_table_t *tbl, uint32_t size)
+ }
+ 
+ int bdp_v_conn_table_add_on_send(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id,
+-    void *target_vjetty, int target_dev_num, bdp_v_conn_t **v_conn_out)
++    void *target_vjetty, int target_dev_num, bdp_v_conn_t **v_conn_out, urma_context_aggr_mode_t aggr_mode)
+ {
+     hmap_node_t *node = NULL;
+     uint32_t hash = tbl->hash_f(target_id);
+@@ -118,9 +120,13 @@ int bdp_v_conn_table_add_on_send(bondp_hash_table_t *tbl, urma_jetty_id_t *targe
+     if (v_conn_node == NULL) {
+         return BONDP_HASH_MAP_ALLOC_ERROR;
+     }
+-    if (bdp_v_conn_init(&v_conn_node->v_conn)) {
+-        goto FREE_VCONN_NODE;
++    /* When aggr_mode is URMA_AGGR_MODE_STANDALONE, skip initialization */
++    if (aggr_mode != URMA_AGGR_MODE_STANDALONE) {
++        if (bdp_v_conn_init(&v_conn_node->v_conn)) {
++            goto FREE_VCONN_NODE;
++        }
+     }
++    v_conn_node->v_conn.aggr_mode = aggr_mode;
+     init_v_conn_on_send(&v_conn_node->v_conn, target_vjetty, target_dev_num);
+     v_conn_node->target_id = *target_id;
+     bondp_hash_table_add_with_hash(tbl, &v_conn_node->hmap_node, hash);
+@@ -131,7 +137,8 @@ FREE_VCONN_NODE:
+     return BONDP_HASH_MAP_ALLOC_ERROR;
+ }
+ 
+-int bdp_v_conn_table_add_on_recv(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id, bdp_v_conn_t **v_conn_out)
++int bdp_v_conn_table_add_on_recv(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id, bdp_v_conn_t **v_conn_out,
++    urma_context_aggr_mode_t aggr_mode)
+ {
+     hmap_node_t *node = NULL;
+     uint32_t hash = tbl->hash_f(target_id);
+@@ -145,9 +152,13 @@ int bdp_v_conn_table_add_on_recv(bondp_hash_table_t *tbl, urma_jetty_id_t *targe
+     if (v_conn_node == NULL) {
+         return BONDP_HASH_MAP_ALLOC_ERROR;
+     }
+-    if (bdp_v_conn_init(&v_conn_node->v_conn)) {
+-        goto FREE_VCONN_NODE;
++    /* When aggr_mode is URMA_AGGR_MODE_STANDALONE, skip initialization */
++    if (aggr_mode != URMA_AGGR_MODE_STANDALONE) {
++        if (bdp_v_conn_init(&v_conn_node->v_conn)) {
++            goto FREE_VCONN_NODE;
++        }
+     }
++    v_conn_node->v_conn.aggr_mode = aggr_mode;
+     v_conn_node->target_id = *target_id;
+     bondp_hash_table_add_with_hash(tbl, &v_conn_node->hmap_node, hash);
+     *v_conn_out = &v_conn_node->v_conn;
+diff --git a/src/urma/lib/urma/bond/bondp_connection.h b/src/urma/lib/urma/bond/bondp_connection.h
+index fbdbec9..638a25c 100644
+--- a/src/urma/lib/urma/bond/bondp_connection.h
++++ b/src/urma/lib/urma/bond/bondp_connection.h
+@@ -16,7 +16,7 @@
+ #include "wr_buffer.h"
+ 
+ #define BONDP_RECV_WND_SIZE (1U << 12)
+-#define BONDP_MAX_BITMAP_SIZE (1U << 24)
++#define BONDP_MAX_BITMAP_SIZE (1U << 16)
+ #define BONDP_MAX_SO_QUEUE_SIZE (65535)
+ 
+ /** A virtual connection between two vjettys.
+@@ -36,6 +36,8 @@ typedef struct bondp_v_connection {
+     /* TA ordering */
+     bdp_queue_t send_strong_order_queue; /* Cache SO WRs waiting to be sent */
+     bdp_slide_wnd_t send_wnd;
++    /* Valid for both TX and RX side */
++    urma_context_aggr_mode_t aggr_mode;
+     bdp_queue_t recv_strong_order_cr_queue; /* Cache SO CRs in polling */
+ } bdp_v_conn_t;
+ 
+@@ -52,9 +54,10 @@ int bdp_v_conn_table_create(bondp_hash_table_t *tbl, uint32_t size);
+ bdp_v_conn_t *bdp_v_conn_table_lookup(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id);
+ 
+ int bdp_v_conn_table_add_on_send(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id,
+-    void *target_vjetty, int target_dev_num, bdp_v_conn_t **v_conn_out);
++    void *target_vjetty, int target_dev_num, bdp_v_conn_t **v_conn_out, urma_context_aggr_mode_t aggr_mode);
+ 
+-int bdp_v_conn_table_add_on_recv(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id, bdp_v_conn_t **v_conn_out);
++int bdp_v_conn_table_add_on_recv(bondp_hash_table_t *tbl, urma_jetty_id_t *target_id, bdp_v_conn_t **v_conn_out,
++    urma_context_aggr_mode_t aggr_mode);
+ 
+ typedef struct bdp_v_conn_snd_so_queue_data {
+     urma_jfs_wr_t *send_wr;
+diff --git a/src/urma/lib/urma/bond/bondp_datapath.c b/src/urma/lib/urma/bond/bondp_datapath.c
+index 2e18239..9b43217 100644
+--- a/src/urma/lib/urma/bond/bondp_datapath.c
++++ b/src/urma/lib/urma/bond/bondp_datapath.c
+@@ -819,7 +819,7 @@ static bdp_v_conn_t *get_v_conn_on_send(bjetty_ctx_t *bjetty_ctx, bondp_target_j
+     bdp_v_conn_t *v_conn = bdp_v_conn_table_lookup(&bjetty_ctx->v_conn_table, vtjetty_id);
+     if (!v_conn) {
+         int ret = bdp_v_conn_table_add_on_send(&bjetty_ctx->v_conn_table, vtjetty_id,
+-            bdp_tjetty, bdp_tjetty->target_dev_num, &v_conn);
++            bdp_tjetty, bdp_tjetty->target_dev_num, &v_conn, bjetty_ctx->bond_ctx->v_ctx.aggr_mode);
+         if (ret != 0) {
+             URMA_LOG_ERR("Failed to create v_conn for vjetty, ret: %d, "
+                 "[" URMA_JETTY_ID_FMT " -> " URMA_JETTY_ID_FMT "]\n",
+@@ -1713,7 +1713,8 @@ static bondp_cr_handler_ret_t handle_recv(bjetty_ctx_t *bjetty_ctx, urma_cr_t *c
+     }
+     v_conn = bdp_v_conn_table_lookup(&bjetty_ctx->v_conn_table, &target_jetty_id);
+     if (!v_conn) {
+-        ret = bdp_v_conn_table_add_on_recv(&bjetty_ctx->v_conn_table, &target_jetty_id, &v_conn);
++        ret = bdp_v_conn_table_add_on_recv(&bjetty_ctx->v_conn_table, &target_jetty_id, &v_conn,
++            bjetty_ctx->bond_ctx->v_ctx.aggr_mode);
+         if (ret != 0) {
+             /* get_comp_urma_jetty_id will return a non-null value,
+                because we check bjetty_ctx->bdp_comp type at the entrance of this function. */
+-- 
+2.43.0
+
