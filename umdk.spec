@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B114
+    %define rpm_release B115
 %endif
 
 Name          : umdk
@@ -574,6 +574,8 @@ fi
 %endif
 
 %changelog
+* Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B115
+- urma: update set URMA_UBAGG_MAX_CR_CNT_PER_DEV default 32
 * Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B114
 - urma: update fix incorrect perf trace, rename bond topology utility, remove bond control CR, and optimize memory allocation for
 - umq: update fix the umq_ctx error, add remote eid/jetty_id info, trace use umq_thread_local, rollback, and shared jetty round-robin poll
