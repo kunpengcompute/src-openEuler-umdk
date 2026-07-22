@@ -1,0 +1,30 @@
+From b462e6b1a6dc8f1f85981405debadd820f2165f2 Mon Sep 17 00:00:00 2001
+From: wanghang73 <wanghang73@huawei.com>
+Date: Fri, 6 Feb 2026 10:49:34 +0800
+Subject: [PATCH] urma: standalone aggregate mode currently does not support
+ WQE list
+
+(cherry picked from commit 95ea35843ce52a87d56089f9adf042b7d9823038)
+---
+ src/urma/tools/urma_perftest/perftest_parameters.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.c b/src/urma/tools/urma_perftest/perftest_parameters.c
+index f04c42e..746e123 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.c
++++ b/src/urma/tools/urma_perftest/perftest_parameters.c
+@@ -1292,6 +1292,11 @@ int check_local_cfg(perftest_config_t *cfg)
+         }
+     }
+ 
++    if (cfg->aggr_mode != URMA_AGGR_MODE_STANDALONE && cfg->jfs_post_list > 1) {
++        (void)fprintf(stderr, "Standalone aggregate mode currently does not support WQE list.\n");
++        exit(1);
++    }
++
+     return 0;
+ }
+ 
+-- 
+2.28.0.windows.1
+

@@ -1,0 +1,117 @@
+From 8404a79da6ea567139daacf438f03fc6cbe85f34 Mon Sep 17 00:00:00 2001
+From: Wei Qin <qinwei61@huawei.com>
+Date: Mon, 2 Mar 2026 17:13:29 +0800
+Subject: [PATCH 1/2] ub: udma: Support uboe function.
+
+driver inclusion
+category: bugfix
+bugzilla: https://atomgit.com/openeuler/umdk/issues/160
+CVE: NA
+
+-----------------------------------------------------------
+
+This patch support uboe function.
+
+Fixes: a7ea7e683ec6 ("udma: support alloc and free tid")
+
+Signed-off-by: Wei Qin <qinwei61@huawei.com>
+---
+ src/urma/hw/udma/udma_u_ctrlq_tp.c | 44 ++++++++++++++++++++++++++++++
+ src/urma/hw/udma/udma_u_ctrlq_tp.h |  7 +++++
+ src/urma/hw/udma/udma_u_ops.c      |  4 +++
+ 3 files changed, 55 insertions(+)
+
+diff --git a/src/urma/hw/udma/udma_u_ctrlq_tp.c b/src/urma/hw/udma/udma_u_ctrlq_tp.c
+index 5a375e1..27338d8 100644
+--- a/src/urma/hw/udma/udma_u_ctrlq_tp.c
++++ b/src/urma/hw/udma/udma_u_ctrlq_tp.c
+@@ -49,3 +49,47 @@ int udma_u_ctrlq_get_tp_attr(const urma_context_t *ctx, const uint64_t tp_handle
+ 
+ 	return ret;
+ }
++
++urma_status_t udma_u_get_smac(const urma_context_t *ctx, uint8_t *mac)
++{
++	urma_status_t ret;
++
++	ret = urma_cmd_get_smac(ctx, mac);
++	if (ret)
++		UDMA_LOG_ERR("urma cmd get smac failed, ret = %d.\n", ret);
++
++	return ret;
++}
++
++urma_status_t udma_u_get_dmac(const urma_context_t *ctx, const urma_net_addr_t *net_addr, uint8_t *mac)
++{
++	urma_status_t ret;
++
++	ret = urma_cmd_get_dmac(ctx, net_addr, mac);
++	if (ret)
++		UDMA_LOG_ERR("urma cmd get dmac failed, ret = %d.\n", ret);
++
++	return ret;
++}
++
++urma_status_t udma_u_get_eid_by_ip(const urma_context_t *ctx, const urma_net_addr_t *net_addr, urma_eid_t *eid)
++{
++	urma_status_t ret;
++
++	ret = urma_cmd_get_eid_by_ip(ctx, net_addr, eid);
++	if (ret)
++		UDMA_LOG_ERR("urma cmd get eid by ip failed, ret = %d.\n", ret);
++
++	return ret;
++}
++
++urma_status_t udma_u_get_ip_by_eid(const urma_context_t *ctx, const urma_eid_t *eid, urma_net_addr_t *net_addr)
++{
++	urma_status_t ret;
++
++	ret = urma_cmd_get_ip_by_eid(ctx, eid, net_addr);
++	if (ret)
++		UDMA_LOG_ERR("urma cmd get ip by eid failed, ret = %d.\n", ret);
++
++	return ret;
++}
+\ No newline at end of file
+diff --git a/src/urma/hw/udma/udma_u_ctrlq_tp.h b/src/urma/hw/udma/udma_u_ctrlq_tp.h
+index 71f31ee..4974483 100644
+--- a/src/urma/hw/udma/udma_u_ctrlq_tp.h
++++ b/src/urma/hw/udma/udma_u_ctrlq_tp.h
+@@ -11,6 +11,7 @@
+ #define __UDMA_U_CTRLQ_TP_H__
+ 
+ #include "udma_u_common.h"
++#include "udma_u_ctl.h"
+ 
+ int udma_u_ctrlq_get_tp_list(urma_context_t *ctx, urma_get_tp_cfg_t *cfg, uint32_t *tp_cnt,
+ 			     urma_tp_info_t *tp_list);
+@@ -21,4 +22,10 @@ int udma_u_ctrlq_get_tp_attr(const urma_context_t *ctx, const uint64_t tp_handle
+ int udma_u_ctrlq_set_tp_attr(const urma_context_t *ctx, const uint64_t tp_handle,
+ 			     const uint8_t tp_attr_cnt, const uint32_t tp_attr_bitmap,
+ 			     const urma_tp_attr_value_t *tp_attr);
++
++urma_status_t udma_u_get_smac(const urma_context_t *ctx, uint8_t *mac);
++urma_status_t udma_u_get_dmac(const urma_context_t *ctx, const urma_net_addr_t *net_addr, uint8_t *mac);
++urma_status_t udma_u_get_eid_by_ip(const urma_context_t *ctx, const urma_net_addr_t *net_addr, urma_eid_t *eid);
++urma_status_t udma_u_get_ip_by_eid(const urma_context_t *ctx, const urma_eid_t *eid, urma_net_addr_t *net_addr);
++
+ #endif /* __UDMA_U_CTRLQ_TP_H__ */
+diff --git a/src/urma/hw/udma/udma_u_ops.c b/src/urma/hw/udma/udma_u_ops.c
+index 237284e..4593abe 100644
+--- a/src/urma/hw/udma/udma_u_ops.c
++++ b/src/urma/hw/udma/udma_u_ops.c
+@@ -76,6 +76,10 @@ static urma_ops_t g_udma_ops = {
+ 	.rearm_jfc = udma_u_rearm_jfc,
+ 	.wait_jfc = udma_u_wait_jfc,
+ 	.ack_jfc = udma_u_ack_jfc,
++	.get_eid_by_ip = udma_u_get_eid_by_ip,
++	.get_ip_by_eid = udma_u_get_ip_by_eid,
++	.get_smac = udma_u_get_smac,
++	.get_dmac = udma_u_get_dmac,
+ };
+ 
+ static urma_status_t udma_u_init(urma_init_attr_t *conf)
+-- 
+2.28.0.windows.1
+

@@ -1,0 +1,50 @@
+From af86299e118a780cb1063b6db7f538824ad04e66 Mon Sep 17 00:00:00 2001
+From: lisc972 <lishuchen3@huawei.com>
+Date: Wed, 11 Mar 2026 10:49:10 +0800
+Subject: [PATCH 03/10] urma: inline_data add description
+
+(cherry picked from commit f9dd94ded260d52addd3b5fcbbe74ee5a1cda4ef)
+---
+ src/urma/tools/urma_perftest/perftest_parameters.c | 3 +--
+ src/urma/tools/urma_perftest/perftest_parameters.h | 4 ----
+ 2 files changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.c b/src/urma/tools/urma_perftest/perftest_parameters.c
+index 6facf699..20b7cfb5 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.c
++++ b/src/urma/tools/urma_perftest/perftest_parameters.c
+@@ -105,7 +105,7 @@ static void usage(const char *argv0)
+     (void)printf("  -f, --use_flat_api          Choose to use flat API, only works in SIMPLEX mode.\n");
+     (void)printf("  -F, --cpu_freq_f            To report warnings when CPU frequency drifts, default as NOT.\n");
+     (void)printf("  -h, --help                  Show help info.\n");
+-    (void)printf("  -I, --inline_size <size>    Max size of message to be sent in inline.\n");
++    (void)printf("  -I, --inline_size <size>    Max size of message to be sent in inline (default 0).\n");
+     (void)printf("  -j, --share_jfr <true/false> share jfr on create jetty.\n");
+     (void)printf("  -J, --jettys <num of jetty> Num of jettys(default 1).\n");
+     (void)printf("  -K, --token_policy <policy> default 0: NONE, 1: PLAIN_TEXT, 2: SIGNED, 3: ALL_ENCRYPTED.\n");
+@@ -426,7 +426,6 @@ static int check_cfg_range(perftest_config_t *cfg)
+         { cfg->iters,        PERFTEST_ITERS_MIN,         PERFTEST_ITERS_MAX,        "Iteration num" },
+         { cfg->jfs_depth,    PERFTEST_JFS_DEPTH_MIN,     PERFTEST_JFS_DEPTH_MAX,    "Jfs depth" },
+         { cfg->jettys,       PERFTEST_JETTYS_MIN,        PERFTEST_JETTYS_MAX,       "Jettys" },
+-        { cfg->inline_size,  PERFTEST_INLINE_MIN,        PERFTEST_INLINE_MAX,       "Inline size" },
+         { cfg->jfr_depth,    PERFTEST_JFR_DEPTH_MIN,     PERFTEST_JFR_DEPTH_MAX,    "Jfr depth" },
+         { cfg->cq_mod,       PERFTEST_CQ_MOD_MIN,        PERFTEST_CQ_MOD_MAX,       "Cq mod" },
+         { cfg->order,        PERFTEST_MIN_ORDER,         PERFTEST_MAX_ORDER,        "Order" },
+diff --git a/src/urma/tools/urma_perftest/perftest_parameters.h b/src/urma/tools/urma_perftest/perftest_parameters.h
+index d0f3e400..833ca4c0 100644
+--- a/src/urma/tools/urma_perftest/perftest_parameters.h
++++ b/src/urma/tools/urma_perftest/perftest_parameters.h
+@@ -59,10 +59,6 @@
+ #define PERFTEST_JETTYS_MIN  (1)
+ #define PERFTEST_JETTYS_MAX  (0xFFFF)
+ 
+-// value range of perftest inline size
+-#define PERFTEST_INLINE_MIN  (0)
+-#define PERFTEST_INLINE_MAX  (912)
+-
+ // value range of perftest jfr_depth
+ #define PERFTEST_JFR_DEPTH_MIN  (1)
+ #define PERFTEST_JFR_DEPTH_MAX  (0x4000)
+-- 
+2.28.0.windows.1
+

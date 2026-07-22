@@ -1,0 +1,40 @@
+From ad2d5373be5ef42a9605bc41df7084c22f18e0df Mon Sep 17 00:00:00 2001
+From: Bi Shulei <bishulei@huawei.com>
+Date: Thu, 21 May 2026 11:12:07 +0800
+Subject: [PATCH] urma: add validation for port_ids and port_count in
+ bondp_create_jfs/jetty
+
+(cherry picked from commit 8cbb299a0abab8504998cbdd2d19e3755dcb0bb5)
+---
+ src/urma/lib/urma/bond/bondp_api.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 37758e1f..e97c7867 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -637,6 +637,10 @@ urma_jfs_t *bondp_create_jfs(urma_context_t *ctx, urma_jfs_cfg_t *cfg)
+     uint32_t cfg_active_port_count = 0;
+     if (cfg->flag.bs.has_drv_ext) {
+         const bondp_jfs_cfg_t *bdp_cfg = (const bondp_jfs_cfg_t *)cfg;
++        if (bdp_cfg->port_ids == NULL || bdp_cfg->port_count == 0) {
++            URMA_LOG_ERR("Invalid active port config for jfs, port_ids is NULL or port_count is 0.\n");
++            goto FREE_JFS;
++        }
+         cfg_active_port_count = bdp_cfg->port_count;
+         cfg_active_port_ids = bdp_cfg->port_ids;
+     }
+@@ -1249,6 +1253,10 @@ urma_jetty_t *bondp_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *jetty_cf
+     uint32_t cfg_active_port_count = 0;
+     if (jetty_cfg->flag.bs.has_drv_ext) {
+         const bondp_jetty_cfg_t *bdp_cfg = (const bondp_jetty_cfg_t *)jetty_cfg;
++        if (bdp_cfg->port_ids == NULL || bdp_cfg->port_count == 0) {
++            URMA_LOG_ERR("Invalid active port config for jetty, port_ids is NULL or port_count is 0\n");
++            goto FREE_JETTY;
++        }
+         cfg_active_port_count = bdp_cfg->port_count;
+         cfg_active_port_ids = bdp_cfg->port_ids;
+     }
+-- 
+2.43.0
+

@@ -1,0 +1,42 @@
+diff --git a/src/urma/lib/urma/config/urma.conf b/src/urma/lib/urma/config/urma.conf
+index 6ceb59e47938751d832411a35b3d5d9477ad2e42..2b71581c8b01fa03a49e982ae8d25ed0883ead51 100644
+--- a/src/urma/lib/urma/config/urma.conf
++++ b/src/urma/lib/urma/config/urma.conf
+@@ -6,4 +6,4 @@
+ $template UrmaDynamicFile,"/var/log/umdk/urma/%programname%.log"
+ $template urmaLogMsg,"%TIMESTAMP:::date-rfc3339%|%syslogseverity-text%|%programname%[%PROCID%]|%msg%\n"
+ 
+-if $msg startswith 'LogTag_URMA|' then ?UrmaDynamicFile;urmaLogMsg
+\ No newline at end of file
++if $msg startswith 'URMA|' then ?UrmaDynamicFile;urmaLogMsg
+\ No newline at end of file
+diff --git a/src/urma/lib/urma/core/urma_main.c b/src/urma/lib/urma/core/urma_main.c
+index 2b0d38b20d7a2f33d7cc0e9454e5095237243b13..440584860139363174896461f1d6ae1f991c501a 100644
+--- a/src/urma/lib/urma/core/urma_main.c
++++ b/src/urma/lib/urma/core/urma_main.c
+@@ -17,6 +17,8 @@
+ #include <errno.h>
+ #include <stdio.h>
+ #include <syslog.h>
++#include <unistd.h>
++#include <sys/syscall.h>
+ 
+ #include "urma_device.h"
+ #include "urma_log.h"
+@@ -640,12 +642,14 @@ static __attribute__((constructor)) void liburma_init(void)
+ #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
+     urma_discover_sysfs_path();
+ #endif
+-    syslog(LOG_INFO, "LogTag_URMA|%s[%d]|Start to init liburma.\n", __func__, __LINE__);
++    syslog(LOG_INFO, "URMA|liburma|%ld|-|%s[%d]|Start to init liburma.\n",
++        (long)syscall(__NR_gettid), __func__, __LINE__);
+     return;
+ }
+ 
+ static __attribute__((destructor)) void liburma_uninit(void)
+ {
+-    syslog(LOG_INFO, "LogTag_URMA|%s[%d]|Finish to uninit liburma.\n", __func__, __LINE__);
++    syslog(LOG_INFO, "URMA|liburma|%ld|-|%s[%d]|Finish to uninit liburma.\n",
++        (long)syscall(__NR_gettid), __func__, __LINE__);
+     return;
+ }

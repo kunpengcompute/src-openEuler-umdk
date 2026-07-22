@@ -1,0 +1,948 @@
+From f4c552303c16456cf95f48d567c443cfca4c70d4 Mon Sep 17 00:00:00 2001
+From: wanghang73 <wanghang73@huawei.com>
+Date: Mon, 9 Mar 2026 09:39:01 +0800
+Subject: [PATCH] urma: simplify bondp import
+
+(cherry picked from commit dc25d59376433fc183f067dc7f25f9f25769ff2f)
+---
+ src/urma/lib/urma/bond/bondp_api.c           | 290 +++++----------
+ src/urma/lib/urma/bond/bondp_context_table.c |   4 +-
+ src/urma/lib/urma/bond/bondp_context_table.h |   2 +-
+ src/urma/lib/urma/bond/bondp_segment.c       | 358 ++++++++-----------
+ src/urma/lib/urma/bond/bondp_types.c         |   2 +-
+ 5 files changed, 253 insertions(+), 403 deletions(-)
+
+diff --git a/src/urma/lib/urma/bond/bondp_api.c b/src/urma/lib/urma/bond/bondp_api.c
+index 0fd28748..e75b172d 100644
+--- a/src/urma/lib/urma/bond/bondp_api.c
++++ b/src/urma/lib/urma/bond/bondp_api.c
+@@ -25,6 +25,16 @@
+ #include "urma_provider.h"
+ #include "bondp_api.h"
+ 
++typedef struct bondp_create_vjetty_udata {
++    urma_jetty_id_t base_id;
++    urma_jetty_id_t slave_id[URMA_UBAGG_DEV_MAX_NUM];
++    int dev_num;
++    bool is_in_matrix_server;
++    bool is_multipath;
++} bondp_create_vjetty_udata_t;
++
++typedef bondp_create_vjetty_udata_t bondp_create_vjfr_udata_t;
++
+ urma_jfce_t *bondp_create_jfce(urma_context_t *ctx)
+ {
+     bondp_comp_t *bdp_jfce = bondp_create_comp(ctx, BONDP_COMP_JFCE, NULL);
+@@ -355,14 +365,8 @@ static int bondp_create_vjfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg, bondp_com
+ {
+     urma_cmd_udrv_priv_t udata = {0};
+     bondp_context_t *bdp_ctx = bdp_jfr->bondp_ctx;
+-    urma_bond_add_rjfr_id_info_in_t jfr_info = {
+-        .base_id = {
+-            .eid = bdp_ctx->v_ctx.eid,
+-            .uasid = 0, /* Default set to 0, this field is currently not in use. */
+-            .id = 0,    /* Handled by ubagg.ko */
+-        },
++    bondp_create_vjfr_udata_t jfr_info = {
+         .dev_num = bdp_jfr->dev_num,
+-        .is_in_matrix_server = is_in_matrix_server(bdp_ctx),
+         .is_multipath = bdp_jfr->is_multipath
+     };
+ 
+@@ -373,7 +377,7 @@ static int bondp_create_vjfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg, bondp_com
+         jfr_info.slave_id[i] = bdp_jfr->p_jfr[i]->jfr_id;
+     }
+     udata.in_addr = (uint64_t)&jfr_info;
+-    udata.in_len = sizeof(urma_bond_add_rjfr_id_info_in_t);
++    udata.in_len = sizeof(bondp_create_vjfr_udata_t);
+ 
+     int ret = urma_cmd_create_jfr(&bdp_ctx->v_ctx, &bdp_jfr->v_jfr, cfg, &udata);
+     if (ret) {
+@@ -610,14 +614,8 @@ urma_status_t bondp_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_att
+ 
+ static int bondp_create_vjetty(bondp_context_t *bdp_ctx, bondp_comp_t *bdp_jetty, urma_jetty_cfg_t *jetty_cfg)
+ {
+-    urma_bond_id_info_out_t jetty_info = {
+-        .base_id = {
+-            .eid = bdp_ctx->v_ctx.eid,
+-            .uasid = 0, /* Default set to 0, this field is currently not in use. */
+-            .id = 0,    /* Handled by ubagg.ko */
+-        },
++    bondp_create_vjetty_udata_t jetty_info = {
+         .dev_num = bdp_jetty->dev_num,
+-        .is_in_matrix_server = is_in_matrix_server(bdp_ctx),
+         .is_multipath = jetty_cfg->jfs_cfg.flag.bs.multi_path,
+     };
+     for (int i = 0; i < bdp_ctx->dev_num; ++i) {
+@@ -628,7 +626,7 @@ static int bondp_create_vjetty(bondp_context_t *bdp_ctx, bondp_comp_t *bdp_jetty
+     }
+     urma_cmd_udrv_priv_t udata = {
+         .in_addr = (uint64_t)&jetty_info,
+-        .in_len = sizeof(urma_bond_id_info_out_t),
++        .in_len = sizeof(bondp_create_vjetty_udata_t),
+     };
+ 
+     bdp_jetty->v_jetty.jetty_cfg = *jetty_cfg;
+@@ -953,63 +951,28 @@ int bondp_user_ctl(urma_context_t *ctx, urma_user_ctl_in_t *in, urma_user_ctl_ou
+     }
+     return 0;
+ }
+-/**
+- * Try to import jetty for full-mesh, allow unimported jetty.
+- */
+-static int import_jetty_default(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_bond_id_info_out_t *ex_info, urma_rjetty_t *rjetty, urma_token_t *rjetty_token)
+-{
+-    bool has_import = false;
+-    urma_rjetty_t p_rjetty = *rjetty;
+ 
+-    for (int i = 0; i < bdp_tjetty->local_dev_num; ++i) {
+-        if (bdp_ctx->p_ctxs[i] == NULL) {
+-            continue;
+-        }
+-        bdp_tjetty->local_valid[i] = true;
+-        for (int j = 0; j < bdp_tjetty->target_dev_num; ++j) {
+-            if (is_empty_eid(&ex_info->slave_id[j].eid)) {
+-                continue;
+-            }
+-            bdp_tjetty->target_valid[i] = true;
+-            p_rjetty.jetty_id = ex_info->slave_id[j];
+-            bdp_tjetty->p_tjetty[i][j] = urma_import_jetty(bdp_ctx->p_ctxs[i], &p_rjetty, rjetty_token);
+-            if (bdp_tjetty->p_tjetty[i][j] == NULL) {
+-                /* Allow unimported p_tjetty */
+-                continue;
+-            }
+-            has_import = true;
+-        }
+-    }
+-    if (!has_import) {
+-        URMA_LOG_ERR("Failed to import jetty, no valid route to rjetty\n");
+-        return -1;
+-    }
+-    return 0;
+-}
+ /**
+  * Import primary ports for each plane in matrix server
+  */
+ static int import_primary_ports(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_bond_id_info_out_t *ex_info, urma_rjetty_t *rjetty, urma_token_t *rjetty_token)
+-
++                                urma_bond_id_info_out_t *rvjetty_info, urma_rjetty_t *rjetty,
++                                urma_token_t *rjetty_token)
+ {
+     urma_rjetty_t p_rjetty = *rjetty;
+-    p_rjetty.tp_type = URMA_CTP; /* only support multi-path mode and use CTP */
+ 
+     for (int i = 0; i < bdp_tjetty->local_dev_num; ++i) {
+         if (bdp_ctx->p_ctxs[i] == NULL) {
+             URMA_LOG_ERR("Primary dev has NULL ctx\n");
+             return -1;
+         }
+-        bdp_tjetty->local_valid[i] = true;
+-        if (is_empty_eid(&ex_info->slave_id[i].eid)) {
++        if (is_empty_eid(&rvjetty_info->slave_id[i].eid)) {
+             URMA_LOG_ERR("Primary dev has NULL rjetty eid\n");
+             return -1;
+         }
++        bdp_tjetty->local_valid[i] = true;
+         bdp_tjetty->target_valid[i] = true;
+-        p_rjetty.jetty_id = ex_info->slave_id[i];
+-        /* To be implemented: import jetty in CTP mode */
++        p_rjetty.jetty_id = rvjetty_info->slave_id[i];
+         bdp_tjetty->p_tjetty[i][i] = urma_import_jetty(bdp_ctx->p_ctxs[i], &p_rjetty, rjetty_token);
+         if (bdp_tjetty->p_tjetty[i][i] == NULL) {
+             URMA_LOG_ERR("Failed to import primary tjetty %d %d\n", i, i);
+@@ -1020,7 +983,8 @@ static int import_primary_ports(bondp_context_t *bdp_ctx, bondp_target_jetty_t *
+ }
+ 
+ static int import_direct_route(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_bond_id_info_out_t *ex_info, urma_rjetty_t *rjetty, urma_token_t *rjetty_token)
++                               urma_bond_id_info_out_t *rvjetty_info, urma_rjetty_t *rjetty,
++                               urma_token_t *rjetty_token)
+ {
+     if (!has_direct_route(bdp_ctx->topo_map, &rjetty->jetty_id.eid)) {
+         URMA_LOG_ERR("No direct route to target jetty in single-path mode\n");
+@@ -1028,27 +992,22 @@ static int import_direct_route(bondp_context_t *bdp_ctx, bondp_target_jetty_t *b
+     }
+ 
+     urma_rjetty_t p_rjetty = *rjetty;
+-    if (p_rjetty.trans_mode == URMA_TM_UM) {
+-        p_rjetty.tp_type = URMA_UTP;
+-    } else {
+-        p_rjetty.tp_type = URMA_RTP;
+-    }
+     bdp_tjetty->direct_route_num = 0;
+     /* This function won't return NULL ptr because check function has_direct_route has been called before */
+     direct_dev_info_t *direct_dev_info = get_direct_dev_info_by_agg_eid(bdp_ctx->topo_map, &rjetty->jetty_id.eid);
+     for (int i = 0; i < direct_dev_info->direct_num; ++i) {
+         int local_port = get_matrix_port_p_idx(direct_dev_info->local_map_idx[i].peer_iodie,
+-            direct_dev_info->local_map_idx[i].peer_port);
++                                               direct_dev_info->local_map_idx[i].peer_port);
+         int target_port = get_matrix_port_p_idx(direct_dev_info->target_map_idx[i].peer_iodie,
+-            direct_dev_info->target_map_idx[i].peer_port);
++                                                direct_dev_info->target_map_idx[i].peer_port);
+         if (local_port >= bdp_ctx->dev_num ||
+             bdp_ctx->p_ctxs[local_port] == NULL ||
+-            target_port >= ex_info->dev_num ||
+-            is_empty_eid(&ex_info->slave_id[target_port].eid)) {
++            target_port >= rvjetty_info->dev_num ||
++            is_empty_eid(&rvjetty_info->slave_id[target_port].eid)) {
+             URMA_LOG_DEBUG("BONDP skip route (%d %d)\n", local_port, target_port);
+             continue;
+         }
+-        p_rjetty.jetty_id = ex_info->slave_id[target_port];
++        p_rjetty.jetty_id = rvjetty_info->slave_id[target_port];
+         bdp_tjetty->p_tjetty[local_port][target_port] =
+             urma_import_jetty(bdp_ctx->p_ctxs[local_port], &p_rjetty, rjetty_token);
+         if (bdp_tjetty->p_tjetty[local_port][target_port] == NULL) {
+@@ -1074,46 +1033,6 @@ static inline bool is_well_known_jetty_id(int jetty_id)
+ {
+     return jetty_id > 0 && jetty_id < BONDP_MAX_WELL_KNOWN_JETTY_ID;
+ }
+-/**
+- * Use topo info to find target primary eid and then import well known jetty.
+- * To be implemented: After implementing message channel in bondp, we can exchange ex_id for well known jetty.
+- * Then the import process for the well-known jetty and regular jetty can be unified
+- */
+-static int import_well_known_jetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_rjetty_t *rjetty, urma_token_t *rjetty_token)
+-{
+-    urma_rjetty_t p_rjetty = *rjetty;
+-    p_rjetty.tp_type = URMA_CTP; /* only support multi-path mode and use CTP */
+-
+-    bondp_topo_agg_dev_t *topo_info = get_topo_dev_info_by_agg_eid(bdp_ctx->topo_map, &rjetty->jetty_id.eid);
+-    if (topo_info == NULL) {
+-        URMA_LOG_ERR("Failed to get topo info in import jetty\n");
+-        return -1;
+-    }
+-
+-    for (int i = 0; i < bdp_tjetty->local_dev_num; ++i) {
+-        if (bdp_ctx->p_ctxs[i] == NULL) {
+-            URMA_LOG_ERR("Primary dev has NULL ctx\n");
+-            return -1;
+-        }
+-        bdp_tjetty->local_valid[i] = true;
+-        p_rjetty.jetty_id.eid = *(urma_eid_t *)topo_info->ues[i].primary_eid;
+-        if (is_empty_eid(&p_rjetty.jetty_id.eid)) {
+-            URMA_LOG_WARN("Primary dev has NULL rjetty eid\n");
+-            return -1;
+-        }
+-        bdp_tjetty->target_valid[i] = true;
+-        p_rjetty.jetty_id.id = p_rjetty.jetty_id.id; /* Well known jetty has same jetty_id.id */
+-        bdp_tjetty->p_tjetty[i][i] = urma_import_jetty(bdp_ctx->p_ctxs[i], &p_rjetty, rjetty_token);
+-        if (bdp_tjetty->p_tjetty[i][i] == NULL) {
+-            URMA_LOG_ERR("Failed to import primary tjetty %d %d\n", i, i);
+-            return -1;
+-        }
+-        URMA_LOG_ERR("BONDP import target wk pjetty: (" EID_FMT ", %u)", EID_ARGS(p_rjetty.jetty_id.eid),
+-            p_rjetty.jetty_id.id);
+-    }
+-    return 0;
+-}
+ 
+ static bool is_same_eid(urma_eid_t *eid1, urma_eid_t *eid2)
+ {
+@@ -1121,15 +1040,10 @@ static bool is_same_eid(urma_eid_t *eid1, urma_eid_t *eid2)
+ }
+ 
+ static int import_loopback_matrix_jetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_bond_id_info_out_t *rjetty_id_info,
+-    urma_rjetty_t *rjetty, urma_token_t *rjetty_token)
++                                        urma_bond_id_info_out_t *rjetty_id_info, urma_rjetty_t *rjetty,
++                                        urma_token_t *rjetty_token)
+ {
+     urma_rjetty_t p_rjetty = *rjetty;
+-    if (p_rjetty.trans_mode == URMA_TM_UM) {
+-        p_rjetty.tp_type = URMA_UTP;
+-    } else {
+-        p_rjetty.tp_type = URMA_RTP;
+-    }
+     /* Select the first available port EID for import, so start traversing from index 2. */
+     for (int i = IODIE_NUM; i < bdp_tjetty->local_dev_num; ++i) {
+         if (bdp_ctx->p_ctxs[i] == NULL) {
+@@ -1150,7 +1064,7 @@ static int import_loopback_matrix_jetty(bondp_context_t *bdp_ctx, bondp_target_j
+ }
+ 
+ static int bondp_import_vjetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *rjetty_token,
+-    bondp_target_jetty_t *bdp_tjetty, urma_bond_id_info_out_t *udata_out)
++                               bondp_target_jetty_t *bdp_tjetty, urma_bond_id_info_out_t *udata_out)
+ {
+     urma_tjetty_cfg_t cfg = {
+         .jetty_id = rjetty->jetty_id,
+@@ -1171,39 +1085,23 @@ static int bondp_import_vjetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_
+ }
+ 
+ static int bondp_import_pjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_rjetty_t *rjetty, urma_token_t *rjetty_token, urma_bond_id_info_out_t *udata_out)
++                               urma_rjetty_t *rjetty, urma_token_t *rjetty_token,
++                               urma_bond_id_info_out_t *rvjetty_info)
+ {
+     int ret = 0;
+-    if (bdp_tjetty->is_in_matrix_server) {
+-        if (is_well_known_jetty_id(rjetty->jetty_id.id)) {
+-            int iodie_num = is_single_dev_mode(&bdp_ctx->v_ctx) ? SINGLE_DIE_IODIE_NUM : IODIE_NUM;
+-            bdp_tjetty->local_dev_num = iodie_num;
+-            bdp_tjetty->target_dev_num = iodie_num;
+-            bdp_tjetty->is_multipath = true;
+-            ret = import_well_known_jetty(bdp_ctx, bdp_tjetty, rjetty, rjetty_token);
+-        } else {
+-            bdp_tjetty->is_multipath = udata_out->is_multipath;
+-            if (bdp_tjetty->is_multipath) {
+-                int iodie_num = is_single_dev_mode(&bdp_ctx->v_ctx) ? SINGLE_DIE_IODIE_NUM : IODIE_NUM;
+-                bdp_tjetty->local_dev_num = iodie_num;
+-                bdp_tjetty->target_dev_num = iodie_num;
+-                ret = import_primary_ports(bdp_ctx, bdp_tjetty, udata_out, rjetty, rjetty_token);
+-            } else {
+-                if (is_same_eid(&bdp_ctx->v_ctx.eid, &rjetty->jetty_id.eid)) {
+-                    bdp_tjetty->local_dev_num = bdp_ctx->dev_num;
+-                    bdp_tjetty->target_dev_num = bdp_ctx->dev_num;
+-                    ret = import_loopback_matrix_jetty(bdp_ctx, bdp_tjetty, udata_out, rjetty, rjetty_token);
+-                } else {
+-                    bdp_tjetty->local_dev_num = bdp_ctx->dev_num;
+-                    bdp_tjetty->target_dev_num = udata_out->dev_num;
+-                    ret = import_direct_route(bdp_ctx, bdp_tjetty, udata_out, rjetty, rjetty_token);
+-                }
+-            }
+-        }
++    if (bdp_tjetty->is_multipath) {
++        int iodie_num = is_single_dev_mode(&bdp_ctx->v_ctx) ? SINGLE_DIE_IODIE_NUM : IODIE_NUM;
++        bdp_tjetty->local_dev_num = iodie_num;
++        bdp_tjetty->target_dev_num = iodie_num;
++        ret = import_primary_ports(bdp_ctx, bdp_tjetty, rvjetty_info, rjetty, rjetty_token);
+     } else {
+         bdp_tjetty->local_dev_num = bdp_ctx->dev_num;
+-        bdp_tjetty->target_dev_num = udata_out->dev_num;
+-        ret = import_jetty_default(bdp_ctx, bdp_tjetty, udata_out, rjetty, rjetty_token);
++        bdp_tjetty->target_dev_num = rvjetty_info->dev_num;
++        if (is_same_eid(&bdp_ctx->v_ctx.eid, &rjetty->jetty_id.eid)) {
++            ret = import_loopback_matrix_jetty(bdp_ctx, bdp_tjetty, rvjetty_info, rjetty, rjetty_token);
++        } else {
++            ret = import_direct_route(bdp_ctx, bdp_tjetty, rvjetty_info, rjetty, rjetty_token);
++        }
+     }
+     return ret;
+ }
+@@ -1234,101 +1132,99 @@ static int bondp_unimport_pjetty(bondp_target_jetty_t *bdp_tjetty)
+     return ret;
+ }
+ 
+-static int add_remote_jetty_id_info(bondp_context_t *bdp_ctx, urma_bond_id_info_out_t *udata_out)
++static int add_remote_jetty_id_info(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty)
+ {
++    urma_jetty_id_t *slave_ids = bdp_tjetty->rvjetty_id_info.slave_id;
+     pthread_rwlock_wrlock(&bdp_ctx->remote_p2v_jetty_id_table.lock);
+     for (int i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
+-        if (is_empty_eid(&udata_out->slave_id[i].eid)) {
++        if (is_empty_eid(&slave_ids[i].eid)) {
+             continue;
+         }
+         int ret = bdp_r_p2v_jetty_id_table_add_without_lock(&bdp_ctx->remote_p2v_jetty_id_table,
+-            &udata_out->slave_id[i], REMOTE_JETTY, &udata_out->base_id);
++            &slave_ids[i], REMOTE_JETTY, &bdp_tjetty->v_tjetty.id);
+         if (ret != 0) {
+             URMA_LOG_ERR("Failed to add bdp_r_p2v_vjetty_id[%d]: ret: %d, jetty_id: " URMA_JETTY_ID_FMT "\n", i, ret,
+-                URMA_JETTY_ID_ARGS(&udata_out->slave_id[i]));
++                URMA_JETTY_ID_ARGS(&slave_ids[i]));
+             for (int j = 0; j < i; ++j) {
+                 (void)bdp_r_p2v_jetty_id_table_del_without_lock(&bdp_ctx->remote_p2v_jetty_id_table,
+-                    &udata_out->slave_id[j], REMOTE_JETTY);
++                    &slave_ids[j], REMOTE_JETTY);
+             }
+             pthread_rwlock_unlock(&bdp_ctx->remote_p2v_jetty_id_table.lock);
+             return -1;
+         }
+         URMA_LOG_INFO("Succeed to add bdp_r_p2v_vjetty_id[%d]: ret: %d, jetty_id: " URMA_JETTY_ID_FMT "\n", i, 0,
+-            URMA_JETTY_ID_ARGS(&udata_out->slave_id[i]));
++            URMA_JETTY_ID_ARGS(&slave_ids[i]));
+     }
+     pthread_rwlock_unlock(&bdp_ctx->remote_p2v_jetty_id_table.lock);
+     return 0;
+ }
+ 
+-static bool bondp_import_jetty_is_valid(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+-    urma_rjetty_t *rjetty, urma_bond_id_info_out_t *udata_out)
+-{
+-    if (is_in_matrix_server(bdp_ctx)) {
+-        /* Only allow the following combinations: */
+-        /* RC + single_path */
+-        /* RM + multi_path  */
+-        /* RC + multi_path  */
+-        /* Ignore rjetty.flag.bs.ctp, and set it according to jetty multipath mode. */
+-        if (!((rjetty->trans_mode == URMA_TM_RC && !udata_out->is_multipath) ||
+-              (rjetty->trans_mode == URMA_TM_RM && udata_out->is_multipath) ||
+-              (rjetty->trans_mode == URMA_TM_RC && udata_out->is_multipath))) {
+-            URMA_LOG_ERR("Invalid import! Only support RC + single_path, RM + multi_path, RC + multi_path."
+-                "rjetty->trans_mode = %d, is_multipath = %d, rjetty->tp_type = %d.\n",
+-                rjetty->trans_mode, udata_out->is_multipath, rjetty->tp_type);
+-            return false;
+-        }
+-    }
+-    if (!is_valid_dev_num(udata_out->dev_num)) {
+-        URMA_LOG_ERR("Invalid rjetty dev num: %d\n", udata_out->dev_num);
+-        return false;
+-    }
+-    if (bdp_tjetty->is_in_matrix_server != udata_out->is_in_matrix_server) {
+-        URMA_LOG_ERR("The in_matrix_server attribute of jetty is different\n");
+-        return false;
+-    }
+-    return true;
+-}
+-
+-urma_target_jetty_t *bondp_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *token_value)
++urma_target_jetty_t * bondp_import_jetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *token_value)
+ {
+     bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(ctx, bondp_context_t, v_ctx);
+-    if (!is_valid_ctx(bdp_ctx)) {
+-        URMA_LOG_ERR("Invalid param ctx\n");
+-        return NULL;
+-    }
+ 
+     bondp_target_jetty_t *bdp_tjetty = calloc(1, sizeof(bondp_target_jetty_t));
+     if (bdp_tjetty == NULL) {
+         URMA_LOG_ERR("Failed to alloc target jetty\n");
++        errno = ENOMEM;
+         return NULL;
+     }
+     bdp_tjetty->is_in_matrix_server = is_in_matrix_server(bdp_ctx);
+ 
+-    urma_bond_id_info_out_t udata_out = {0};
+-    if (bondp_import_vjetty(ctx, rjetty, token_value, bdp_tjetty, &udata_out) != 0) {
+-        URMA_LOG_ERR("Failed to import vjetty, ["EID_FMT"]:%u\n",
+-            EID_ARGS(rjetty->jetty_id.eid), rjetty->jetty_id.id);
++    urma_bond_id_info_out_t *rvjetty_info = &bdp_tjetty->rvjetty_id_info;
++    if (bondp_import_vjetty(ctx, rjetty, token_value, bdp_tjetty, rvjetty_info) != 0) {
++        URMA_LOG_ERR("Failed to import vjetty, [" EID_FMT "]:%u\n",
++                     EID_ARGS(rjetty->jetty_id.eid), rjetty->jetty_id.id);
+         goto free_bondp_tjetty;
+     }
++    bdp_tjetty->is_multipath = rvjetty_info->is_multipath;
+ 
+-    if (!bondp_import_jetty_is_valid(bdp_ctx, bdp_tjetty, rjetty, &udata_out)) {
++    /* Hacky */
++    if (rvjetty_info->is_multipath) {
++        rjetty->tp_type = URMA_CTP;
++    } else {
++        if (rjetty->trans_mode == URMA_TM_UM) {
++            rjetty->tp_type = URMA_UTP;
++        } else {
++            rjetty->tp_type = URMA_RTP;
++        }
++    }
++
++    /* Hacky: For well-known jetty, we currently force it to be multi-path mode,
++        * to make some user happy. */ 
++    if (is_well_known_jetty_id(rjetty->jetty_id.id)) {
++        bdp_tjetty->is_multipath = true;
++        rvjetty_info->is_multipath = true;
++    }
++
++    /* Only allow the following combinations:
++     * RC + single_path
++     * RM + multi_path
++     * RC + multi_path */
++    if (
++        bdp_tjetty->is_in_matrix_server &&
++        !((rjetty->trans_mode == URMA_TM_RC && !rvjetty_info->is_multipath) ||
++          (rjetty->trans_mode == URMA_TM_RM && rvjetty_info->is_multipath) ||
++          (rjetty->trans_mode == URMA_TM_RC && rvjetty_info->is_multipath))) {
++        URMA_LOG_ERR("Invalid import! Only support RC + single_path, RM + multi_path, RC + multi_path."
++                     "rjetty->trans_mode = %d, is_multipath = %d, rjetty->tp_type = %d.\n",
++                     rjetty->trans_mode, rvjetty_info->is_multipath, rjetty->tp_type);
+         errno = EINVAL;
+         goto unimport_vjetty;
+     }
+ 
+-    if (bondp_import_pjetty(bdp_ctx, bdp_tjetty, rjetty, token_value, &udata_out) != 0) {
++    if (bondp_import_pjetty(bdp_ctx, bdp_tjetty, rjetty, token_value, rvjetty_info) != 0) {
+         URMA_LOG_ERR("Failed to import pjetty\n");
+         goto unimport_pjetty;
+     }
+ 
+-    bdp_tjetty->rvjetty_id_info = udata_out;
+-
+-    if (add_remote_jetty_id_info(bdp_ctx, &udata_out) != 0) {
++    if (add_remote_jetty_id_info(bdp_ctx, bdp_tjetty) != 0) {
+         URMA_LOG_ERR("Failed to add remote jetty id info\n");
+         goto unimport_pjetty;
+     }
+ 
+-    URMA_LOG_INFO("Successfully imported target jetty: " URMA_JETTY_ID_FMT, URMA_JETTY_ID_ARGS(&rjetty->jetty_id));
++    URMA_LOG_INFO("Successfully imported target jetty: " URMA_JETTY_ID_FMT,
++                   URMA_JETTY_ID_ARGS(&rjetty->jetty_id));
+ 
+     return &bdp_tjetty->v_tjetty;
+ 
+@@ -1652,11 +1548,6 @@ urma_target_jetty_t *bondp_import_jfr(urma_context_t *ctx, urma_rjfr_t *rjfr, ur
+         goto free_bondp_tjetty;
+     }
+ 
+-    if (bdp_tjetty->is_in_matrix_server != udata_out.is_in_matrix_server) {
+-        URMA_LOG_ERR("The in_matrix_server attribute of jfr is different\n");
+-        goto unimport_vjfr;
+-    }
+-
+     if (bondp_import_pjfr(bdp_ctx, bdp_tjetty, rjfr, token_value, &udata_out) != 0) {
+         goto unimport_pjfr;
+     }
+@@ -1665,7 +1556,6 @@ urma_target_jetty_t *bondp_import_jfr(urma_context_t *ctx, urma_rjfr_t *rjfr, ur
+ 
+ unimport_pjfr:
+     bondp_unimport_pjfr(bdp_tjetty);
+-unimport_vjfr:
+     bondp_unimport_vjfr(bdp_tjetty);
+ free_bondp_tjetty:
+     free(bdp_tjetty);
+diff --git a/src/urma/lib/urma/bond/bondp_context_table.c b/src/urma/lib/urma/bond/bondp_context_table.c
+index 8de8cc9e..f0f7c333 100644
+--- a/src/urma/lib/urma/bond/bondp_context_table.c
++++ b/src/urma/lib/urma/bond/bondp_context_table.c
+@@ -273,12 +273,12 @@ int bdp_r_v2p_token_id_table_destroy(bondp_hash_table_t *tbl)
+ }
+ 
+ int bdp_r_v2p_token_id_tabl_lookup(bondp_hash_table_t *tbl, uint32_t v_token_id,
+-    urma_eid_t *v_remote_eid, bondp_v2p_token_id_t *item)
++    urma_eid_t v_remote_eid, bondp_v2p_token_id_t *item)
+ {
+     hmap_node_t *node = NULL;
+     bondp_v2p_token_id_key_t key = {
+         .v_token_id = v_token_id,
+-        .v_remote_eid = *v_remote_eid
++        .v_remote_eid = v_remote_eid
+     };
+     uint32_t hash = v_token_id;
+     (void)pthread_rwlock_rdlock(&tbl->lock);
+diff --git a/src/urma/lib/urma/bond/bondp_context_table.h b/src/urma/lib/urma/bond/bondp_context_table.h
+index 733fec61..a5087e40 100644
+--- a/src/urma/lib/urma/bond/bondp_context_table.h
++++ b/src/urma/lib/urma/bond/bondp_context_table.h
+@@ -141,7 +141,7 @@ int bdp_r_v2p_token_id_table_create(bondp_hash_table_t *tbl, uint32_t size);
+ int bdp_r_v2p_token_id_table_destroy(bondp_hash_table_t *tbl);
+ 
+ int bdp_r_v2p_token_id_tabl_lookup(bondp_hash_table_t *tbl, uint32_t v_token_id,
+-    urma_eid_t *v_remote_eid, bondp_v2p_token_id_t *item);
++    urma_eid_t v_remote_eid, bondp_v2p_token_id_t *item);
+ int bdp_r_v2p_token_id_del_idx_lockless(bondp_hash_table_t *tbl, uint32_t index);
+ int bdp_r_v2p_token_id_table_add_lockless(bondp_hash_table_t *tbl, bondp_v2p_token_id_t *item);
+ 
+diff --git a/src/urma/lib/urma/bond/bondp_segment.c b/src/urma/lib/urma/bond/bondp_segment.c
+index 3b9bdd0e..8a12de5d 100644
+--- a/src/urma/lib/urma/bond/bondp_segment.c
++++ b/src/urma/lib/urma/bond/bondp_segment.c
+@@ -381,119 +381,6 @@ static bondp_ret_t import_matrix_port_seg_loopback(bondp_context_t *bdp_ctx,
+     return (success_import_num > 0) ? BONDP_SUCCESS : BONDP_ERROR;
+ }
+ 
+-static bondp_ret_t import_matrix_port_seg(bondp_context_t *bdp_ctx, urma_seg_t *seg, bondp_seg_cfg_t *bondp_seg_cfg)
+-{
+-    bondp_ret_t ret;
+-    urma_eid_t eid = seg->ubva.eid;
+-    if (is_empty_eid(&eid)) {
+-        URMA_LOG_WARN("Can't get direct route by seg->ubva.eid, it is empty. Import segment to all port eid.\n");
+-        // fullmush import
+-        int iodie_num = is_single_dev_mode(&bdp_ctx->v_ctx) ? SINGLE_DIE_IODIE_NUM : IODIE_NUM;
+-        for (int iodie_idx = 0; iodie_idx < iodie_num; ++iodie_idx) {
+-            ret = import_matrix_port_seg_on_iodie(bdp_ctx, bondp_seg_cfg, iodie_idx);
+-            if (ret != BONDP_SUCCESS) {
+-                return BONDP_ERROR;
+-            }
+-        }
+-        return BONDP_SUCCESS;
+-    } else if (is_same_eid(&bdp_ctx->v_ctx.eid, &eid)) {
+-        URMA_LOG_INFO("Import segment to loopback.\n");
+-        ret = import_matrix_port_seg_loopback(bdp_ctx, bondp_seg_cfg);
+-        return ret;
+-    } else {
+-        URMA_LOG_INFO("Import segment by direct route.\n");
+-        ret = import_matrix_port_seg_by_direct_route(bdp_ctx, bondp_seg_cfg, eid);
+-        return ret;
+-    }
+-    return BONDP_ERROR; // Unreachable
+-}
+-
+-static void unimport_seg_default(bondp_import_tseg_t *bdp_imprt_tseg)
+-{
+-    for (int i = 0; i < bdp_imprt_tseg->local_dev_num; ++i) {
+-        for (int j = 0; j < bdp_imprt_tseg->target_dev_num; ++j) {
+-            if (bdp_imprt_tseg->p_tseg[i][j] != NULL) {
+-                urma_unimport_seg(bdp_imprt_tseg->p_tseg[i][j]);
+-                URMA_LOG_ERR("unimport seg [%d][%d]", i, j);
+-                bdp_imprt_tseg->p_tseg[i][j] = NULL;
+-            }
+-        }
+-    }
+-}
+-
+-static int import_seg_matrix_server(bondp_context_t *bdp_ctx, urma_seg_t *seg, bondp_seg_cfg_t *bondp_seg_cfg)
+-{
+-    bondp_ret_t ret;
+-    ret = import_matrix_primary_seg(bdp_ctx, bondp_seg_cfg);
+-    if (ret != BONDP_SUCCESS) {
+-        goto unimport;
+-    }
+-    ret = import_matrix_port_seg(bdp_ctx, seg, bondp_seg_cfg);
+-    if (ret != BONDP_SUCCESS) {
+-        goto unimport;
+-    }
+-    return 0;
+-unimport:
+-    unimport_seg_default(bondp_seg_cfg->bdp_imprt_tseg);
+-    return -1;
+-}
+-
+-static int import_seg_default(bondp_context_t *bdp_ctx, bondp_seg_cfg_t *bondp_seg_cfg)
+-{
+-    for (int i = 0; i < bondp_seg_cfg->bdp_imprt_tseg->local_dev_num; ++i) {
+-        if (bdp_ctx->p_ctxs[i] == NULL) {
+-            URMA_LOG_ERR("BONDP default import seg p_ctxs is NULL: %d\n", i);
+-            continue;
+-        }
+-        for (int j = 0; j < bondp_seg_cfg->bdp_imprt_tseg->target_dev_num; ++j) {
+-            bondp_ret_t ret = import_p_tseg(bdp_ctx, bondp_seg_cfg, i, j);
+-            if (ret == BONDP_SKIP) {
+-                continue;
+-            } else if (ret == BONDP_ERROR) {
+-                goto unimport;
+-            }
+-        }
+-    }
+-    return 0;
+-unimport:
+-    unimport_seg_default(bondp_seg_cfg->bdp_imprt_tseg);
+-    return -1;
+-}
+-
+-static void bondp_fill_v_tseg(urma_target_seg_t *tseg, urma_seg_t *seg, uint64_t addr,
+-    uint64_t handle, urma_context_t *ctx)
+-{
+-    tseg->seg.attr = seg->attr;
+-    tseg->seg.ubva = seg->ubva;
+-    tseg->seg.len = seg->len;
+-    tseg->seg.token_id = seg->token_id;
+-    tseg->mva = addr;
+-    tseg->handle = handle;
+-    tseg->urma_ctx = ctx;
+-}
+-
+-static int bondp_import_p_seg(bondp_context_t *bdp_ctx, urma_seg_t *seg, bondp_seg_cfg_t *bondp_seg_cfg)
+-{
+-    int ret;
+-
+-    if (is_in_matrix_server(bdp_ctx)) {
+-        ret = import_seg_matrix_server(bdp_ctx, seg, bondp_seg_cfg);
+-    } else {
+-        ret = import_seg_default(bdp_ctx, bondp_seg_cfg);
+-    }
+-    if (ret != 0) {
+-        return ret;
+-    }
+-
+-    bondp_import_tseg_t *bdp_imprt_tseg = bondp_seg_cfg->bdp_imprt_tseg;
+-    bdp_imprt_tseg->v_tseg.urma_ctx = &bdp_ctx->v_ctx;
+-    bdp_imprt_tseg->v_orig_handle = bdp_imprt_tseg->v_tseg.handle;
+-    bdp_imprt_tseg->v_tseg.handle = (uint64_t)&bdp_imprt_tseg->v_tseg;
+-    bdp_imprt_tseg->v_tseg.seg.ubva = seg->ubva;
+-
+-    return ret;
+-}
+-
+ static int bondp_add_v2p_token_id(bondp_context_t *bdp_ctx, bondp_v2p_token_id_t *v2p_token_id)
+ {
+     unsigned long token_id_cnt = atomic_load(&bdp_ctx->token_id_cnt);
+@@ -528,124 +415,197 @@ void bondp_toggle_seg_cache(bool enable)
+     g_seg_cache_enable = enable;
+ }
+ 
++static void bondp_fill_v_tseg(urma_target_seg_t *tseg, urma_seg_t *seg, uint64_t addr,
++    uint64_t handle, urma_context_t *ctx)
++{
++    tseg->seg.attr = seg->attr;
++    tseg->seg.ubva = seg->ubva;
++    tseg->seg.len = seg->len;
++    tseg->seg.token_id = seg->token_id;
++    tseg->mva = addr;
++    tseg->handle = handle;
++    tseg->urma_ctx = ctx;
++}
++
++static int bondp_import_vseg(urma_context_t *ctx, urma_seg_t *seg,
++                             urma_token_t *token, uint64_t addr, urma_import_seg_flag_t flag,
++                             bondp_import_tseg_t *bdp_tseg, bondp_udata_import_seg_t *udata_out)
++{
++    urma_import_tseg_cfg_t cfg = {
++        .ubva = seg->ubva,
++        .len = seg->len,
++        .attr = seg->attr,
++        .token_id = seg->token_id,
++        .token = token,
++        .flag = flag,
++        .mva = addr,
++    };
++    urma_cmd_udrv_priv_t udata = {
++        .in_addr = 0,
++        .in_len = 0,
++        .out_addr = (uint64_t)udata_out,
++        .out_len = sizeof(*udata_out),
++    };
++
++    int ret = urma_cmd_import_seg(ctx, &bdp_tseg->v_tseg, &cfg, &udata);
++    // Hacky
++    if (ret == 0) {
++        bdp_tseg->v_orig_handle = bdp_tseg->v_tseg.handle;
++        bdp_tseg->v_tseg.handle = (uint64_t)&bdp_tseg->v_tseg;
++    }
++    return ret;
++}
++
++static int bondp_import_pseg(bondp_context_t *bdp_ctx, urma_seg_t *seg,
++                             bondp_seg_cfg_t *bondp_seg_cfg)
++{
++    bondp_ret_t ret;
++    ret = import_matrix_primary_seg(bdp_ctx, bondp_seg_cfg);
++    if (ret != BONDP_SUCCESS) {
++        return -1;
++    }
++
++    urma_eid_t eid = seg->ubva.eid;
++    if (is_empty_eid(&eid)) {
++        URMA_LOG_WARN("Can't get direct route by seg->ubva.eid, it is empty. Import segment to all port eid.\n");
++        // fullmush import
++        int iodie_num = is_single_dev_mode(&bdp_ctx->v_ctx) ? SINGLE_DIE_IODIE_NUM : IODIE_NUM;
++        for (int iodie_idx = 0; iodie_idx < iodie_num; ++iodie_idx) {
++            ret = import_matrix_port_seg_on_iodie(bdp_ctx, bondp_seg_cfg, iodie_idx);
++            if (ret != BONDP_SUCCESS) {
++                return -1;
++            }
++        }
++        return 0;
++    } else if (is_same_eid(&bdp_ctx->v_ctx.eid, &eid)) {
++        URMA_LOG_INFO("Import segment to loopback.\n");
++        ret = import_matrix_port_seg_loopback(bdp_ctx, bondp_seg_cfg);
++        return ret == BONDP_SUCCESS ? 0 : -1;
++    } else {
++        URMA_LOG_INFO("Import segment by direct route.\n");
++        ret = import_matrix_port_seg_by_direct_route(bdp_ctx, bondp_seg_cfg, eid);
++        return ret == BONDP_SUCCESS ? 0 : -1;
++    }
++    return -1;
++}
++
++
++static int bondp_unimport_vseg(bondp_import_tseg_t *bdp_tseg)
++{
++    bdp_tseg->v_tseg.handle = bdp_tseg->v_orig_handle;
++    return urma_cmd_unimport_seg(&bdp_tseg->v_tseg);
++}
++
++static int bondp_unimport_pseg(bondp_import_tseg_t *bdp_tseg)
++{
++    int ret = URMA_SUCCESS;
++
++    for (int i = 0; i < URMA_UBAGG_DEV_MAX_NUM; i++) {
++        for (int j = 0; j < URMA_UBAGG_DEV_MAX_NUM; j++) {
++            if (!bdp_tseg->p_tseg[i][j]) {
++                continue;
++            }
++            bdp_tseg->p_tseg[i][j]->handle = bdp_tseg->p_orig_handle[i][j];
++            if (urma_unimport_seg(bdp_tseg->p_tseg[i][j]) != URMA_SUCCESS) {
++                ret = URMA_FAIL;
++            }
++            bdp_tseg->p_tseg[i][j] = NULL;
++        }
++    }
++    return ret;
++}
++
+ urma_target_seg_t *bondp_import_seg(urma_context_t *ctx, urma_seg_t *seg,
+     urma_token_t *token, uint64_t addr, urma_import_seg_flag_t flag)
+ {
+     bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(ctx, bondp_context_t, v_ctx);
+-    if (!is_valid_ctx(bdp_ctx)) {
+-        URMA_LOG_ERR("Invalid param ctx\n");
++
++    bondp_import_tseg_t *bdp_tseg = calloc(1, sizeof(bondp_import_tseg_t));
++    if (bdp_tseg == NULL) {
++        URMA_LOG_ERR("Failed to alloc target seg\n");
++        errno = ENOMEM;
+         return NULL;
+     }
++    bdp_tseg->local_dev_num = bdp_ctx->dev_num;
++    bdp_tseg->target_dev_num = URMA_UBAGG_DEV_MAX_NUM;
++    bdp_tseg->is_reused = false;
++
++    bondp_udata_import_seg_t udata_out = {0};
++    if (g_seg_cache_enable) {
++        bondp_v2p_token_id_t v2p_token_id = {0};
++        int ret = bdp_r_v2p_token_id_tabl_lookup(&bdp_ctx->remote_v2p_token_id_table, seg->token_id,
++                                                 seg->ubva.eid, &v2p_token_id);
++        if (ret == 0) {
++            (void)memcpy(&udata_out, v2p_token_id.peer_p_seg, sizeof(bondp_udata_import_seg_t));
++            bdp_tseg->is_reused = true;
++            bondp_fill_v_tseg(&bdp_tseg->v_tseg, seg, addr, v2p_token_id.v_handle, ctx);
++            // Hacky
++            bdp_tseg->v_orig_handle = bdp_tseg->v_tseg.handle;
++            bdp_tseg->v_tseg.handle = (uint64_t)&bdp_tseg->v_tseg;
++        } else if (ret == BONDP_HASH_MAP_NOT_FOUND_ERROR) {
++            if (bondp_import_vseg(ctx, seg, token, addr, flag, bdp_tseg, &udata_out) != 0) {
++                URMA_LOG_ERR("Failed to import vseg\n");
++                goto free_bdp_tseg;
++            }
++        } else {
++            URMA_LOG_ERR("Failed to lookup v2p_token_id, ret: %d.\n", ret);
++            free(bdp_tseg);
++            return NULL;
++        }
++    }
+ 
+-    bondp_import_tseg_t *bdp_imprt_tseg = calloc(1, sizeof(bondp_import_tseg_t));
+-    if (bdp_imprt_tseg == NULL) {
+-        return NULL;
++    if (bondp_import_vseg(ctx, seg, token, addr, flag, bdp_tseg, &udata_out) != 0) {
++        URMA_LOG_ERR("Failed to import vseg\n");
++        goto free_bdp_tseg;
+     }
+-    bdp_imprt_tseg->local_dev_num = bdp_ctx->dev_num;
+-    bdp_imprt_tseg->target_dev_num = URMA_UBAGG_DEV_MAX_NUM;
+-    bdp_imprt_tseg->is_reused = false;
+-    bondp_udata_import_seg_t udata_out = {0};
++
+     bondp_seg_cfg_t bondp_seg_cfg = {
+         .token = token,
+         .addr = addr,
+         .flag = flag,
+         .udata_out = &udata_out,
+-        .bdp_imprt_tseg = bdp_imprt_tseg,
++        .bdp_imprt_tseg = bdp_tseg,
+     };
+-
+-    bondp_v2p_token_id_t v2p_token_id = {0};
+-    urma_eid_t v_remote_eid = {0};
+-    if (g_seg_cache_enable) {
+-        (void)memcpy(&v_remote_eid, &seg->ubva.eid, sizeof(urma_eid_t));
+-        int ret = bdp_r_v2p_token_id_tabl_lookup(&bdp_ctx->remote_v2p_token_id_table, seg->token_id,
+-            &v_remote_eid, &v2p_token_id);
+-        if (ret == 0) {
+-            (void)memcpy(&udata_out, v2p_token_id.peer_p_seg, sizeof(bondp_udata_import_seg_t));
+-            bdp_imprt_tseg->is_reused = true;
+-            bondp_fill_v_tseg(&bdp_imprt_tseg->v_tseg, seg, addr, v2p_token_id.v_handle, ctx);
+-            ret = bondp_import_p_seg(bdp_ctx, seg, &bondp_seg_cfg);
+-            if (ret != 0) {
+-                free(bdp_imprt_tseg);
+-                return NULL;
+-            }
+-            return &bdp_imprt_tseg->v_tseg;
+-        }
+-        if (ret != BONDP_HASH_MAP_NOT_FOUND_ERROR) {
+-            URMA_LOG_ERR("Failed to lookup v2p_token_id, ret: %d.\n", ret);
+-            free(bdp_imprt_tseg);
+-            return NULL;
+-        }
++    if (bondp_import_pseg(bdp_ctx, seg, &bondp_seg_cfg) != 0) {
++        URMA_LOG_ERR("Failed to import pseg\n");
++        goto unimport_pseg;
+     }
+ 
+-    /* ret is BONDP_HASH_MAP_NOT_FOUND_ERROR and start to import v_tseg */
+-    urma_import_tseg_cfg_t cfg = { .ubva = seg->ubva, .len = seg->len, .attr = seg->attr,
+-        .token_id = seg->token_id, .token = token,    .flag = flag,    .mva = addr };
+-    urma_cmd_udrv_priv_t udata = { .in_addr = 0,      .in_len = 0,
+-        .out_addr = (uint64_t)&udata_out,             .out_len = sizeof(udata_out) };
+-
+-    if (urma_cmd_import_seg(ctx, &bdp_imprt_tseg->v_tseg, &cfg, &udata) != 0) {
+-        goto free_bdp_imprt_tseg;
+-    }
+-
+-    int ret = bondp_import_p_seg(bdp_ctx, seg, &bondp_seg_cfg);
+-    if (ret != 0) {
+-        goto cmd_unimport_seg;
+-    }
+-
+-    if (g_seg_cache_enable) {
+-        v2p_token_id.key.v_remote_eid = v_remote_eid;
++    if (g_seg_cache_enable && !bdp_tseg->is_reused) {
++        bondp_v2p_token_id_t v2p_token_id = {0};
++        v2p_token_id.key.v_remote_eid = seg->ubva.eid;
+         v2p_token_id.key.v_token_id = seg->token_id;
+         (void)memcpy(v2p_token_id.peer_p_seg, udata_out.peer_p_seg, sizeof(bondp_udata_import_seg_t));
+-        v2p_token_id.v_handle = bdp_imprt_tseg->v_tseg.handle;
+-        ret = bondp_add_v2p_token_id(bdp_ctx, &v2p_token_id);
++        v2p_token_id.v_handle = bdp_tseg->v_tseg.handle;
++        int ret = bondp_add_v2p_token_id(bdp_ctx, &v2p_token_id);
+         if (ret != 0) {
+-            goto unimport_p_seg;
++            goto unimport_pseg;
+         }
+     }
+ 
+-    return &bdp_imprt_tseg->v_tseg;
+-unimport_p_seg:
+-    for (int i = 0; i < bdp_ctx->dev_num; i++) {
+-        for (int j = 0; j < URMA_UBAGG_DEV_MAX_NUM; j++) {
+-            if (bdp_imprt_tseg->p_tseg[i][j] == NULL) {
+-                continue;
+-            }
+-            (void)urma_unimport_seg(bdp_imprt_tseg->p_tseg[i][j]);
+-        }
+-    }
+-cmd_unimport_seg:
+-    (void)urma_cmd_unimport_seg(&bdp_imprt_tseg->v_tseg);
+-free_bdp_imprt_tseg:
+-    free(bdp_imprt_tseg);
++    return &bdp_tseg->v_tseg;
++unimport_pseg:
++    bondp_unimport_pseg(bdp_tseg);
++    bondp_unimport_vseg(bdp_tseg);
++free_bdp_tseg:
++    free(bdp_tseg);
+     return NULL;
+ }
+ 
+ urma_status_t bondp_unimport_seg(urma_target_seg_t *target_seg)
+ {
+-    bondp_import_tseg_t *bdp_imprt_tseg = CONTAINER_OF_FIELD(target_seg, bondp_import_tseg_t, v_tseg);
++    bondp_import_tseg_t *bdp_tseg = CONTAINER_OF_FIELD(target_seg, bondp_import_tseg_t, v_tseg);
+     urma_status_t ret = URMA_SUCCESS;
+ 
+-    if (!is_valid_import_tseg(bdp_imprt_tseg)) {
+-        URMA_LOG_ERR("Invalid bdp import tseg\n");
+-        return URMA_FAIL;
++
++    if (bondp_unimport_pseg(bdp_tseg) != URMA_SUCCESS) {
++        ret = URMA_FAIL;
+     }
+-    for (int i = 0; i < bdp_imprt_tseg->local_dev_num; ++i) {
+-        for (int j = 0; j < bdp_imprt_tseg->target_dev_num; ++j) {
+-            if (bdp_imprt_tseg->p_tseg[i][j] == NULL) {
+-                continue;
+-            }
+-            bdp_imprt_tseg->p_tseg[i][j]->handle = bdp_imprt_tseg->p_orig_handle[i][j];
+-            if (urma_unimport_seg(bdp_imprt_tseg->p_tseg[i][j]) != URMA_SUCCESS) {
+-                ret = URMA_FAIL;
+-            }
+-        }
+-    }
+-    if (!bdp_imprt_tseg->is_reused) {
+-        bdp_imprt_tseg->v_tseg.handle = bdp_imprt_tseg->v_orig_handle;
+-        if (urma_cmd_unimport_seg(&bdp_imprt_tseg->v_tseg) != URMA_SUCCESS) {
++    if (!bdp_tseg->is_reused) {
++        if (bondp_unimport_vseg(bdp_tseg) != URMA_SUCCESS) {
+             ret = URMA_FAIL;
+         }
+     }
+-    free(bdp_imprt_tseg);
++    free(bdp_tseg);
+     return ret;
+ }
+diff --git a/src/urma/lib/urma/bond/bondp_types.c b/src/urma/lib/urma/bond/bondp_types.c
+index 3e990dcf..6ff9d170 100644
+--- a/src/urma/lib/urma/bond/bondp_types.c
++++ b/src/urma/lib/urma/bond/bondp_types.c
+@@ -36,4 +36,4 @@ bool is_valid_bdp_tjetty(bondp_target_jetty_t *bdp_tjetty)
+ bool is_valid_import_tseg(bondp_import_tseg_t *rtseg)
+ {
+     return rtseg && is_valid_dev_num(rtseg->local_dev_num) && is_valid_dev_num(rtseg->target_dev_num);
+-}
+\ No newline at end of file
++}
+-- 
+GitCode
+
