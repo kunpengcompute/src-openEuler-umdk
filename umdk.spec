@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B113
+    %define rpm_release B114
 %endif
 
 Name          : umdk
@@ -574,6 +574,10 @@ fi
 %endif
 
 %changelog
+* Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B114
+- urma: update fix incorrect perf trace, rename bond topology utility, remove bond control CR, and optimize memory allocation for
+- umq: update fix the umq_ctx error, add remote eid/jetty_id info, trace use umq_thread_local, rollback, and shared jetty round-robin poll
+- umdk: drop stale paths from refreshed tarball
 * Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B113
 - urma: update fix bondp tjetty valid, encapsulate bond topology map, make bond CR batch, and fix tp_aware ty_type error
 - umq: update fix poll rx core and fix errno and update
