@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B115
+    %define rpm_release B116
 %endif
 
 Name          : umdk
@@ -574,6 +574,9 @@ fi
 %endif
 
 %changelog
+* Fri Jul 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B116
+- umq: update main umq tx config, qbuf and jetty pool, fix share transport parameter, and fix the issue where
+- urma: update remove unsupported notify_data option, enable bond recovery features, add perftest UB management, and separate bond environment configuration
 * Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B115
 - urma: update set URMA_UBAGG_MAX_CR_CNT_PER_DEV default 32
 * Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B114
