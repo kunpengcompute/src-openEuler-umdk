@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B019
+    %define rpm_release B020
 %endif
 
 Name          : umdk
@@ -606,6 +606,11 @@ fi
 %endif
 
 %changelog
+* Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B020
+- urma: update udma bugfix related to, make bond CR batch, rename bond topology utility, and fix test case jetty
+- umq: update fix poll rx core, fix errno and update, fix the umq_ctx error, and add remote eid/jetty_id info
+- umdk: update cam Update the base and fix
+- umdk: drop stale paths from refreshed tarball
 * Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B019
 - urma: update docs sync URMA API, docs fix URMA Jetty, docs number segment context, and docs fix delete notifier
 - umdk: update cam build NDA module, fix umq fost rx, cam fix cann8 5, and ums fix kmod build
