@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B116
+    %define rpm_release B117
 %endif
 
 Name          : umdk
@@ -574,6 +574,10 @@ fi
 %endif
 
 %changelog
+* Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B117
+- urma: update return URMA_ENOMEM instead of, use max_rsge for dst, and drain in-flight WRs and
+- umq: update revert umq_thread_local in datapath, set max_rsge, support share jetty main, and fix mem leak of
+- umdk: drop stale paths from refreshed tarball
 * Fri Jul 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B116
 - umq: update main umq tx config, qbuf and jetty pool, fix share transport parameter, and fix the issue where
 - urma: update remove unsupported notify_data option, enable bond recovery features, add perftest UB management, and separate bond environment configuration
