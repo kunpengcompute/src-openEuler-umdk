@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B117
+    %define rpm_release B118
 %endif
 
 Name          : umdk
@@ -574,6 +574,9 @@ fi
 %endif
 
 %changelog
+* Tue Jul 28 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B118
+- umq: update add a thread name
+- urma: update reorder jetty destruction before, optimize bondp_target_jetty_t memory with, preserve perftest final synchronization, and name bond worker thread
 * Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B117
 - urma: update return URMA_ENOMEM instead of, use max_rsge for dst, and drain in-flight WRs and
 - umq: update revert umq_thread_local in datapath, set max_rsge, support share jetty main, and fix mem leak of
