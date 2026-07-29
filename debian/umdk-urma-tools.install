@@ -1,3 +1,4 @@
 etc/rsyslog.d/urma_admin.conf
 usr/bin/urma_admin
+usr/bin/urma_ping
 usr/bin/urma_perftest

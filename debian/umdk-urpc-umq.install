@@ -2,6 +2,5 @@
 usr/lib64/libumq.so.* usr/lib
 usr/lib64/libumq_buf.so.* usr/lib
 usr/lib64/libumq_ub.so.* usr/lib
-usr/lib64/libumq_ipc.so.* usr/lib
 etc/rsyslog.d/umq.conf
 etc/logrotate.d/umq
