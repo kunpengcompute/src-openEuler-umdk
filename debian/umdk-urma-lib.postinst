@@ -4,10 +4,11 @@ set -e
 
 case "$1" in
     configure)
-        if [ -x /bin/systemctl ] && [ -x /usr/sbin/rsyslogd ]; then
-            /bin/systemctl restart rsyslog >/dev/null 2>&1 || true
+        if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && command -v rsyslogd >/dev/null 2>&1; then
+            systemctl restart rsyslog >/dev/null 2>&1 || true
         fi
-        chmod +x /lib/liburma*.so* /lib/urma/liburma*.so*
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
         ;;
     *)
         echo "postinst called with unknown argument \`$1'" >&2

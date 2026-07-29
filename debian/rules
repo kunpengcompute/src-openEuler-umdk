@@ -4,7 +4,6 @@
 # Output every command that modifies files on the build system.
 #export DH_VERBOSE = 1
 
-
 # See FEATURE AREAS in dpkg-buildflags(1).
 #export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
@@ -14,11 +13,10 @@
 # Package maintainers to append LDFLAGS.
 #export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
 
-
 %:
-	dh $@  --buildsystem=cmake
+	dh $@ --buildsystem=cmake
 
-export DEB_BUILD_OPTIONS += nostrip noautodbgsym
+export DEB_BUILD_OPTIONS += noautodbgsym
 
 override_dh_auto_configure:
 	dh_auto_configure -- \
@@ -37,7 +35,7 @@ override_dh_auto_configure:
 	$(if $(filter tsan,$(DEB_BUILD_OPTIONS)), -DTSAN=enable) \
 	$(if $(filter gcov,$(DEB_BUILD_OPTIONS)), -DCODE_COVERAGE=enable) \
 	$(if $(filter release_enable,$(DEB_BUILD_OPTIONS)), -DRELEASE_ENABLE=enable) \
-	$(if $(filter test,$(DEB_BUILD_OPTIONS)), -DURMA_TEST=enable -DRELEASE_ENABLE=enable) \
+	$(if $(filter test,$(DEB_BUILD_OPTIONS)), -DURMA_TEST=enable -DRELEASE_ENABLE=disable) \
 	$(if $(filter urma,$(DEB_BUILD_OPTIONS)), -DBUILD_URMA=enable) \
 	$(if $(filter ubagg_disable,$(DEB_BUILD_OPTIONS)), -DUB_AGG=disable) \
 	$(if $(filter dlock,$(DEB_BUILD_OPTIONS)), -DBUILD_DLOCK=enable) \
@@ -46,17 +44,5 @@ override_dh_auto_configure:
 	$(if $(filter build_all,$(DEB_BUILD_OPTIONS)), -DBUILD_ALL=enable) \
 	../src/
 
-override_dh_auto_install:
-	dh_auto_install --destdir=$(CURDIR)/debian/tmp
-
 override_dh_install:
 	dh_install -O--buildsystem=cmake -v
-
-# Additional installation steps if needed
-
-
-# dh_make generated override targets.
-# This is an example for Cmake (see <https://bugs.debian.org/641051>).
-#override_dh_auto_configure:
-#   dh_auto_configure -- \
-#   -DCMAKE_LIBRARY_PATH=$(DEB_HOST_MULTIARCH)
