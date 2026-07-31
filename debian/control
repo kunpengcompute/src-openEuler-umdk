@@ -18,7 +18,7 @@ Homepage: https://atomgit.com/openeuler/umdk
 
 Package: umdk
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, libc6, libummu-devel
+Depends: ${shlibs:Depends}, ${misc:Depends}, libc6, libummu-dev
 Description: Unified memory development kit
  A new system interconnect architecture
 
