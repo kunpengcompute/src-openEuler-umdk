@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B118
+    %define rpm_release B119
 %endif
 
 Name          : umdk
@@ -574,6 +574,9 @@ fi
 %endif
 
 %changelog
+* Sat Aug 1 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B119
+- urma: update return EINVAL for oversize, bondp health check use, Fix some log issues, and print jetty id when
+- umq: update fix the issue where, Add without-data buffers to, set jetty max inline, and add error log for
 * Tue Jul 28 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B118
 - umq: update add a thread name
 - urma: update reorder jetty destruction before, optimize bondp_target_jetty_t memory with, preserve perftest final synchronization, and name bond worker thread
