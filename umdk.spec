@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B119
+    %define rpm_release B120
 %endif
 
 Name          : umdk
@@ -69,12 +69,15 @@ buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
+%if %{with asan}
+BuildRequires: libasan, libubsan
+%endif
 %if %{build_all} || %{with ums}
 BuildRequires : kernel-devel
 %endif
 Requires: glibc, glib2
 %if %{with asan}
-Requires: libasan
+Requires: libasan, libubsan
 %endif
 %if %{with tsan}
 Requires: libtsan
@@ -574,6 +577,10 @@ fi
 %endif
 
 %changelog
+* Tue Aug 4 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B120
+- umq: update add asan option and build
+- urma: update name bond worker from, enable UBSan in sanitizer, build, fix urma_ping sanitizer build, and change urma log format
+
 * Sat Aug 1 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B119
 - urma: update return EINVAL for oversize, bondp health check use, Fix some log issues, and print jetty id when
 - umq: update fix the issue where, Add without-data buffers to, set jetty max inline, and add error log for
