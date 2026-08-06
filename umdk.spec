@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B020
+    %define rpm_release B021
 %endif
 
 Name          : umdk
@@ -94,12 +94,15 @@ buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel
+%if %{with asan}
+BuildRequires: libasan, libubsan
+%endif
 %if %{build_all} || %{with ums}
 BuildRequires : %{kernel_devel_pkg}
 %endif
 Requires: glibc, glib2, libummu
 %if %{with asan}
-Requires: libasan
+Requires: libasan, libubsan
 %endif
 %if %{with tsan}
 Requires: libtsan
@@ -606,6 +609,13 @@ fi
 %endif
 
 %changelog
+* Thu Aug 6 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B021
+- urma: update return EINVAL for oversize, reorder jetty destruction before, optimize bondp_target_jetty_t memory with, qilin-sp4, preserve perftest final synchronization, and youhua
+- umq: update add a thread name, fix the issue where, Add without-data buffers to, and add error log for
+- umdk: update cam accommodate shmem changes, cam fix cam master, cam fix shmem transport, and cam add zero-buffer MoE
+- urpc: update docs fix documentation drift and docs refine generated documentation
+- dlock: fix docs fix documentation drift
+
 * Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B020
 - urma: update udma bugfix related to, make bond CR batch, rename bond topology utility, and fix test case jetty
 - umq: update fix poll rx core, fix errno and update, fix the umq_ctx error, and add remote eid/jetty_id info
