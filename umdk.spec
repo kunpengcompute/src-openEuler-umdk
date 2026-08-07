@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B121
+    %define rpm_release B122
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Thu Aug 6 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B122
+- urma: update add register log func, Optimize the length of, share health-check seg at, and shrink wr_list to 256
+- umq: update report free jetty node
 * Wed Aug 5 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B121
 - urma: update skip send_lock in bondp, refine bond failover rebuild, and optimize pjfc number of
 - umq: update update log format and optimize post rx
