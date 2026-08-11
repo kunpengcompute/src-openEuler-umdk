@@ -1,0 +1,21 @@
+Description: Do not require execute permission on provider .so before dlopen
+ dlopen() does not require the target library to have the executable bit set;
+ requiring X_OK makes urma tools fail to load provider libraries that are
+ installed without the execute permission. Only check that the file exists and
+ is readable.
+Author: <packager>
+Origin: upstream
+Last-Update: 2026-08-11
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/src/urma/lib/urma/core/urma_main.c
++++ b/src/urma/lib/urma/core/urma_main.c
+@@ -68,7 +68,7 @@ static int urma_open_provider(const char file[URMA_MAX_LIB_PATH])
+     int ret;
+     char *canonicalized_path = NULL;
+ 
+-    ret = access(file, F_OK | R_OK | X_OK); // Determine permission: exist & read & execute
++    ret = access(file, F_OK | R_OK); // Determine permission: exist & read
+     if (ret != 0) {
+         URMA_LOG_ERR("%s doesn't exist or doesn't have permission.\n", file);
+         return -1;
