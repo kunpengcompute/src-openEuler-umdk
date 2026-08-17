@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B021
+    %define rpm_release B022
 %endif
 
 Name          : umdk
@@ -609,6 +609,11 @@ fi
 %endif
 
 %changelog
+* Mon Aug 10 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B022
+- urma: update move cfg_check from alloc, expand bond imm_data user, share health-check seg at, and shrink wr_list to 256
+- umdk: update cam NDA control plane, cam add NDA cq, cam fix layout input, and cam add fp16 datatype
+- umq: update modify perf accuracy to, control tx outstanding, optimize memory usage when, and when a CQE ACK
+- umdk: drop stale paths from refreshed tarball
 * Thu Aug 6 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B021
 - urma: update return EINVAL for oversize, reorder jetty destruction before, optimize bondp_target_jetty_t memory with, qilin-sp4, preserve perftest final synchronization, and youhua
 - umq: update add a thread name, fix the issue where, Add without-data buffers to, and add error log for
