@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B124
+    %define rpm_release B125
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Mon Aug 17 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B125
+- umq: update performance and support bind itself
+- urma: update refine bondp path switch
 * Sat Aug 15 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B124
 - urma: update support bondingEID sharing mode, move hmap_node to struct, block eid add del, and disable msn feature in
 - umq: update change the initial number and create wait_ack_import lock lazily
