@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B113
+    %define rpm_release B118
 %endif
 
 Name          : umdk
@@ -574,6 +574,22 @@ fi
 %endif
 
 %changelog
+* Tue Jul 28 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B118
+- umq: update add a thread name
+- urma: update reorder jetty destruction before, optimize bondp_target_jetty_t memory with, preserve perftest final synchronization, and name bond worker thread
+* Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B117
+- urma: update return URMA_ENOMEM instead of, use max_rsge for dst, and drain in-flight WRs and
+- umq: update revert umq_thread_local in datapath, set max_rsge, support share jetty main, and fix mem leak of
+- umdk: drop stale paths from refreshed tarball
+* Fri Jul 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B116
+- umq: update main umq tx config, qbuf and jetty pool, fix share transport parameter, and fix the issue where
+- urma: update remove unsupported notify_data option, enable bond recovery features, add perftest UB management, and separate bond environment configuration
+* Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B115
+- urma: update set URMA_UBAGG_MAX_CR_CNT_PER_DEV default 32
+* Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B114
+- urma: update fix incorrect perf trace, rename bond topology utility, remove bond control CR, and optimize memory allocation for
+- umq: update fix the umq_ctx error, add remote eid/jetty_id info, trace use umq_thread_local, rollback, and shared jetty round-robin poll
+- umdk: drop stale paths from refreshed tarball
 * Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B113
 - urma: update fix bondp tjetty valid, encapsulate bond topology map, make bond CR batch, and fix tp_aware ty_type error
 - umq: update fix poll rx core and fix errno and update
