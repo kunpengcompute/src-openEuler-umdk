@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B127
+    %define rpm_release B128
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Fri Aug 21 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B128
+- urma: update skip empty nodes in, support per-context bond configuration, and schedule RNR retries asynchronously
+- umq: update add trace descrition
 * Wed Aug 19 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B127
 - urma: update allocate bond post buffers, add first rnr retry, store bond configuration per, and Supports UBG network configuration
 * Tue Aug 18 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B126
