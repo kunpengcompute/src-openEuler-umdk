@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B128
+    %define rpm_release B129
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Mon Aug 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B129
+- umq: update perftest support share jfr, Restore bonding port reconfigurability, and optimize ub_queue_t memory usage
+- urma: update fix bondp_query_jfr returning RESET, allow user to handle, and report RNR flow control
 * Fri Aug 21 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B128
 - urma: update skip empty nodes in, support per-context bond configuration, and schedule RNR retries asynchronously
 - umq: update add trace descrition
