@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B023
+    %define rpm_release B024
 %endif
 
 Name          : umdk
@@ -609,6 +609,9 @@ fi
 %endif
 
 %changelog
+* Mon Aug 24 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B024
+- urma: update docs fix documentation drift, udma bugfix related to, change the path selection, and allocate bond post buffers
+- umq: update support bind itself, adapt umq_ub_dev_info_serialize to urma_get/put_seg_ctx, add trace descrition, perftest support share jfr, and Restore bonding port reconfigurability
 * Mon Aug 17 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B023
 - urma: update support bondingEID sharing mode, use is_empty_eid instead of, fix ASAN violations null, and document failback jetty isolation
 - umdk: update ums update docs add
