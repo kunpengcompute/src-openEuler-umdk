@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B129
+    %define rpm_release B130
 %endif
 
 Name          : umdk
@@ -577,6 +577,12 @@ fi
 %endif
 
 %changelog
+* Mon Aug 31 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B130
+- umq: update optimize umq_t memory usage, add rnr retry errno, add opcode print for, and support flush jetty node
+- urma: update optimize bondp_target_jetty_t memory usage, add judgement for userctl, adapt to combined tp_type, and optimize bondp_hc_ctx memory usage
+- urpc: update fix umq TLS release_thread_cache, fix g_tls_dtors_running flag set, and fix umq codecheck -
+- umdk: update udma delete excess patch
+- umdk: drop stale paths from refreshed tarball
 * Mon Aug 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B129
 - umq: update perftest support share jfr, Restore bonding port reconfigurability, and optimize ub_queue_t memory usage
 - urma: update fix bondp_query_jfr returning RESET, allow user to handle, and report RNR flow control
