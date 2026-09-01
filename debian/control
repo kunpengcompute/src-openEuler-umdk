@@ -8,23 +8,27 @@ Build-Depends:
     make,
     gcc,
     g++,
+    libc6-dev,
     libssl-dev,
     libglib2.0-dev,
     libnl-3-dev,
+    libnl-genl-3-dev,
+    libummu-dev,
     linux-headers-generic,
-    systemd
+    libsystemd-dev,
+    libkeyutils-dev
 Standards-Version: 4.7.0
 Homepage: https://atomgit.com/openeuler/umdk
 
 Package: umdk
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, libc6, libummu-dev
+Depends: ${shlibs:Depends}, ${misc:Depends}, libc6, libglib2.0-0
 Description: Unified memory development kit
  A new system interconnect architecture
 
 Package: umdk-urma-lib
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, umdk (= ${binary:Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, libummu
 Description: Basic URMA libraries of UMDK
  This package contains basic URMA libraries of UMDK, such as liburma.so.
 
@@ -67,7 +71,7 @@ Description: DLock development files
 
 Package: umdk-dlock-example
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, umdk-urma-lib, umdk-dlock-dev (= ${binary:Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, umdk-dlock-lib (= ${binary:Version})
 Description: DLock examples
  This package contains example cases for DLock.
 
