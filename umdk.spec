@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B024
+    %define rpm_release B025
 %endif
 
 Name          : umdk
@@ -609,6 +609,12 @@ fi
 %endif
 
 %changelog
+* Wed Sep 2 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B025
+- urma: update fix ub mgmt handshake, allow user to handle, report RNR flow control, and optimize bondp_target_jetty_t memory usage
+- umq: update optimize umq_t memory usage, add rnr retry errno, support flush jetty node, and add opcode print for
+- umdk: update cam fix zb normal, fix tp_type parse error, udma delete excess patch, and update test doc
+- urpc: update fix umq TLS release_thread_cache, fix g_tls_dtors_running flag set, and fix umq codecheck -
+- umdk: drop stale paths from refreshed tarball
 * Mon Aug 24 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B024
 - urma: update docs fix documentation drift, udma bugfix related to, change the path selection, and allocate bond post buffers
 - umq: update support bind itself, adapt umq_ub_dev_info_serialize to urma_get/put_seg_ctx, add trace descrition, perftest support share jfr, and Restore bonding port reconfigurability
