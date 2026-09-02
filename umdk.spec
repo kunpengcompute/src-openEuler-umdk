@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B130
+    %define rpm_release B131
 %endif
 
 Name          : umdk
@@ -577,6 +577,11 @@ fi
 %endif
 
 %changelog
+* Wed Sep 2 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B131
+- umq: update add opcode print for, rate-limit the log to, change log level to, and urma/umq compress bondp_port_id into
+- urma: update unify slot-taking greedy for, build, urma/umq compress bondp_port_id into, log context configuration updates, and no import seg in
+- umdk: update ums adapt to ubcore_get_device_by_eid
+- umdk: drop stale paths from refreshed tarball
 * Mon Aug 31 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B130
 - umq: update optimize umq_t memory usage, add rnr retry errno, add opcode print for, and support flush jetty node
 - urma: update optimize bondp_target_jetty_t memory usage, add judgement for userctl, adapt to combined tp_type, and optimize bondp_hc_ctx memory usage
