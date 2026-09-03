@@ -1,0 +1,169 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) Huawei Technologies Co., Ltd. 2024-2025. All rights reserved.
+ * Description: uvs cmd tlv parse source file
+ * Author: Chen Yutao
+ * Create: 2024-08-06
+ * Note:
+ * History: 2024-08-06 create this file to support uvs cmd tlv
+ */
+
+#include <errno.h>
+#include <stdlib.h>
+
+#include "tpsa_ioctl.h"
+#include "tpsa_log.h"
+#include "uvs_cmd_tlv.h"
+
+static inline void fill_attr(uvs_cmd_attr_t *attr, uint16_t type, uint16_t field_size, uint16_t el_num,
+                             uint16_t el_size, uintptr_t data)
+{
+    *attr = (uvs_cmd_attr_t){
+        .type = type,
+        .flag = 0,
+        .field_size = field_size,
+        .attr_data.bs = {.el_num = el_num, .el_size = el_size},
+        .data = data,
+    };
+}
+
+/**
+ * Fill attr with a field, which is a value or an array taken as a whole.
+ * @param v Full path of field, e.g. `arg->out.attr.dev_cap.feature`
+ */
+#define ATTR(attr, type, v) fill_attr(attr, type, sizeof(v), 1, 0, (uintptr_t)(&(v)))
+
+/**
+ * Fill attr with a field, which belongs to an array of structs.
+ * @param v1 Full path of struct array, e.g. `arg->out.attr.port_attr`
+ * @param v2 Path relative to struct in array, e.g. `active_speed`
+ */
+#define ATTR_ARRAY(attr, type, v1, v2) \
+    fill_attr(attr, type, sizeof((v1)->v2), ARRAY_SIZE(v1), sizeof((v1)[0]), (uintptr_t)(&((v1)->v2)))
+#define ATTR_ARRAY_DYNAMIC(attr, type, v1, el_num) \
+    fill_attr(attr, type, sizeof((v1)[0]), el_num, sizeof((v1)[0]), (uintptr_t)(&((v1)[0])))
+
+int uvs_ioctl_set_topo(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_set_topo_t *arg)
+{
+    uvs_cmd_attr_t attrs[SET_TOPO_IN_NUM] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, SET_TOPO_IN_TOPO_INFO, arg->in.topo_info);
+    ATTR(a++, SET_TOPO_IN_TOPO_NUM, arg->in.topo_num);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_SET_TOPO, (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_get_topo(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_get_topo_t *arg)
+{
+    uvs_cmd_attr_t attrs[GET_TOPO_OUT_NUM] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, GET_TOPO_OUT_TOPO_MAP, arg->out.topo_map);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_GET_TOPO, (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_get_path_set(tpsa_ioctl_ctx_t *ioctl_ctx, uvs_cmd_get_path_set_t *arg)
+{
+    uvs_cmd_attr_t attrs[GET_PATH_SET_IN_NUM + GET_PATH_SET_OUT_NUM - UVS_CMD_OUT_TYPE_INIT] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, GET_PATH_SET_IN_SRC_BONDING_EID, arg->in.src_bonding_eid);
+    ATTR(a++, GET_PATH_SET_IN_DST_BONDING_EID, arg->in.dst_bonding_eid);
+    ATTR(a++, GET_PATH_SET_IN_TP_TYPE, arg->in.tp_type);
+    ATTR(a++, GET_PATH_SET_IN_IODIE_LEVEL, arg->in.iodie_level);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_TOPO_TYPE, arg->out.path_set.topo_type);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_SRC_NODE, arg->out.path_set.src_node);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_DST_NODE, arg->out.path_set.dst_node);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_CHIP_COUNT, arg->out.path_set.chip_count);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_DIE_COUNT, arg->out.path_set.die_count);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_PATH_COUNT, arg->out.path_set.path_count);
+    ATTR(a++, GET_PATH_SET_OUT_PATH_SET_PATHS, arg->out.path_set.paths);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_GET_PATH_SET, (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_insert_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
+    uvs_cmd_main_ue_eid_entry_t *arg)
+{
+    uvs_cmd_attr_t attrs[INSERT_MAIN_UE_EID_IN_NUM] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, INSERT_MAIN_UE_EID_IN_ENTRY_EID, arg->in.entry.eid);
+    ATTR(a++, INSERT_MAIN_UE_EID_IN_ENTRY_MAIN_UE_EID, arg->in.entry.main_ue_eid);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_INSERT_MAIN_UE_EID,
+                               (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_delete_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
+    uvs_cmd_main_ue_eid_delete_t *arg)
+{
+    uvs_cmd_attr_t attrs[DELETE_MAIN_UE_EID_IN_NUM] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, DELETE_MAIN_UE_EID_IN_EID, arg->in.eid);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_DELETE_MAIN_UE_EID,
+                               (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_lookup_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx,
+    uvs_cmd_main_ue_eid_lookup_t *arg)
+{
+    uvs_cmd_attr_t attrs[LOOKUP_MAIN_UE_EID_IN_NUM +
+                         LOOKUP_MAIN_UE_EID_OUT_NUM - UVS_CMD_OUT_TYPE_INIT] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, LOOKUP_MAIN_UE_EID_IN_EID, arg->in.eid);
+    ATTR(a++, LOOKUP_MAIN_UE_EID_OUT_MAIN_UE_EID, arg->out.main_ue_eid);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_LOOKUP_MAIN_UE_EID,
+                               (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_flush_main_ue_eid(tpsa_ioctl_ctx_t *ioctl_ctx)
+{
+    uvs_cmd_main_ue_eid_flush_t arg = {0};
+    uvs_cmd_attr_t attrs[FLUSH_MAIN_UE_EID_OUT_NUM - UVS_CMD_OUT_TYPE_INIT] = {0};
+    uvs_cmd_attr_t *a = attrs;
+    int ret;
+
+    arg.out.status = -1;
+    ATTR(a++, FLUSH_MAIN_UE_EID_OUT_STATUS, arg.out.status);
+
+    ret = uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_FLUSH_MAIN_UE_EID,
+                              (void *)attrs, sizeof(attrs));
+    if (ret != 0) {
+        return ret;
+    }
+
+    return arg.out.status;
+}
+
+int uvs_ioctl_insert_main_ue_eid_batch(tpsa_ioctl_ctx_t *ioctl_ctx,
+    uvs_cmd_main_ue_eid_batch_t *arg)
+{
+    uvs_cmd_attr_t attrs[INSERT_MAIN_UE_EID_BATCH_IN_NUM] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, INSERT_MAIN_UE_EID_BATCH_IN_ENTRY_MAIN_UE_EID, arg->in.entry.main_ue_eid);
+    ATTR(a++, INSERT_MAIN_UE_EID_BATCH_IN_ENTRY_EID_NUM, arg->in.entry.eid_num);
+    ATTR(a++, INSERT_MAIN_UE_EID_BATCH_IN_ENTRY_EIDS, arg->in.entry.eids);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_INSERT_MAIN_UE_EID_BATCH,
+                               (void *)attrs, sizeof(attrs));
+}
+
+int uvs_ioctl_insert_host_eid_batch(tpsa_ioctl_ctx_t *ioctl_ctx,
+    uvs_cmd_host_eid_batch_t *arg)
+{
+    uvs_cmd_attr_t attrs[INSERT_HOST_EID_BATCH_IN_NUM] = {0};
+    uvs_cmd_attr_t *a = attrs;
+
+    ATTR(a++, INSERT_HOST_EID_BATCH_IN_ENTRY, arg->in.entry);
+
+    return uvs_ioctl_in_global(ioctl_ctx, UVS_CMD_INSERT_HOST_EID_BATCH,
+                               (void *)attrs, sizeof(attrs));
+}

@@ -28,6 +28,28 @@
 # add --with extra_ubcore_symbols option, i.e. disable by default
 %bcond_with extra_ubcore_symbols
 
+%ifarch aarch64
+%define with_64kb  %{?_with_64kb: 1} %{?!_with_64kb: 0}
+%else
+%define with_64kb  0
+%endif
+
+%if %{with_64kb}
+%define kernel_devel_pkg kernel-64k-devel
+%define ums_suffix -64kb
+%define ums_summary kmod file of UMS (64KB page size)
+%define ums_desc UMS kernel module for transparent TCP acceleration via shared memory over UB
+%define ums_conflict umdk-ums
+%define ums_kernel_req kernel-64k
+%else
+%define kernel_devel_pkg kernel-devel
+%define ums_suffix %{nil}
+%define ums_summary kmod file of ums
+%define ums_desc UMS kernel module for transparent TCP acceleration via shared memory over UB
+%define ums_conflict umdk-ums-64kb
+%define ums_kernel_req kernel
+%endif
+
 %define build_all 1
 
 %if %{with ums} || %{with urma} || %{with urpc} || %{with dlock}
@@ -41,9 +63,9 @@
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %else
     %define kernel_version %(
-        KERNEL_DEVEL_COUNT=$(rpm -qa kernel-devel 2>/dev/null | wc -l);
+        KERNEL_DEVEL_COUNT=$(rpm -qa %{kernel_devel_pkg} 2>/dev/null | wc -l);
         if [ "$KERNEL_DEVEL_COUNT" -eq 1 ]; then
-            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' kernel-devel 2>/dev/null;
+            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' %{kernel_devel_pkg} 2>/dev/null;
         else
             uname -r;
         fi
@@ -53,7 +75,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B118
+    %define rpm_release 0
 %endif
 
 Name          : umdk
@@ -61,16 +83,15 @@ Summary       : Unified memory development kit
 Version       : 25.12.0
 Release       : %{rpm_release}%{?dist}
 Group         : umdk
-License       : MIT
+License       : Proprietary
 Vendor        : Huawei Technologies Co., Ltd
 Source0       : %{name}-%{version}.tar.gz
 BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 buildArch     : x86_64 aarch64
-ExclusiveArch : aarch64
 
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
 %if %{build_all} || %{with ums}
-BuildRequires : kernel-devel
+BuildRequires : %{kernel_devel_pkg}
 %endif
 Requires: glibc, glib2
 %if %{with asan}
@@ -92,7 +113,7 @@ Requires: umdk-urpc-umq-devel = %{version}
 Requires: umdk-urpc-umq-tools = %{version}
 Requires: umdk-dlock-lib = %{version}
 Requires: umdk-dlock-devel = %{version}
-Requires: umdk-ums = %{version}
+Requires: umdk-ums-kmod = %{version}
 Requires: umdk-ums-tools = %{version}
 Requires: umdk-ums-agent = %{version}
 %files
@@ -237,12 +258,14 @@ This package contains all the executable examples of dlock.
 %endif
 
 %if %{build_all} || %{with ums}
-%package ums
-Summary:        kmod file of ums
-BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
-Requires:       glib2, libnl3
-%description ums
-kmod file of ums
+%package ums%{ums_suffix}
+Summary:        %{ums_summary}
+BuildRequires:  glib2-devel, libnl3-devel, %{kernel_devel_pkg}
+Requires:       glib2, libnl3, %{ums_kernel_req}
+Provides:       umdk-ums-kmod = %{version}
+Conflicts:      %{ums_conflict}
+%description ums%{ums_suffix}
+%{ums_desc}
 
 %package ums-tools
 Summary:        tools of ums
@@ -264,7 +287,7 @@ between UMS kernel modules via TLS 1.3 channel.
 %endif
 
 %prep
-%autosetup -c -n %{name}-%{version} -p1
+%setup -c -n %{name}-%{version}
 
 %build
     cmake ./src/ -DCMAKE_INSTALL_PREFIX=/usr\
@@ -501,13 +524,28 @@ fi
 %endif
 
 %if %{build_all} || %{with ums}
-%files ums
+%files ums%{ums_suffix}
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
     /lib/modules/%{kernel_version}/extra/ums/ums.ko
     /etc/modules-load.d/ums.conf
 
-%post ums
+%pre ums%{ums_suffix}
+RUNTIME_PAGESIZE=$(getconf PAGESIZE)
+%if %{with_64kb}
+EXPECTED_PAGESIZE=65536
+%else
+EXPECTED_PAGESIZE=4096
+%endif
+if [ "$RUNTIME_PAGESIZE" != "$EXPECTED_PAGESIZE" ]; then
+    fmt_size() { [ $1 -ge 1024 ] && echo "$(( $1 / 1024 ))KB" || echo "${1}B"; }
+    echo "ERROR: umdk-ums%{ums_suffix} requires $(fmt_size $EXPECTED_PAGESIZE) page size kernel," \
+         "but current is $(fmt_size $RUNTIME_PAGESIZE)." >&2
+    exit 1
+fi
+exit 0
+
+%post ums%{ums_suffix}
 if [ -d /lib/modules/$(uname -r)/kernel/net/smc ]; then
     %{__rm} -rf /lib/modules/$(uname -r)/kernel/net/smc
 fi
@@ -520,7 +558,7 @@ echo "omit_drivers+=\" ums \"" > /etc/dracut.conf.d/ums.conf
 
 /sbin/depmod -a $(uname -r)
 
-%postun ums
+%postun ums%{ums_suffix}
 if [ $1 -eq 0 ]; then
     if [[ %{kernel_version} != $(uname -r) ]]; then
         if [ -d /lib/modules/$(uname -r)/weak-updates/drivers ]; then
@@ -574,273 +612,11 @@ fi
 %endif
 
 %changelog
-* Tue Jul 28 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B118
-- umq: update add a thread name
-- urma: update reorder jetty destruction before, optimize bondp_target_jetty_t memory with, preserve perftest final synchronization, and name bond worker thread
-* Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B117
-- urma: update return URMA_ENOMEM instead of, use max_rsge for dst, and drain in-flight WRs and
-- umq: update revert umq_thread_local in datapath, set max_rsge, support share jetty main, and fix mem leak of
-- umdk: drop stale paths from refreshed tarball
-* Fri Jul 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B116
-- umq: update main umq tx config, qbuf and jetty pool, fix share transport parameter, and fix the issue where
-- urma: update remove unsupported notify_data option, enable bond recovery features, add perftest UB management, and separate bond environment configuration
-* Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B115
-- urma: update set URMA_UBAGG_MAX_CR_CNT_PER_DEV default 32
-* Wed Jul 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B114
-- urma: update fix incorrect perf trace, rename bond topology utility, remove bond control CR, and optimize memory allocation for
-- umq: update fix the umq_ctx error, add remote eid/jetty_id info, trace use umq_thread_local, rollback, and shared jetty round-robin poll
-- umdk: drop stale paths from refreshed tarball
-* Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B113
-- urma: update fix bondp tjetty valid, encapsulate bond topology map, make bond CR batch, and fix tp_aware ty_type error
-- umq: update fix poll rx core and fix errno and update
-* Sat Jul 18 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B112
-- urma: update remove legacy bond health, fix potential data race, print error code when, and fix duplicate UDMA library
-- umq: update only one qbuf can, support thread_key register ops, add headroom param check, and total allocated credit is
-- umdk: update ums fix kmod build
-- umdk: drop stale paths from refreshed tarball
-* Wed Jul 15 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B111
-- urma: update fix perf command netlink and support bonding link health
-- umq: update fix buf overflow problem and fix the issue of
-* Wed Jul 15 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B110
-- umdk: git reset to B108
-* Wed Jul 15 2026 huying <huying21@huawei.com> - 25.12.0-B109
-- ums: remove umdk-ums-64kb build and roll back to B105
-* Tue Jul 14 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B108
-- urma: update perftest_run_test Fix memory leak, perftest_resources Fix incompatible sizeof, urma_sample Add NULL check, and bondp_api Add NULL check
-- umq: update optimize log, fix the issue where, do not allocate credit, fix null pointer access, and fix mismatch param type/num
-* Mon Jul 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B107
-- umq: update prevent resource-exhaustion DoS attacks, optimize perf thread local, fix credit starvation issue, and fix issue of delayed
-- urma: update perftest support delegated connection, bondp_poll_jfc supports cocurrent access, check failover route by, and fix perftest connect failed
-- umdk: drop stale paths from refreshed tarball
-* Sat Jul 11 2026 caihongxu <caihongxu@huawei.com> - 25.12.0-B106
-- urma: Fix missing is_msn_enabled in JFR import causing recv CR loss
-- umq: fix credit starvation issue
-* Thu Jul 9 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B105
-- umq: update umq fix the expansion and add sub_umq_id for poll
-- umdk: update ums remove TFO to
-* Wed Jul 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B104
-- urma: update fix UT mock stability, init enabled_indices at create_context, fix log format for, and fix rate limit log
-- umq: update fix logic umq credit_clean_up, add trace timestamp/umq_id, and fix trace bug of
-* Tue Jul 7 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B103
-- umq: update add trace for post and Fix the issue of
-- urma: update clarify bond WR conversion
-* Mon Jul 6 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B102
-- umq: update add jetty pool alloc
-- urma: update udma drop blanket -Wno-error, reject out-of-range order_type in, fix route failover of, and remove redundant per-jetty recv_wr_buf
-- umdk: update fix spell error
-- umdk: drop stale paths from refreshed tarball
-* Sat Jul 4 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B101
-- urma: bondp unregister pseg when user call unregister
-* Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B100
-- urma: update refactor perftest communication into, inline perftest communication fields, allocate bond topo map, and fix bond datapath get
-- umq: update fix the return value
-- umdk: drop stale paths from refreshed tarball
-* Fri Jul 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B099
-- urma: update harden urma_perftest TCP connection, bug fix for balance, change type of bdp_tseg, and Use drv ext to
-- umq: update intercept logical umq when
-* Thu Jul 2 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B098
-- urma: update optimize bondp_poll_jfc and handle_send_cr_with_store, fix urma_perftest for tpid, fix UT script on, and forbid massive illegal state
-- umq: update fix umq thread closure, fix the error in, change spin lock to, and support jfr lock_free
-- umdk: drop stale paths from refreshed tarball
-* Wed Jul 1 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B097
-- umq: update qbuf DFX tiny pool, delete ipc/ubmm code, fix the coredump that, and fix perftest in enqueue/dequeue
-- urma: update add trans_mode/tp_type/order_type combination check, optimize handle_recv_cr_without_backup, add fork constraint to, build, and disable urma_admin netlink auto
-- umdk: drop stale paths from refreshed tarball
-* Tue Jun 30 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B096
-- umq: update add qbuf alloc/free perf, revert fc sge management, adaptive send threshold, and fix logic umq return
-- urma: update fix perftest bond_mode balance, add API fuzz coverage, urma_perftest comm use cfg-based, and fix urma_perftest log level
-- umdk: drop stale paths from refreshed tarball
-* Mon Jun 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B095
-- umq: update fix ipc free core, support flow control status, fix the blk_num data, and fix interrupt problem
-- urma: update urma_perftest support wait_jfc with, remove netdev info for, ut bug_fix, add dv121 relation feature, and Resolved existing issues in
-- umdk: update cam add fused_deep_moe op, cam add moe dispatch, cam add moe combine, and cam add basic files
-- urpc: update fix share jfr queue, update doc/ch/urpc/UMQ Buffer ch, fix umq log bug, umdk test, and umdk urpclib test code
-- dlock: fix modify jetty/jfs to error, support ub token, fix UT compilation issues, test folder commit, and umdk test
-- uvs: update rpm reorganize umdk spec and fix cleancode issue
-- umdk: drop stale paths from refreshed tarball
-
-* Fri Jun 26 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B093
-- umdk: update OE SP4
-* Wed Jun 10 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B092
-- urma: update fix log for bondp, increase topo max node, bond worker, performance, build, argument parsing, and cleanup
-- umq: update flow-control SGE management, validation, cleanup, packet deduplication, change flow control sequence, and SGE/imm_data interaction
-- dlock: fix update_locks_response bounds handling
-- umdk: add SP3 patches 0218-0236, skipped 2 empty changes
-* Thu Jun 4 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B091
-- urma: increase topo max node limit to 1024
-* Wed Jun 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B090
-- urma: sync SP3 patches (!2144-!2229), perftest/log/bazel/topo/main_ue_eid
-* Sat May 30 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B089
-- urpc: fix tp bugs
-* Fri May 29 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B088
-- urma: add register location log API
-* Tue May 26 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B087
-- urma: fix copy to user failed problems
-* Fri May 22 2026 wujie <wujie66@huawei.com> - 25.12.0-B086
-- umdk: add umdk main package
-* Fri May 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B085
-- urma: fix bondp import jetty mem leak
-* Wed May 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B084
-- urma: support bazel compile
-* Wed May 13 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B083
-- urpc: support qbuf escape and share flow control jfr
-* Wed May 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B082
-- urma: make urma_perf_is_enabled a proper prototype (void)
-* Tue May 5 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B081
-- urma: enhance bonding schedule with random balance selection support
-* Sat May 2 2026 jilei <jilei8@huawei.com> - 25.12.0-B080
-- urma: bonding schedule send balance support random select
-* Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B079
-- urma: urma_get_perf_info bug fix
-* Fri May 1 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B078
-- urma: bonding device move wr buf from jfc to comp
-* Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B075
-- urma: bugfix retry send msg
-* Wed Apr 29 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B074
-* urma: bugfix bonding should not use wr entry if jetty deleted
-* Tue Apr 28 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B073
-- urma: fix double install urma error
-* Mon Apr 27 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B072
-- urma: bonding tseg and tjetty support ref
-* Mon Apr 27 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B071
-- urma: fix bonding failover issue
-* Mon Apr 20 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B070
-- urpc: enable urma CLOS networking and failover
-* Sun Apr 19 2026 chenwen <chenwen54@huawei.com> - 25.12.0-B069
-- umdk: supports CLOS networking and failover, health checks, shared TP, and reliable link establishment.
-* Mon Apr 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B068
-- urma: fix bondp balance mode datapath
-* Thu Apr 9 2026 huying <huying21@huawei.com> - 25.12.0-B067
-- ums: fix and prevent credits deadlock by reserving emergency credits
-* Thu Apr 9 2026 huying <huying21@huawei.com> - 25.12.0-B066
-- ums: fix softirq context safety in ums_link_put
-* Wed Apr 8 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B065
-- urma: support custom dev_name in urma_admin agg add command
-* Wed Apr 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B064
-- urma: update validation checks for single path and aggregation mode
-* Thu Apr 2 2026 bishulei <bishulei@huawei.com> - 25.12.0-B063
-- urma: support create agg dev with explicit dev_name
-* Wed Apr 1 2026 zhangwentao <zhangwentao88@h-partners.com> - 25.12.0-B062
-- urma: rctp reuse in urma_bind_jetty
-* Tue Mar 31 2026 bishulei <bishulei@huawei.com> - 25.12.0-B061
-- urma: sync bugfix of urma
-* Fri Mar 27 2026 luyizhou  <luyizhou1@huawei.com> - 25.12.0-B060
-- urma: fix default parameters of urma_perftest
-* Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B059
-- urma: update version kernel commit
-* Wed Mar 25 2026 Chen Wen  <chenwen54@huawei.com> - 25.12.0-B058
-- urma: fix bondig poll and device create bugs
-* Tue Mar 24 2026 huying <huying21@huawei.com> - 25.12.0-B057
-- ums: adapt to ubcore API change, set jetty priority by tp_type
-* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B056
-- dlock: initialize reserved field, prevent heap bits leaks
-* Fri Mar 20 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B055
-- udma: fix a bug related to clean jfc
-* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B054
-- dlock: synchronize jetty flush flags to avoid data race issue
-* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B053
-- dlock: adapt to urma API change, set jetty priority by tp_type
-* Fri Mar 20 2026 huying <huying21@huawei.com> - 25.12.0-B052
-- dlock: adapt to urma bondp API change, remove bond user ctl code
-* Thu Mar 19 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B051
-- urma: perftest para optimization
-* Wed Mar 18 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B050
-- urma: update urma_admin show for bonding devices
-* Tue Mar 17 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B049
-- urma: do not parse vendor and device for bonding device
-* Mon Mar 16 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B048
-- urma: update urma_admin agg expose
-* Sat Mar 14 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B047
-- urma: support SL functionality; update bondp&urma_admin
-* Sat Mar 14 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B046
-- urma: sync for liburma and bondp implementation
-* Thu Mar 12 2026  luyizhou <luyizhou1@huawei.com> - 25.12.0-B045
-- urma: cleancode fix for bondp
-* Thu Mar 12 2026  chenyutao <chenyutao2@huawei.com> - 25.12.0-B044
-- urma: change uvs and urma_admin log format
-* Wed Mar 11 2026  luyicai <luyicai1994@yeah.net> - 25.12.0-B043
-- sync bugfix of urma
-* Tue Mar 10 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B042
-- urma: correct log format for construct and destruct
-* Sat Mar 7 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B041
-- urma: optimize urma_admin usage printing
-* Wed Mar 4 2026 Yongqiang Guo <guoyongqiang12@huawei.com> - 25.12.0-B040
-- urma: hotfix bondp topo to adapt loopback changes.
-* Wed Mar 4 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B039
-- udma: bugfix related to user ctl
-* Wed Mar 4 2026 Chen Wen <chenwen54@huawei.com> - 25.12.0-B038
-- urma: bugfix userctl
-* Wed Mar 4 2026 chenyutao <chenyutao2@huawei.com> - 25.12.0-B037
-- urma: bondp datapath optimization
-* Tue Mar 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B036
-- urma: bugfix query sl resource
-* Tue Mar 3 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B035
-- urpc support adaptive flowcontrol and log enhancement
-* Tue Mar 3 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B034
-- urma: support uboe
-* Mon Mar 2 2026 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B033
-- ums: fix codecheck warnings
-* Mon Mar 2 2026 huying <huying21@huawei.com> - 25.12.0-B032
-- dlock: fix codecheck warnings
-* Mon Mar 2 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B031
-- urma: make bondp seg cache default disable
-* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B030
-- dlock: fix example issue, client_init/deinit() calls need to be locked
-* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B029
-- ums: prevent Send WR from being posted to Jetty when ubcore_bind_jetty fails
-* Fri Feb 27 2026 huying <huying21@huawei.com> - 25.12.0-B028
-- ums: fix the issue of links not being shareable
-* Fri Feb 27 2026 wanghang <wanghang73@huawei.com> - 25.12.0-B027
-- add urma_ping client
-* Fri Feb 27 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B026
-- urpc rollback of flowcontrol and log enhancement
-* Fri Feb 27 2026 bishulei <bishulei@huawei.com> - 25.12.0-B025
-- optimize EID lookup logic
-* Thu Feb 26 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B024
-- urma: set CTP priority to 6 as workaround
-* Wed Feb 25 2026 bishulei <bishulei@huawei.com> - 25.12.0-B023
-- sync bugfix of urma
-* Tue Feb 24 2026 luyicai <luyicai1994@yeah.net> - 25.12.0-B022
-- sync bugfix of urma
-* Sat Feb 14 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B021
-- urpc support adaptive flowcontrol and log enhancement
-* Fri Feb 6 2026 wangxin <wangxin554@huawei.com> - 25.12.0-B020
-- urpc support rnr-free flowcontrol
-* Wed Feb 4 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B019
-- bugfix of urma container
-* Tue Feb 3 2026 Wei Qin <qinwei61@huawei.com> - 25.12.0-B018
-- bugfix of create sq and free tid
-* Tue Jan 20 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B017
-- bugfix of urma container
-* Tue Jan 20 2026 simonhua97 <huayu9@huawei.com> - 25.12.0-B016
-- urpc support shared jfr
-* Wed Jan 14 2026 wuyuyan_98 <wuyuyan@huawei.com> - 25.12.0-B015
-- urma add container support
-* Wed Dec 24 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B014
-- adapt ums compile issue when multiple kernel-devel are installed
-* Thu Dec 18 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B013
-- urma bugfix perftest and flush jetty
-* Mon Dec 15 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B012
-- urma, dlock, ums, and umq fix some bugs
-* Wed Dec 10 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B011
-- udma add compilation macro and umq fix bugs
-* Mon Dec 8 2025 luyicai <luyicai1994@yeah.net> - 25.12.0-B010
-- urma and urpc fix some bugs
-* Sat Dec 6 2025 huying <huying21@huawei.com> - 25.12.0-B009
-- ums fix the issue of illegal segment access permission settings
-* Thu Dec 4 2025 tianzhensong <tianzhensong@huawei.com> - 25.12.0-B008
-- ums adapt to ubcore_get_route_list and add compile ums by default
-* Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B007
-- umq update read/write code
-* Thu Dec 4 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B006
-- umq adapt urma topo query
-* Wed Dec 3 2025 caihongxu <caihongxu@huawei.com> - 25.12.0-B005
-- umq add read/write for post/poll
-* Tue Dec 2 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B004
-- urma supports querying topo information for a single device.
-* Thu Nov 27 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B003
-- urma added set/get tp_attr functionality interfaces
-* Sat Nov 22 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B002
-- urma added the tp_type feature
-* Tue Dec 30 2025 Chen Wen <chenwen54@huawei.com> - 25.12.0-B001
-- Initial UMDK-25.12.0 rpm spec file
+* Fri Jun 26 2026 umdk wujie <wujie66@huawei.com>
+- Change package version to 25.12.0 to keep package version consistency for sp3 branch.
+* Tue Jun 16 2026 huying <huying21@huawei.com>
+- ums: support building umdk-ums-64kb for 64KB page size kernel
+* Fri May 29 2026 umdk wujie <wujie66@huawei.com>
+- Change package version to 26.06.0.
+* Tue Dec 30 2025 umdk
+- Initial UMDK-25.12.0 rpm spec file.
