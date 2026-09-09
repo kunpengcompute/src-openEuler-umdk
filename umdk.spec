@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B131
+    %define rpm_release B132
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Tue Sep 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B132
+- umq: update id generator allocation increases, support share jetty main, umq qbuf fix partial_slot_count, and umq add queue info
+- urma: update Add some boundary value, Support querying the port, clarify perftest -s default, and refine bond resource deletion
 * Wed Sep 2 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B131
 - umq: update add opcode print for, rate-limit the log to, change log level to, and urma/umq compress bondp_port_id into
 - urma: update unify slot-taking greedy for, build, urma/umq compress bondp_port_id into, log context configuration updates, and no import seg in
