@@ -8,19 +8,23 @@ Build-Depends:
     make,
     gcc,
     g++,
+    libummu-dev,
     libssl-dev,
     libglib2.0-dev,
     libnl-3-dev,
+    libnl-genl-3-dev,
     linux-headers-generic,
     systemd
-Standards-Version: 4.7.0
+Standards-Version: 4.6.2
 Homepage: https://atomgit.com/openeuler/umdk
 
 Package: umdk
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, libc6, libummu-dev
-Description: Unified memory development kit
- A new system interconnect architecture
+Description: Unified memory development kit (metapackage)
+ This is a metapackage that pulls in the UMDK runtime components.
+ The actual libraries and tools are shipped in the umdk-urma-*,
+ umdk-dlock-* and umdk-urpc-* packages.
 
 Package: umdk-urma-lib
 Architecture: any

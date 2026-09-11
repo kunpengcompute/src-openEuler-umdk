@@ -7,8 +7,8 @@ case "$1" in
         if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
             systemctl daemon-reload >/dev/null 2>&1 || true
         fi
-        if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && command -v rsyslogd >/dev/null 2>&1; then
-            systemctl restart rsyslog >/dev/null 2>&1 || true
+        if command -v deb-systemd-invoke >/dev/null 2>&1 && [ -d /run/systemd/system ] && command -v rsyslogd >/dev/null 2>&1; then
+            deb-systemd-invoke restart rsyslog >/dev/null 2>&1 || true
         fi
         ;;
     abort-upgrade|abort-remove|abort-deconfigure)
