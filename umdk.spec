@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B132
+    %define rpm_release B133
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Sat Sep 12 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B133
+- umq: update umq qbuf pool without_data, umq qbuf pool DFX, refactor dfx stats dump, and fix umq_ub close TOCTOU
+- urma: update improve bond failover logging, split bad WR translation, Fix the issue of, and no need to alloc/free
 * Tue Sep 8 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B132
 - umq: update id generator allocation increases, support share jetty main, umq qbuf fix partial_slot_count, and umq add queue info
 - urma: update Add some boundary value, Support querying the port, clarify perftest -s default, and refine bond resource deletion
