@@ -67,7 +67,8 @@ Package: umdk-dlock-dev
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, umdk-dlock-lib (= ${binary:Version})
 Description: DLock development files
- This package contains all necessary headers and libraries for DLock development.
+ This package contains all necessary headers and libraries
+ for DLock development.
 
 Package: umdk-dlock-example
 Architecture: any
@@ -79,7 +80,8 @@ Package: umdk-urpc-framework
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, umdk-urma-lib (= ${binary:Version})
 Description: URPC framework shared library
- This package contains all necessary framework shared libraries (eg. liburpc_framework.so).
+ This package contains all necessary framework shared libraries
+ (eg. liburpc_framework.so).
 
 Package: umdk-urpc-framework-dev
 Architecture: any
