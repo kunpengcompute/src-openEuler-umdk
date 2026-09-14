@@ -2,4 +2,4 @@
 usr/include/ub/umdk/urpc/urpc_framework_api.h
 usr/include/ub/umdk/urpc/urpc_framework_types.h
 usr/include/ub/umdk/urpc/urpc_framework_errno.h
-usr/lib64/liburpc_framework.so usr/lib
+usr/lib64/liburpc_framework.so usr/lib/aarch64-linux-gnu
