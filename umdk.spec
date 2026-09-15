@@ -78,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B025
+    %define rpm_release B026
 %endif
 
 Name          : umdk
@@ -609,6 +609,10 @@ fi
 %endif
 
 %changelog
+* Mon Sep 14 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B026
+- umdk: update add CODEOWNERS to require, cam add doc files, and cam Fixed an intermittent
+- urma: update add dt simulator build, fix coredump when delete, no import seg in, and refine bond resource deletion
+- umq: update support share jetty main, set rx_block_count and add, fix umq_ub close TOCTOU, id generator allocation increases, and out-of-bound handling
 * Wed Sep 2 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B025
 - urma: update fix ub mgmt handshake, allow user to handle, report RNR flow control, and optimize bondp_target_jetty_t memory usage
 - umq: update optimize umq_t memory usage, add rnr retry errno, support flush jetty node, and add opcode print for
