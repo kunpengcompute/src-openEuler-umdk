@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B134
+    %define rpm_release B135
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Wed Sep 16 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B135
+- umq: update optimize umq_poll_tx operation, fix umq tiny 4K, umq_qbuf_free effective_cap hysteresis, and Optimize data_to_head to lock
+- urma: update document bonding RQE prefill, fix credit/notify import seg, and raise bond path transition
 * Mon Sep 14 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B134
 - urma: update build, preserve resource ownership on, validate receive queue attributes, recompute acknowledged events during, and serialize bond topology initialization
 - umq: update return fatal errno when, umq qbuf dfx fix, umq qbuf pool dynamic, and umq qbuf pool rework
