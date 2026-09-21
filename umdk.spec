@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B135
+    %define rpm_release B136
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Mon Sep 21 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B136
+- urma: update fix wrong situation ret, support query port level, expose datapath query capability, and honor local ctx mask
+- umq: update return fatal errno when, ubsocket replace rsvd4 and, feat separate RX/TX poller, and fix umq dfx DFX
 * Wed Sep 16 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B135
 - umq: update optimize umq_poll_tx operation, fix umq tiny 4K, umq_qbuf_free effective_cap hysteresis, and Optimize data_to_head to lock
 - urma: update document bonding RQE prefill, fix credit/notify import seg, and raise bond path transition
