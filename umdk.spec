@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B137
+    %define rpm_release B138
 %endif
 
 Name          : umdk
@@ -577,6 +577,8 @@ fi
 %endif
 
 %changelog
+* Thu Sep 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B138
+- urma: update add reserved, read health check path, udma initialize npos to, docs fix documentation drift, and udma support set cqe
 * Tue Sep 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B137
 - umq: update fix qbuf_pool shrink_decay_ms and fix qbuf_pool dfx
 * Mon Sep 21 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B136
