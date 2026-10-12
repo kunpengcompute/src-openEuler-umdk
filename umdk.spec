@@ -31,6 +31,31 @@
 # add --with dlock option, i.e. disable dlock by default
 %bcond_with dlock
 
+# add --with extra_ubcore_symbols option, i.e. disable by default
+%bcond_with extra_ubcore_symbols
+
+%ifarch aarch64
+%define with_64kb  %{?_with_64kb: 1} %{?!_with_64kb: 0}
+%else
+%define with_64kb  0
+%endif
+
+%if %{with_64kb}
+%define kernel_devel_pkg kernel-64k-devel
+%define ums_suffix -64kb
+%define ums_summary kmod file of UMS (64KB page size)
+%define ums_desc UMS kernel module for transparent TCP acceleration via shared memory over UB
+%define ums_conflict umdk-ums
+%define ums_kernel_req kernel-64k
+%else
+%define kernel_devel_pkg kernel-devel
+%define ums_suffix %{nil}
+%define ums_summary kmod file of ums
+%define ums_desc UMS kernel module for transparent TCP acceleration via shared memory over UB
+%define ums_conflict umdk-ums-64kb
+%define ums_kernel_req kernel
+%endif
+
 %define build_all 1
 
 %if %{with ums} || %{with urma} || %{with urpc} || %{with dlock}
@@ -41,9 +66,9 @@
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %else
     %define kernel_version %(
-        KERNEL_DEVEL_COUNT=$(rpm -qa kernel-devel 2>/dev/null | wc -l);
+        KERNEL_DEVEL_COUNT=$(rpm -qa %{kernel_devel_pkg} 2>/dev/null | wc -l);
         if [ "$KERNEL_DEVEL_COUNT" -eq 1 ]; then
-            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' kernel-devel 2>/dev/null;
+            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' %{kernel_devel_pkg} 2>/dev/null;
         else
             uname -r;
         fi
@@ -53,7 +78,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B005
+    %define rpm_release B026
 %endif
 
 Name          : umdk
@@ -69,12 +94,36 @@ buildArch     : x86_64 aarch64
 ExclusiveArch : aarch64
 
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel
+%if %{with asan}
+BuildRequires: libasan, libubsan
+%endif
+%if %{build_all} || %{with ums}
+BuildRequires : %{kernel_devel_pkg}
+%endif
 Requires: glibc, glib2, libummu
 %if %{with asan}
-Requires: libasan
+Requires: libasan, libubsan
 %endif
 %if %{with tsan}
 Requires: libtsan
+%endif
+%if %{build_all}
+Requires: umdk-urma-lib = %{version}
+Requires: umdk-urma-devel = %{version}
+Requires: umdk-urma-tools = %{version}
+Requires: umdk-urma-bin = %{version}
+Requires: umdk-urpc-framework = %{version}
+Requires: umdk-urpc-framework-devel = %{version}
+Requires: umdk-urpc-framework-tools = %{version}
+Requires: umdk-urpc-umq = %{version}
+Requires: umdk-urpc-umq-devel = %{version}
+Requires: umdk-urpc-umq-tools = %{version}
+Requires: umdk-dlock-lib = %{version}
+Requires: umdk-dlock-devel = %{version}
+Requires: umdk-ums-kmod = %{version}
+Requires: umdk-ums-tools = %{version}
+Requires: umdk-ums-agent = %{version}
+%files
 %endif
 
 %description
@@ -213,12 +262,14 @@ This package contains all the executable examples of dlock.
 %endif
 
 %if %{build_all} || %{with ums}
-%package ums
-Summary:        kmod file of ums
-BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
-Requires:       glib2, libnl3
-%description ums
-kmod file of ums
+%package ums%{ums_suffix}
+Summary:        %{ums_summary}
+BuildRequires:  glib2-devel, libnl3-devel, %{kernel_devel_pkg}
+Requires:       glib2, libnl3, %{ums_kernel_req}
+Provides:       umdk-ums-kmod = %{version}
+Conflicts:      %{ums_conflict}
+%description ums%{ums_suffix}
+%{ums_desc}
 
 %package ums-tools
 Summary:        tools of ums
@@ -292,6 +343,10 @@ between UMS kernel modules via TLS 1.3 channel.
     -DUDMA_ST64B="enable" \
 %endif
 
+%if %{with extra_ubcore_symbols}
+    -DBUILD_EXTRA_UBCORE_SYMBOLS="enable" \
+%endif
+
 make %{?_smp_mflags}
 
 %install
@@ -326,7 +381,6 @@ fi
     %{_libdir}/liburma.so
     %{_libdir}/liburma_common.so
     %{_libdir}/urma/liburma_ubagg.so
-    %{_libdir}/urma/liburma-udma.so
     %dir %{_includedir}/ub/umdk/urma
     %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/urma_*.h
@@ -467,13 +521,28 @@ fi
 %endif
 
 %if %{build_all} || %{with ums}
-%files ums
+%files ums%{ums_suffix}
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
     /lib/modules/%{kernel_version}/extra/ums/ums.ko
     /etc/modules-load.d/ums.conf
 
-%post ums
+%pre ums%{ums_suffix}
+RUNTIME_PAGESIZE=$(getconf PAGESIZE)
+%if %{with_64kb}
+EXPECTED_PAGESIZE=65536
+%else
+EXPECTED_PAGESIZE=4096
+%endif
+if [ "$RUNTIME_PAGESIZE" != "$EXPECTED_PAGESIZE" ]; then
+    fmt_size() { [ $1 -ge 1024 ] && echo "$(( $1 / 1024 ))KB" || echo "${1}B"; }
+    echo "ERROR: umdk-ums%{ums_suffix} requires $(fmt_size $EXPECTED_PAGESIZE) page size kernel," \
+         "but current is $(fmt_size $RUNTIME_PAGESIZE)." >&2
+    exit 1
+fi
+exit 0
+
+%post ums%{ums_suffix}
 if [ -d /lib/modules/$(uname -r)/kernel/net/smc ]; then
     %{__rm} -rf /lib/modules/$(uname -r)/kernel/net/smc
 fi
@@ -486,7 +555,7 @@ echo "omit_drivers+=\" ums \"" > /etc/dracut.conf.d/ums.conf
 
 /sbin/depmod -a $(uname -r)
 
-%postun ums
+%postun ums%{ums_suffix}
 if [ $1 -eq 0 ]; then
     if [[ %{kernel_version} != $(uname -r) ]]; then
         if [ -d /lib/modules/$(uname -r)/weak-updates/drivers ]; then
@@ -540,6 +609,112 @@ fi
 %endif
 
 %changelog
+* Mon Sep 14 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B026
+- umdk: update add CODEOWNERS to require, cam add doc files, and cam Fixed an intermittent
+- urma: update add dt simulator build, fix coredump when delete, no import seg in, and refine bond resource deletion
+- umq: update support share jetty main, set rx_block_count and add, fix umq_ub close TOCTOU, id generator allocation increases, and out-of-bound handling
+* Wed Sep 2 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B025
+- urma: update fix ub mgmt handshake, allow user to handle, report RNR flow control, and optimize bondp_target_jetty_t memory usage
+- umq: update optimize umq_t memory usage, add rnr retry errno, support flush jetty node, and add opcode print for
+- umdk: update cam fix zb normal, fix tp_type parse error, udma delete excess patch, and update test doc
+- urpc: update fix umq TLS release_thread_cache, fix g_tls_dtors_running flag set, and fix umq codecheck -
+- umdk: drop stale paths from refreshed tarball
+* Mon Aug 24 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B024
+- urma: update docs fix documentation drift, udma bugfix related to, change the path selection, and allocate bond post buffers
+- umq: update support bind itself, adapt umq_ub_dev_info_serialize to urma_get/put_seg_ctx, add trace descrition, perftest support share jfr, and Restore bonding port reconfigurability
+* Mon Aug 17 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B023
+- urma: update support bondingEID sharing mode, use is_empty_eid instead of, fix ASAN violations null, and document failback jetty isolation
+- umdk: update ums update docs add
+- umq: update fix code format, optimize the log printing, change the initial number, and allocate memory for rx_consumed_jetty_table
+* Mon Aug 10 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B022
+- urma: update move cfg_check from alloc, expand bond imm_data user, share health-check seg at, and shrink wr_list to 256
+- umdk: update cam NDA control plane, cam add NDA cq, cam fix layout input, and cam add fp16 datatype
+- umq: update modify perf accuracy to, control tx outstanding, optimize memory usage when, and when a CQE ACK
+- umdk: drop stale paths from refreshed tarball
+* Thu Aug 6 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B021
+- urma: update return EINVAL for oversize, reorder jetty destruction before, optimize bondp_target_jetty_t memory with, qilin-sp4, preserve perftest final synchronization, and youhua
+- umq: update add a thread name, fix the issue where, Add without-data buffers to, and add error log for
+- umdk: update cam accommodate shmem changes, cam fix cam master, cam fix shmem transport, and cam add zero-buffer MoE
+- urpc: update docs fix documentation drift and docs refine generated documentation
+- dlock: fix docs fix documentation drift
+
+* Mon Jul 27 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B020
+- urma: update udma bugfix related to, make bond CR batch, rename bond topology utility, and fix test case jetty
+- umq: update fix poll rx core, fix errno and update, fix the umq_ctx error, and add remote eid/jetty_id info
+- umdk: update cam Update the base and fix
+- umdk: drop stale paths from refreshed tarball
+* Mon Jul 20 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B019
+- urma: update docs sync URMA API, docs fix URMA Jetty, docs number segment context, and docs fix delete notifier
+- umdk: update cam build NDA module, fix umq fost rx, cam fix cann8 5, and ums fix kmod build
+- umq: update do not allocate credit, avoid fc send eagain, fix the issue where, optimize log, and fix mismatch param type/num
+- umdk: drop stale paths from refreshed tarball
+
+* Mon Jul 13 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B018
+- umdk: update cam Add implementation of, cam Add FP8/FP4 dtype, cam Add integration of, and cam Adapt to shmem
+- urma: update fix failback second roll, Fix the issue where, fix bonding wr list, and avoid to alloc wr_buffer
+- umq: update add trace for post, Fix the issue of, fix logic umq credit_clean_up, and add trace timestamp/umq_id
+- umdk: drop stale paths from refreshed tarball
+* Mon Jul 6 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B017
+- urma: update udma drop blanket -Wno-error, reject out-of-range order_type in, add uboe combination, and change type of bdp_tseg
+- umdk: update cam Add WQE filling, fix umq test code, fix -p 2 not, module updates, and cam Add static checks
+- umq: update fix umq thread closure, fix the error in, support jfr lock_free, and change spin lock to
+- umdk: drop stale paths from refreshed tarball
+* Wed Jul 1 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B016
+- umdk: update cam change cpp operator, cam add adaptation to, ums add UT for, and cam add shmem rdma_basckend_base
+- umq: update fix get fc_event failed, revert fc sge management, revert qbuf cnt, adaptive send threshold, and add qbuf alloc/free perf
+- urma: update fix bond jetty shared, git-test, fix typo for CNA, add API fuzz coverage, fix perftest bond_mode balance, and build
+- umdk: drop stale paths from refreshed tarball
+* Sat Jun 27 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B015
+- umdk: update cam Add structs for, reinforce ums smoke test, and fix ums case fail
+- umq: update fix invalide poll tx, fix coredump in umq_uninit, add option timestamp, and add tiny qbuf pool
+- urma: update DFX function adds interrupt, simplify urma_perftest socket api, refactor failback trigger in, and resend failed cr one
+* Fri Jun 26 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B014
+- urma: update optimize bond rearm jfc, optimization messages in get, use source MAC for, and correct spelling mistakes in
+- umq: update add reference counting for, reset alloc/free trace, add param validate for, and resolve coredump caused by
+* Thu Jun 25 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B013
+- umdk: update ums fix orphan socket, test add ums ut, fix urpc case name, and fix urma case name
+- urma: update optimize bondp_post_jetty_send_wr, copy extra vwr to, split remaining URMA UT, add thread local cache, and fix rqe_cnt err when
+- umq: update add validation for rjetty_size, extract common qbuf pool, expose duplicate flow control, and add trace point and
+- umdk: drop stale paths from refreshed tarball
+* Wed Jun 24 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B012
+- urma: update fix show_stats failed log, add param check when, refactor failback task management, del_tag_in_user, and refine log level for
+- umdk: update cam fix cam docs
+- umq: update support configuring the port and fix incorrect __ATOMIC_RELAXED usage
+* Tue Jun 23 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B011
+- umq: update flow-control SGE management, revert the patch that, add func str for, and reduce empty poll operations
+- urma: update split common UT files, add print cna for, disable failback and health, and fix perftest tp aware
+- umdk: update cam fix Chinese comments, ums new test cases, umq suport tp_type/tp_mode configration, and revise code according to
+- umdk: drop stale paths from refreshed tarball
+* Mon Jun 22 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B010
+- urpc: update urpc/perftest bound framework eid, urpc/perftest bound concurrent latency, and fix urma_seg_t ext value
+- umq: update umq/perftest bound string option, set correct rjetty flag, fix umq post tx, packet deduplication, and support wr trace
+- urma: update fix potential out-of-bounds access, perftest log register need, umra fix rqe_cnt in, and remove stale netlink declarations
+- umdk: update umq update max bind, converge related bug fix, urpc case fix, and cam fix linewidth and
+* Thu Jun 18 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B009
+- umdk: update docs clarify UMDK build, ums Adapting Compilation for, update urpc dev config, and cam format master a2
+- urma: update urma/admin reserve nul when, urma/perftest reject zero size, using nlattr to query, and fix the data plane
+- umq: update add shared transport public, jetty pool management, adapt urma_get_rjetty, support create/deatroy logic umq, and support logic umq post/poll
+- umdk: drop stale paths from refreshed tarball
+
+* Tue Jun 16 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B008
+- urma: update recv wr list bath, add cna field to, add multi-transport types FLUSH_DMA, and enable without backup wr
+- umq: update handle fc rx buf, optimize post recv wr, and optimize ub_imm structure with
+- umdk: update ums support building umdk-ums-64kb
+- umdk: add main package dependency metadata
+
+* Mon Jun 15 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B007
+- uvs: update fix cleancode issue
+- urma: update fix cleancode issue, add jfc and jfs, Refactor the urma_admin show_res, and validate dst_chip_id in bondp
+- umq: update Flow control exchanges umq_id, set rjetty in umq_bind_info, and transmit data with umq_id
+- umdk: update cam fix bug to, fix ub device incorrect, ums fix codecheck problem, and fix umq bond dev
+- dlock: fix add fd num check
+- umdk: drop stale paths from refreshed tarball
+* Wed Jun 10 2026 luyizhou <luyizhou1@huawei.com> - 26.06.0-B006
+- umdk: update cam update cam compile, ums fix the security, and cam fix compile bug
+- urma: update respect iodie level in, fix bond cleanup and, Fix some formatting issues, and fix dev cap reserved
+- umq: update change flow control sequence, SGE/imm_data interaction, and flow-control SGE management
+- dlock: fix add TAG mechanism for and refactor control message receiving
+- umdk: drop stale paths from refreshed tarball
 * Mon Jun 8 2026 wangxin <luyicai1994@yeah.net> - 26.06.0-B005
 -umq: modify qbuf default config in ctp mode
 -urma: performance optimization post wr
