@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B138
+    %define rpm_release B139
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Tue Oct 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B139
+- urma: update add enable_credit instruction in, add simplex_mode instruction for, allocate bond token ids, and update port status in
+- umq: update do not access data, seed TLS capacity_with_data 0, swap info_get order to, and fix tx_outstanding check-then-act race
 * Thu Sep 24 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B138
 - urma: update add reserved, read health check path, udma initialize npos to, docs fix documentation drift, and udma support set cqe
 * Tue Sep 22 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B137
