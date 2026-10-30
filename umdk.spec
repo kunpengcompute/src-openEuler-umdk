@@ -53,7 +53,7 @@
 %define kernel_requires_version %(echo %{kernel_version} | awk -F"." 'OFS="."{$NF="";print}' | sed 's/\.$//g')
 
 %if %{undefined rpm_release}
-    %define rpm_release B140
+    %define rpm_release B141
 %endif
 
 Name          : umdk
@@ -577,6 +577,9 @@ fi
 %endif
 
 %changelog
+* Fri Oct 30 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B141
+- urma: update fix active jetty check, rate limit perf context, fix post jetty send, and pre-embed interface and struct
+- umq: update fix 24B leak caused, Fix incomplete memory release, add 20s fallback timeout, and fix handing out the
 * Mon Oct 19 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B140
 - urma: update health check always rotate
 * Tue Oct 13 2026 luyizhou <luyizhou1@huawei.com> - 25.12.0-B139
