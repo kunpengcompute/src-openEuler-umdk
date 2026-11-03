@@ -22,10 +22,27 @@ extern "C" {
 #define PORT_MAX                65535
 #define DEFAULT_PORT            19875
 #define DEFAULT_MSG_SIZE        4096
+// header sge, user header sge, save dma info sge, header dma sge, data dma sge
+#define EXT_SGE_NUM             4
+#define EXT_RSP_NUM             3
+#define DEFAULT_EXT_MSG_SIZE    (DEFAULT_MSG_SIZE * EXT_SGE_NUM)
+#define DEFAULT_EXT_RSP_SIZE    (DEFAULT_MSG_SIZE * EXT_RSP_NUM)
 #define DEFAULT_RX_DEPTH        64
 #define DEFAULT_TX_DEPTH        64
 #define DEFAULT_FUNC_ID         8388612
-
+#define REQ_HDR_SGE             0
+#define SEND_PUSH_DATA_SGE      1          // send push scene
+#define HEAD_DMA_SGE            2
+#define DATA_DMA_SGE            1
+#define SAVA_DMA_SGE            4
+#define RSP_HDR_SGE             0
+#define RSP_DATA_SGE            1
+#define SIMULATE_USER_HDR_SIZE  192
+// reserve space at the tail of ext_hdr for encryption fields (iv & tag)
+#define CRYPTO_FIELD_SIZE       28
+#define CLIENT_USE_SGE_SIZE     256
+#define URPC_REQ_HEAD_LEN       20
+#define URPC_EXT_HEADER_SIZE    256
 #define DMA_CNT                 5
 #define TIME_SIZE               35
 #define TIME_US_SIZE            8
@@ -91,6 +108,8 @@ typedef struct urpc_lib_example_config {
     bool is_cancel;
 } urpc_lib_example_config_t;
 
+extern volatile sig_atomic_t g_poll_exit;
+
 typedef enum urpc_lib_example_msg_type {
     WITHOUT_DMA,
     WITH_DMA,
@@ -111,7 +130,6 @@ typedef struct urpc_example_dma {
 void get_current_time(char* buffer, uint32_t len);
 
 urpc_lib_example_config_t *get_example_cfg(void);
-bool is_example_force_quit(void);
 
 #ifdef __cplusplus
 }

@@ -66,7 +66,6 @@ static urma_device_t dev = {0};
 static urma_status_t urma_query_device_mock(urma_device_t *dev, urma_device_attr_t *dev_attr)
 {
     dev_attr->dev_cap.max_msg_size = MAX_MSG_SIZE;
-    dev_attr->dev_cap.priority_info[0].tp_type.bs.rtp = 1;
     return URMA_SUCCESS;
 }
 
@@ -94,14 +93,12 @@ public:
         static urma_context_t urma_ctx = {0};
         urma_ctx.dev = &dev;
         static urma_device_attr_t dev_attr = {0};
-        dev_attr.dev_cap.priority_info[0].tp_type.bs.rtp = 1;
-        dev_attr.dev_cap.priority_info[DEFAULT_PRIORITY].tp_type.bs.rtp = 1;
         dev_attr.dev_cap.max_msg_size = 65536;
         MOCKER(urma_init).stubs().will(returnValue(URMA_SUCCESS));
         MOCKER(urma_user_ctl).stubs().will(returnValue(URMA_SUCCESS));
         MOCKER(urma_query_device)
             .stubs()
-            .with(mockcpp::any(), outBoundP((urma_device_attr_t *)&dev_attr))
+            .with(any(), outBoundP((urma_device_attr_t *)&dev_attr))
             .will(returnValue(URMA_SUCCESS));
         MOCKER(urma_get_device_by_name).stubs().will(returnValue(&dev));
         MOCKER(urma_create_context).stubs().will(returnValue(&urma_ctx));
@@ -111,7 +108,7 @@ public:
         MOCKER(urma_free_eid_list).stubs().will(ignoreReturnValue());
         MOCKER(urma_get_eid_list)
             .stubs()
-            .with(mockcpp::any(), outBoundP((uint32_t *)&eid_num, sizeof(eid_num)))
+            .with(any(), outBoundP((uint32_t *)&eid_num, sizeof(eid_num)))
             .will(returnValue(&eid_info));
 
         static urma_jfr_t jfr = {0};
@@ -203,7 +200,7 @@ TEST(queue_not_init_test, send_recv_init_dev_by_ip_addr)
     MOCKER(urma_uninit).stubs().will(returnValue(URMA_SUCCESS));
     MOCKER(urma_get_eid_list)
         .stubs()
-        .with(mockcpp::any(), outBoundP((uint32_t *)&eid_num, sizeof(eid_num)))
+        .with(any(), outBoundP((uint32_t *)&eid_num, sizeof(eid_num)))
         .will(returnValue(&eid_info));
     MOCKER(urma_get_device_list)
         .stubs()

@@ -32,7 +32,6 @@
 #include "ums_process_link.h"
 #include "ums_llc.h"
 #include "ums_mod.h"
-#include "ums_nl.h"
 #include "ums_wr.h"
 #include "ums_core.h"
 
@@ -50,20 +49,14 @@
 #define UMS_RMBE_MAX_SIZE 7 /* 0 -> 16KB, 1 -> 32KB, .. 5 -> 512KB .. 7 -> 2MB */
 #define UMS_BUF_MIN_SHIFT 14
 
-#define UMS_TOKEN_DELIVER_TIMEOUT_MS 5000
-
 struct ums_lgr_list g_ums_lgr_list = {	/* established link groups */
 	.lock = __SPIN_LOCK_UNLOCKED(g_ums_lgr_list.lock),
 	.list = LIST_HEAD_INIT(g_ums_lgr_list.list),
 	.num = 0,
 };
 
-static atomic_t g_clc_session_id = ATOMIC_INIT(0);
-
 struct ums_sys_tuning_config g_ums_sys_tuning_config = {
-	.ub_token_mode = UMS_TOKEN_MODE_SECURE,
-	.ums_agent_uid = 0,
-	.ums_agent_gid = 0,
+	.ub_token_disable = false,
 };
 
 static atomic_t g_lgr_cnt = ATOMIC_INIT(0); /* number of existing link groups */
@@ -72,7 +65,6 @@ static DECLARE_WAIT_QUEUE_HEAD(g_lgrs_deleted);
 static void ums_buf_free(struct ums_link_group *lgr, bool is_rmb, struct ums_buf_desc *buf_desc);
 static void ums_lgr_terminate_inner(struct ums_link_group *lgr, bool soft);
 static void ums_link_down_work(struct work_struct *work);
-static void ums_link_clear_finish_work(struct work_struct *work);
 static int ums_modify_jetty_err(struct ums_link *lnk);
 
 /* return head of link group list and its lock for a given link group */
@@ -387,7 +379,6 @@ static void ums_link_fill_basic(struct ums_link_group *lgr, struct ums_link *lnk
 	atomic_set(&lnk->jetty_mod_cnt, 0);
 	ums_llc_link_set_uid(lnk);
 	INIT_WORK(&lnk->link_down_wrk, ums_link_down_work);
-	INIT_WORK(&lnk->link_clear_finish_wrk, ums_link_clear_finish_work);
 	get_random_bytes(rndvec, sizeof(rndvec));
 	lnk->psn_initial = (u32)(rndvec[0] + (rndvec[1] << 8) + (rndvec[2] << 16));
 }
@@ -438,8 +429,6 @@ out:
 	ums_ubdev_cnt_dec(lnk);
 	put_device(&lnk->ums_dev->ub_dev->dev);
 	ums_dev = lnk->ums_dev;
-	memzero_explicit(&lnk->jetty_token_value, sizeof(lnk->jetty_token_value));
-	memzero_explicit(&lnk->ub_tjetty_cfg.token_value, sizeof(lnk->ub_tjetty_cfg.token_value));
 	(void)memset(lnk, 0, sizeof(struct ums_link));
 	lnk->state = UMS_LNK_UNUSED;
 	if (atomic_dec_return(&ums_dev->lnk_cnt) == 0)
@@ -507,7 +496,8 @@ static int ums_lgr_init(struct ums_link_group *lgr, struct ums_sock *ums,
 	if (rc != 0)
 		goto out;
 
-	lgr->net = ini->net;
+	if (lnk->ums_dev->ub_dev->netdev)
+		lgr->net = dev_net(lnk->ums_dev->ub_dev->netdev);
 	/* UMS only supports VM continous mode */
 	lgr->buf_type = UMS_VIRT_CONT_BUFS;
 	atomic_inc(&g_lgr_cnt);
@@ -581,20 +571,8 @@ void ums_switch_link_and_count(struct ums_connection *conn,
 	ums_link_hold(conn->lnk);
 }
 
-static void ums_unregister_seg(struct ums_buf_desc *buf_desc, const struct ums_link *lnk)
-{
-	if (buf_desc && (buf_desc->is_reg_seg[lnk->link_idx] != 0) &&
-		(buf_desc->seg[lnk->link_idx] != NULL)) {
-		buf_desc->is_reg_seg[lnk->link_idx] = false;
-		(void)ubcore_unregister_seg(buf_desc->seg[lnk->link_idx]);
-		buf_desc->seg[lnk->link_idx] = NULL;
-		memzero_explicit(&buf_desc->seg_token_value, sizeof(buf_desc->seg_token_value));
-	}
-	return;
-}
-
 static void ums_buf_unuse_inner(struct ums_buf_desc **buf_desc, bool is_rmb,
-	const struct ums_link *lnk, struct ums_link_group *lgr)
+			   struct ums_link_group *lgr)
 {
 	struct mutex *lock;  /* lock buffer list */
 	int rc;
@@ -623,7 +601,6 @@ static void ums_buf_unuse_inner(struct ums_buf_desc **buf_desc, bool is_rmb,
 		ums_buf_free(lgr, is_rmb, *buf_desc);
 		*buf_desc = NULL;
 	} else {
-		ums_unregister_seg(*buf_desc, lnk);
 		if (is_rmb)
 			/* memzero_explicit provides potential memory barrier semantics */
 			memzero_explicit((*buf_desc)->cpu_addr, (size_t)((*buf_desc)->len));
@@ -635,13 +612,13 @@ static void ums_buf_unuse(struct ums_connection *conn, struct ums_link_group *lg
 {
 	if (conn->sndbuf_desc) {
 		if (conn->sndbuf_desc->is_vm != 0) {
-			ums_buf_unuse_inner(&conn->sndbuf_desc, false, conn->lnk, lgr);
+			ums_buf_unuse_inner(&conn->sndbuf_desc, false, lgr);
 		} else {
 			WRITE_ONCE(conn->sndbuf_desc->used, 0);
 		}
 	}
 	if (conn->rmb_desc)
-		ums_buf_unuse_inner(&conn->rmb_desc, true, conn->lnk, lgr);
+		ums_buf_unuse_inner(&conn->rmb_desc, true, lgr);
 }
 
 /* remove a finished connection from its link group */
@@ -659,36 +636,7 @@ void ums_conn_free(struct ums_connection *conn)
 		return;
 
 	conn->freed = 1;
-
-	/*
-	 * Step 1: Remove the clc entry from the hash table so that new
-	 * netlink callbacks can no longer find this conn. If the entry
-	 * still exists (holder A), unregister removes it and calls
-	 * ums_token_ctx_nl_put (nl_refcnt: 1→0). If the entry was already
-	 * claimed by a callback (holder B), unregister finds nothing and
-	 * nl_refcnt remains 1 — we must wait for the callback to finish.
-	 */
-	if (refcount_read(&conn->token_ctx.nl_refcnt) > 0)
-		ums_nl_unregister_clc_session(&conn->token_ctx);
-
 	ums_wait_conn_tx_rx_refcnt(conn);
-
-	/*
-	 * Step 2: If nl_refcnt is still 1 after unregister, it means a
-	 * netlink callback (holder B) is in-flight and owns the reference.
-	 * We must wait for it to call ums_token_ctx_nl_put before freeing conn.
-	 * Release socket lock so the backlog can be processed and other socket
-	 * operations are not blocked during the wait. The callback does not
-	 * need the socket lock, so releasing it here is safe.
-	 */
-	if (refcount_read(&conn->token_ctx.nl_refcnt) > 0) {
-		struct ums_sock *ums = container_of(conn, struct ums_sock, conn);
-
-		release_sock(&ums->sk);
-		wait_event(conn->token_ctx.nl_free_wait,
-			refcount_read(&conn->token_ctx.nl_refcnt) == 0);
-		lock_sock(&ums->sk);
-	}
 
 	UMS_LOGI_LIMITED("free conn %u", conn->conn_id);
 	if (!ums_conn_lgr_valid(conn))
@@ -724,6 +672,17 @@ static void ums_rtoken_clear_link(struct ums_link *lnk)
 	}
 }
 
+static void ums_unregister_seg(struct ums_buf_desc *buf_desc, const struct ums_link *lnk)
+{
+	if (buf_desc && (buf_desc->is_reg_seg[lnk->link_idx] != 0) &&
+		(buf_desc->seg[lnk->link_idx] != NULL)) {
+		buf_desc->is_reg_seg[lnk->link_idx] = false;
+		(void)ubcore_unregister_seg(buf_desc->seg[lnk->link_idx]);
+		buf_desc->seg[lnk->link_idx] = NULL;
+	}
+	return;
+}
+
 /* unregister all buffers of lgr for a deleted link */
 static void ums_buf_unregister_lgr(struct ums_link *lnk)
 {
@@ -754,36 +713,11 @@ static void ums_link_clear_inner(struct ums_link *lnk)
 	ums_ubdev_cnt_dec(lnk);
 	put_device(&lnk->ums_dev->ub_dev->dev);
 	ums_ub_dev = lnk->ums_dev;
-	memzero_explicit(&lnk->jetty_token_value, sizeof(lnk->jetty_token_value));
-	memzero_explicit(&lnk->ub_tjetty_cfg.token_value, sizeof(lnk->ub_tjetty_cfg.token_value));
 	(void)memset(lnk, 0, sizeof(struct ums_link));
 	lnk->state = UMS_LNK_UNUSED;
 	if (atomic_dec_return(&ums_ub_dev->lnk_cnt) == 0)
 		wake_up(&ums_ub_dev->lnks_deleted);
 	ums_lgr_put(lgr); /* lgr_hold in ums_link_init() */
-}
-
-/*
- * ums_link_clear_finish_work - finish clearing link from workqueue context
- * @work: the work_struct embedded in ums_link
- *
- * This function is scheduled when ums_link_put detects refcnt drops to 0 in
- * softirq context (ums_link_down_cond_sched). It executes the second half of
- * link cleanup (ums_link_clear_inner).
- *
- * No need to check clearing flag because:
- * 1. If refcnt drops to 0, ums_link_clear must have been called already
- * 2. ums_link_clear sets clearing=1 and executes the first half of cleanup
- * 3. We only need to execute the second half (ums_link_clear_inner)
- */
-static void ums_link_clear_finish_work(struct work_struct *work)
-{
-	struct ums_link *lnk = container_of(work, struct ums_link, link_clear_finish_wrk);
-
-	if (!lnk || !lnk->lgr)
-		return;
-
-	ums_link_clear_inner(lnk);
 }
 
 /* must be called under lgr->llc_conf_mutex lock */
@@ -796,12 +730,7 @@ void ums_link_clear(struct ums_link *lnk, bool log)
 	ums_llc_link_clear(lnk, log);
 	ums_rtoken_clear_link(lnk);
 	ums_wr_free_link(lnk);
-	/*
-	 * This is theoretically the last link_put, but may not be if there is a
-	 * concurrent link down operation (e.g., from ums_link_down_cond_sched in
-	 * softirq context) that already holds a reference.
-	 */
-	ums_link_put(lnk);
+	ums_link_put(lnk); /* theoretically last link_put */
 }
 
 void ums_link_hold(struct ums_link *lnk)
@@ -813,28 +742,12 @@ void ums_link_put(struct ums_link *lnk)
 {
 	if (unlikely(!lnk))
 		return;
-
-	if (refcount_dec_and_test(&lnk->refcnt)) {
-		if (in_softirq()) {
-			/*
-			 * Cannot execute blocking operations in softirq context or when
-			 * softirq is disabled (e.g., spin_lock_bh/spin_lock_irqsave).
-			 * Defer to workqueue where blocking is safe.
-			 */
-			if (!schedule_work(&lnk->link_clear_finish_wrk)) {
-				UMS_LOGE("failed to schedule link_clear_finish_wrk, link %*phN resource leaked",
-					UMS_LGR_ID_SIZE, lnk->link_uid);
-			}
-		} else {
-			/* If lnk->refcnt drops to 0, ums_link_clear must have been called. */
-			ums_link_clear_inner(lnk);
-		}
-	}
+	if (refcount_dec_and_test(&lnk->refcnt))
+		ums_link_clear_inner(lnk);
 }
 
 static void ums_buf_free(struct ums_link_group *lgr, bool is_rmb, struct ums_buf_desc *buf_desc)
 {
-	memzero_explicit(&buf_desc->seg_token_value, sizeof(buf_desc->seg_token_value));
 	if ((buf_desc->is_vm == 0) && buf_desc->pages)
 		__free_pages(buf_desc->pages, buf_desc->order);
 	else if ((buf_desc->is_vm != 0) && buf_desc->cpu_addr)
@@ -1226,11 +1139,6 @@ int ums_vlan_by_tcpsk(struct socket *clcsock, struct ums_init_info *ini)
 	return 0;
 }
 
-static inline bool ums_lgr_net_match(struct ums_link_group *lgr, struct net *net)
-{
-	return net_eq(lgr->net, net);
-}
-
 static bool ums_lgr_match(struct ums_link_group *lgr, struct ums_init_info *ini,
 	enum ums_lgr_role role, struct net *net)
 {
@@ -1247,7 +1155,8 @@ static bool ums_lgr_match(struct ums_link_group *lgr, struct ums_init_info *ini,
 		if (!ums_link_active(lnk))
 			continue;
 
-		if (!ums_lgr_net_match(lgr, net))
+		/* use verbs API to check netns, instead of lgr->net */
+		if (!ums_udev_can_access_from_ns(lnk->ums_dev, net))
 			return false;
 
 		if ((lgr->role == UMS_SERV || lnk->tjetty_id == ini->tjetty_id) &&
@@ -1437,25 +1346,6 @@ static inline int ums_rmb_wnd_update_limit(int rmbe_size)
 	return max_t(int, rmbe_size / 10, SOCK_MIN_SNDBUF >> 1);
 }
 
-static void ums_set_seg_token(union ubcore_reg_seg_flag *flag,
-	struct ubcore_seg_cfg *cfg, struct ums_buf_desc *buf_desc)
-{
-	switch (g_ums_sys_tuning_config.ub_token_mode) {
-	case UMS_TOKEN_MODE_SECURE:
-	case UMS_TOKEN_MODE_LEGACY:
-		flag->bs.token_policy = UBCORE_TOKEN_PLAIN_TEXT;
-		get_random_bytes(&buf_desc->seg_token_value.token,
-			sizeof(buf_desc->seg_token_value.token));
-		cfg->token_value.token = buf_desc->seg_token_value.token;
-		return;
-	case UMS_TOKEN_MODE_DISABLE:
-	default:
-		flag->bs.token_policy = UBCORE_TOKEN_NONE;
-		cfg->token_value.token = 0;
-		return;
-	}
-}
-
 /* register a new buf on UBcore device, rmb or vzalloced sndbuf
  * must be called under lgr->llc_conf_mutex lock
  */
@@ -1464,6 +1354,7 @@ int ums_link_reg_buf(struct ums_link *link, struct ums_buf_desc *buf_desc, bool 
 	struct ubcore_device *ub_dev = link->ums_dev->ub_dev;
 	struct ubcore_target_seg *seg = NULL;
 	union ubcore_reg_seg_flag flag = {
+		.bs.token_policy = g_ums_sys_tuning_config.ub_token_disable ? UBCORE_TOKEN_NONE : UBCORE_TOKEN_PLAIN_TEXT,
 		.bs.cacheable = UBCORE_NON_CACHEABLE,
 		.bs.access = is_rmb ? RMB_ACCESS : SENDBUF_ACCESS,
 		.bs.reserved = 0
@@ -1479,10 +1370,12 @@ int ums_link_reg_buf(struct ums_link *link, struct ums_buf_desc *buf_desc, bool 
 		/* register memory region for new buf */
 		cfg.va = (uintptr_t)buf_desc->cpu_addr;
 		cfg.len = (uint64_t)buf_desc->len;
-		ums_set_seg_token(&flag, &cfg, buf_desc);
 		cfg.flag = flag;
+		if (!g_ums_sys_tuning_config.ub_token_disable) {
+			get_random_bytes(&buf_desc->seg_token_value.token, sizeof(buf_desc->seg_token_value.token));
+			cfg.token_value.token = buf_desc->seg_token_value.token;
+		}
 		seg = ubcore_register_seg(ub_dev, &cfg, NULL);
-		memzero_explicit(&cfg.token_value, sizeof(cfg.token_value));
 		if (IS_ERR_OR_NULL(seg)) {
 			buf_desc->reg_err = true;
 			return -ENOMEM;
@@ -1693,8 +1586,10 @@ int ums_buf_register(struct ums_sock *ums)
 		}
 	}
 	if (ums_lgr_reg_rmbs(ums, ums->conn.rmb_desc) != 0) {
-		ums_unregister_seg(ums->conn.sndbuf_desc, link);
+		(void)ubcore_unregister_seg(ums->conn.sndbuf_desc->seg[link->link_idx]);
 		ums->conn.rmb_desc->reg_err = true;
+		ums->conn.sndbuf_desc->seg[link->link_idx] = NULL;
+		ums->conn.sndbuf_desc->is_reg_seg[link->link_idx] = false;
 		return UMS_CLC_DECL_ERR_REGBUF;
 	}
 	return 0;
@@ -1709,48 +1604,6 @@ static inline int ums_rmb_reserve_rtoken_idx(struct ums_link_group *lgr)
 			return i;
 	}
 	return -ENOSPC;
-}
-
-u32 ums_clc_session_id_generate(void)
-{
-	return (u32)atomic_inc_return(&g_clc_session_id);
-}
-
-void ums_token_xchg_ctx_init(struct ums_token_xchg_ctx *ctx,
-	u32 clc_session_id, const u8 *initiator_id)
-{
-	ctx->clc_session_id = clc_session_id;
-	memcpy(ctx->initiator_id, initiator_id, UMS_SYSTEMID_LEN);
-	ums_token_xchg_init(&ctx->xchg);
-	memzero_explicit(&ctx->jetty_token, sizeof(ctx->jetty_token));
-	memzero_explicit(&ctx->seg_token, sizeof(ctx->seg_token));
-	memzero_explicit(&ctx->peer_seg_token, sizeof(ctx->peer_seg_token));
-	memzero_explicit(&ctx->peer_jetty_token, sizeof(ctx->peer_jetty_token));
-	refcount_set(&ctx->nl_refcnt, 0);
-	init_waitqueue_head(&ctx->nl_free_wait);
-}
-
-int ums_wait_token_xchg(struct ums_token_xchg_ctx *ctx)
-{
-	long ret;
-
-	if (g_ums_sys_tuning_config.ub_token_mode != UMS_TOKEN_MODE_SECURE)
-		return 0;
-
-	ret = wait_for_completion_timeout(&ctx->xchg.done,
-		msecs_to_jiffies(UMS_TOKEN_DELIVER_TIMEOUT_MS));
-	if (ret == 0) {
-		UMS_LOGW_LIMITED("TOKEN_DELIVER timeout, clc_session_id=%u", ctx->clc_session_id);
-		return -ETIMEDOUT;
-	}
-
-	if (ctx->xchg.result != 0) {
-		UMS_LOGW_LIMITED("TOKEN_DELIVER failed, clc_session_id=%u, result=%d",
-			ctx->clc_session_id, ctx->xchg.result);
-		return ctx->xchg.result;
-	}
-
-	return 0;
 }
 
 /* save rkey and dma_addr received from peer during clc handshake */
@@ -1769,19 +1622,11 @@ int ums_rmb_import_seg(struct ums_connection *conn, struct ums_clc_msg_accept_co
 	tseg_cfg.seg.len = (uint64_t)conn->peer_rmbe_size;
 	tseg_cfg.seg.attr.value = ntohl(clc->r0.seg_flag);
 	tseg_cfg.seg.token_id = ntohl(clc->r0.seg_token_id);
-
-	if (g_ums_sys_tuning_config.ub_token_mode == UMS_TOKEN_MODE_SECURE) {
-		tseg_cfg.token_value.token = conn->token_ctx.peer_seg_token.token;
-		memzero_explicit(&conn->token_ctx.peer_seg_token, sizeof(conn->token_ctx.peer_seg_token));
-	} else {
-		tseg_cfg.token_value.token = ntohl(clc->r0.seg_token_value);
-	}
-
+	tseg_cfg.token_value.token = ntohl(clc->r0.seg_token_value);
 	tseg_cfg.seg.ubva.va = be64_to_cpu(clc->r0.rmb_dma_addr);
 	(void)memcpy(tseg_cfg.seg.ubva.eid.raw, clc->r0.lcl.eid.raw, UMS_EID_SIZE);
 	tseg_cfg.mva = 0;
 	conn->tseg = ubcore_import_seg(conn->lnk->ums_dev->ub_dev, &tseg_cfg, NULL);
-	memzero_explicit(&tseg_cfg.token_value, sizeof(tseg_cfg.token_value));
 	if (IS_ERR_OR_NULL(conn->tseg)) {
 		UMS_LOGE("failed to import peer tseg");
 		return -1;
@@ -1862,10 +1707,6 @@ static struct notifier_block g_ums_reboot_notifier = {
 
 int __init ums_core_init(void)
 {
-	u32 seed;
-
-	get_random_bytes(&seed, sizeof(seed));
-	atomic_set(&g_clc_session_id, (int)seed);
 	return register_reboot_notifier(&g_ums_reboot_notifier);
 }
 

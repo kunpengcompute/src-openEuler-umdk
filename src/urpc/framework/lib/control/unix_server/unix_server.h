@@ -48,7 +48,6 @@ typedef struct urpc_ipc_cmd {
 
 int unix_server_cmds_register(urpc_ipc_cmd_t *cmd, int num);
 void unix_server_cmds_unregister(urpc_ipc_cmd_t *cmd, int num);
-int unix_server_cmd_get(uint16_t module_id, uint16_t cmd_id, urpc_ipc_cmd_t *cmd);
 
 int unix_server_init(const char *unix_domain_file_path);
 void unix_server_uninit(void);

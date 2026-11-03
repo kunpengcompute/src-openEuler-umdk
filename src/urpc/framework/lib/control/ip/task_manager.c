@@ -48,9 +48,7 @@ void task_manager_timeout_manager_remove(urpc_async_task_ctx_t *entry)
     if (!g_urpc_task_timeout_manager.is_outer_lock) {
         (void)pthread_mutex_unlock(&g_urpc_task_timeout_manager.lock);
     }
-    if (entry->ref_cnt > 0) {
-        entry->ref_cnt--;
-    }
+    entry->ref_cnt--;
 }
 
 urpc_async_task_ctx_t *task_manager_server_task_get(task_instance_key_t *key)
@@ -103,17 +101,13 @@ void task_manager_client_task_remove(urpc_async_task_ctx_t *entry)
     (void)pthread_rwlock_wrlock(&g_urpc_client_task_hamp.rw_lock);
     urpc_hmap_remove(&g_urpc_client_task_hamp.hmap, &entry->task_hash_node);
     (void)pthread_rwlock_unlock(&g_urpc_client_task_hamp.rw_lock);
-    if (entry->ref_cnt > 0) {
-        entry->ref_cnt--;
-    }
+    entry->ref_cnt--;
 }
 
 void task_manager_server_task_remove(urpc_async_task_ctx_t *entry)
 {
     // server single-threaded processing, and does not require locking
-    if (entry->ref_cnt > 0) {
-        entry->ref_cnt--;
-    }
+    entry->ref_cnt--;
     urpc_hmap_remove(&g_urpc_server_task_hamp.hmap, &entry->task_hash_node);
 }
 
@@ -132,9 +126,7 @@ void task_manager_running_task_activate(void)
         (void)pthread_mutex_unlock(&g_urpc_task_activation_manager.lock);
         ASSIGN_CONTAINER_PTR(task_entry, node_ptr, flow_node);
         task_entry->list_type = TASK_LIST_TYPE_UNKNOWN;
-        if (task_entry->ref_cnt > 0) {
-            task_entry->ref_cnt--;
-        }
+        task_entry->ref_cnt--;
         task_engine_task_process(false, NULL, NULL, task_entry);
         count--;
     }
@@ -365,6 +357,7 @@ static void task_activation_manager_uninit(void)
     pthread_mutex_destroy(&g_urpc_task_activation_manager.lock);
 }
 
+
 static int task_timeout_manager_init(void)
 {
     urpc_list_init(&g_urpc_task_timeout_manager.list);
@@ -462,9 +455,6 @@ static void task_manager_timeout_check(void *args)
         // resource clean up
         if (cur->workflow_type == WORKFLOW_TYPE_RELEASE_RESOURCE) {
             task_engine_task_process(false, NULL, NULL, cur);
-        } else if (cur->workflow_type == WORKFLOW_TYPE_CONNECT_TIMER) {
-            transport_connect_timer_destroy(cur);
-            transport_acception_shutdown((urpc_server_accept_entry_t *)cur->transport_handle, true, false);
         } else {
             cur->result = URPC_ERR_TIMEOUT;
             if (task_can_stop_immediately(cur)) {

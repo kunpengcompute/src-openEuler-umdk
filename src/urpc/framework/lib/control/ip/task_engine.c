@@ -970,49 +970,21 @@ static int client_func_recv(urpc_async_task_ctx_t *task)
 
 int urpc_mem_info_set(uint32_t chid, uint64_t addr, uint32_t len)
 {
-    if (len < sizeof(urpc_tlv_arr_head_t)) {
-        URPC_LIB_LOG_ERR("length of addr is insufficient for the size of urpc_tlv_arr_head_t\n");
-        return -URPC_ERR_EINVAL;
-    }
     urpc_tlv_arr_head_t *meminfo_arr_tlv_head = (urpc_tlv_arr_head_t *)(uintptr_t)addr;
     uint32_t mem_info_num = meminfo_arr_tlv_head->value.arr_num;
-    if (mem_info_num > MAX_MEM_H_SIZE) {
-        URPC_LIB_LOG_ERR("mem_info_num %u is too large\n", mem_info_num);
-        return -URPC_ERR_EINVAL;
-    }
-
-    if (len < urpc_tlv_arr_get_user_data_len(meminfo_arr_tlv_head) + sizeof(urpc_tlv_arr_head_t)) {
-        URPC_LIB_LOG_ERR("length of addr is insufficient to accommodate all mem_info\n");
-        return -URPC_ERR_EINVAL;
-    }
-
-    if (meminfo_arr_tlv_head->len <
-        sizeof(uint32_t) + mem_info_num * (sizeof(urpc_tlv_head_t) + sizeof(xchg_mem_info_t))) {
-        URPC_LIB_LOG_ERR("meminfo arr tlv head len is insufficient to accommodate all mem_info\n");
-        return -URPC_ERR_EINVAL;
-    }
-
-    xchg_mem_info_t **meminfo_arr =
-        (xchg_mem_info_t **)urpc_dbuf_malloc(URPC_DBUF_TYPE_CP, mem_info_num * sizeof(xchg_mem_info_t *));
-    if (meminfo_arr == NULL) {
-        URPC_LIB_LOG_ERR("malloc meminfo_arr failed\n");
-        return -URPC_ERR_ENOMEM;
-    }
-
+    xchg_mem_info_t *meminfo_arr[mem_info_num];
     int ret = meminfo_arr_deserialize(meminfo_arr_tlv_head, meminfo_arr);
     if (ret != URPC_SUCCESS) {
-        urpc_dbuf_free(meminfo_arr);
         URPC_LIB_LOG_ERR("deserialize meminfo arr failed\n")
         return ret;
     }
 
     ret = server_channel_put_mem_info(chid, meminfo_arr, mem_info_num);
     if (ret != URPC_SUCCESS) {
-        urpc_dbuf_free(meminfo_arr);
         URPC_LIB_LOG_ERR("put mem info failed\n")
         return ret;
     }
-    urpc_dbuf_free(meminfo_arr);
+
     return URPC_SUCCESS;
 }
 
@@ -1542,7 +1514,6 @@ int urpc_mem_info_get(uint32_t chid, mem_info_t *mem_info)
     urpc_tlv_arr_head_t *meminfo_arr_tlv_head =
         (urpc_tlv_arr_head_t *)urpc_dbuf_malloc(URPC_DBUF_TYPE_CHANNEL, mem_info_data_len);
     if (meminfo_arr_tlv_head == NULL) {
-        pthread_rwlock_unlock(&channel->mem_info_lock);
         URPC_LIB_LOG_ERR("mem arr tlv head malloc failed\n");
         return -URPC_ERR_ENOMEM;
     }
@@ -1731,7 +1702,7 @@ static int server_process_detach_resource_release(urpc_async_task_ctx_t *task)
         if (channel != NULL) {
             (void)pthread_rwlock_unlock(&channel->rw_lock);
         }
-        URPC_LIB_LOG_INFO("recv unknown client detach msg, server channel[%u], " EID_FMT ", pid: %u\n",
+        URPC_LIB_LOG_INFO("recv unkown client detach msg, server channel[%u], " EID_FMT ", pid: %u\n",
             server_chid, EID_ARGS(q_info->chinfo->key.eid), q_info->chinfo->key.pid);
         server_channel_connect_hmap_unlock();
         return URPC_FAIL;
@@ -1816,9 +1787,7 @@ int detach_server_final_step(urpc_async_task_ctx_t *task)
     ip_handshaker_ctx_t *ctx = (ip_handshaker_ctx_t *)(uintptr_t)task;
     urpc_client_connect_entry_t *entry = (urpc_client_connect_entry_t *)task->transport_handle;
     // detach success, decrement the reference count by one
-    if (entry->ref_cnt > 0) {
-        entry->ref_cnt--;
-    }
+    entry->ref_cnt--;
     urpc_channel_info_t *channel = ctx->client.channel;
     if (urpc_list_is_in_list(&channel->tcp_node)) {
         urpc_list_remove(&channel->tcp_node);
@@ -2438,20 +2407,20 @@ static task_workflow_handle_t g_urpc_client_pair_queue_workflow[] = {
     client_recv_bind_info,
     client_queue_bind
 };
-
+ 
 static task_workflow_handle_t g_urpc_handle_pair_queue_req_workflow[] = {
     server_queue_bind,
     bind_info_send,
     server_pair_final
 };
-
+ 
 static task_workflow_handle_t g_urpc_client_unpair_queue_workflow[] = {
     client_bind_init,
     unbind_info_send,
     client_recv_unbind_info,
     client_unbind
 };
-
+ 
 static task_workflow_handle_t g_urpc_handle_unpair_queue_req_workflow[] = {
     server_queue_unbind,
     unbind_info_send,
@@ -2551,7 +2520,7 @@ static int add_local_queue_init(urpc_async_task_ctx_t *task)
     if (ret != URPC_SUCCESS) {
         return URPC_FAIL;
     }
-
+   
     queue_t *queue = (queue_t *)(uintptr_t)ctx->urpc_qh;
     URPC_SLIST_FOR_EACH(cur_node, &channel->l_queue_nodes_head, node)
     {
@@ -2566,7 +2535,7 @@ static int add_local_queue_init(urpc_async_task_ctx_t *task)
         URPC_LIB_LOG_ERR("no more local queue can be added to the current channel, channel[%u]\n", channel->id);
         return URPC_FAIL;
     }
-
+    
     if (client_queue_info_prepare(ctx) != URPC_SUCCESS) {
         URPC_LIB_LOG_ERR("prepare channel info failed, taskid: %d\n", task->key.task_id);
         return URPC_FAIL;
@@ -2727,13 +2696,13 @@ handshaker_callback_ctx_t *task_engine_callback_construct(
         URPC_LIB_LOG_ERR("malloc connect callback ctx failed\n");
         return NULL;
     }
-
+ 
     if (!urpc_channel_connect_option_set(server, option, &ctx->conn_option)) {
         errno = URPC_ERR_EINVAL;
         urpc_dbuf_free(ctx);
         return NULL;
     }
-
+ 
     if ((ctx->conn_option.flag & URPC_CHANNEL_CONN_FLAG_FEATURE) != 0 &&
         (ctx->conn_option.feature & URPC_CHANNEL_CONN_FEATURE_NONBLOCK) != 0) {
         ctx->nonblock = URPC_TRUE;
@@ -2750,7 +2719,7 @@ void task_engine_callback_destruct(handshaker_callback_ctx_t *ctx)
     if (ctx->nonblock == URPC_FALSE) {
         sem_destroy(&ctx->sem);
     }
-
+ 
     urpc_dbuf_free(ctx);
 }
 
@@ -2877,7 +2846,7 @@ static int pair_info_send(urpc_async_task_ctx_t *task, enum urpc_ctl_opcode opco
         URPC_LIB_LOG_ERR("entry is null, task id: %d\n", task->key.task_id);
         return URPC_FAIL;
     }
-
+ 
     task_send_request_option_t option = {
         .task_id = task->key.task_id,
         .chid = URPC_INVALID_ID_U32,
@@ -2967,7 +2936,7 @@ static int client_recv_pair_info(urpc_async_task_ctx_t *task, enum urpc_ctl_opco
         task->prepare_input = bind_info_recv_input_set;
         task->is_initialized = URPC_TRUE;
     }
-
+ 
     transport_handle_t *ctl_hdl = &entry->conn_handle;
     int ret = task_engine_recv_check(task, ctl_hdl);
     if (ret == URPC_RUNNING) {
@@ -3070,7 +3039,7 @@ int server_queue_bind(urpc_async_task_ctx_t *task)
 {
     queue_pair_ctx_t *ctx = CONTAINER_OF_FIELD(task, queue_pair_ctx_t, base_task);
     queue_bind_info_t *r_bind_info = ctx->r_bind_info;
-
+    
     queue_local_t *local_q = find_local_queue(r_bind_info);
     if (local_q == NULL) {
         URPC_LIB_LOG_ERR("process advise find local queue failed, qid %u\n", r_bind_info->r_qid);
@@ -3122,7 +3091,7 @@ static int server_queue_unbind(urpc_async_task_ctx_t *task)
 {
     queue_pair_ctx_t *ctx = CONTAINER_OF_FIELD(task, queue_pair_ctx_t, base_task);
     queue_bind_info_t *r_bind_info = ctx->r_bind_info;
-
+    
     queue_local_t *local_q = find_local_queue(r_bind_info);
     if (local_q == NULL) {
         URPC_LIB_LOG_ERR("process advise find local queue failed, qid %u\n", r_bind_info->r_qid);

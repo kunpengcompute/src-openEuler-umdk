@@ -22,7 +22,7 @@ int urpc_epoll_create(void)
 {
     int epoll_fd = epoll_create(MAX_EPOLL_FD_NUM);
     if (epoll_fd < 0) {
-        UTIL_LOG_ERR("create epoll fd failed, err: %s\n", strerror(errno));
+        UTIL_LOG_ERR("create epoll fd failed, %s\n", strerror(errno));
         return -1;
     }
 
@@ -50,7 +50,7 @@ int urpc_epoll_event_add(int epoll_fd, urpc_epoll_event_t *event)
     ev.data.ptr = event;
 
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, event->fd, &ev) != 0) {
-        UTIL_LOG_ERR("epoll control add event failed, err: %s\n", strerror(errno));
+        UTIL_LOG_ERR("epoll control add event failed, %s\n", strerror(errno));
         return URPC_FAIL;
     }
 
@@ -68,14 +68,14 @@ int urpc_epoll_event_modify(int epoll_fd, urpc_epoll_event_t *event)
 void urpc_epoll_event_delete(int epoll_fd, urpc_epoll_event_t *event)
 {
     if (epoll_fd < 0 || event == NULL) {
-        UTIL_LOG_ERR("epoll control delete event failed, err: %s\n", strerror(errno));
+        UTIL_LOG_ERR("epoll control delete event failed:%s\n", strerror(errno));
         return;
     }
 
     (void)epoll_ctl(epoll_fd, EPOLL_CTL_DEL, event->fd, NULL);
 }
 
-static bool is_consume_ctx(void *consum_ctx[], int num, const void* target)
+static bool is_consume_ctx(void *consum_ctx[], int num, void* target)
 {
     for (int i = 0; i < num; i++) {
         if (consum_ctx[i] == target) {

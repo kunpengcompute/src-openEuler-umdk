@@ -7,9 +7,6 @@ add_library(tpsa SHARED
     ${TPSA_SO_DIR_SRCS}
 )
 
-set(PROJECT_VERSION "0.0.3")
-set(PROJECT_VERSION_MAJOR "0")
-
 set_target_properties(tpsa
     PROPERTIES
         C_STANDARD 99
@@ -26,7 +23,7 @@ target_include_directories(tpsa
         ${CMAKE_SOURCE_DIR}/urma/common/include
 )
 
-target_link_libraries(tpsa urma_common_static nl-genl-3 nl-3)
+target_link_libraries(tpsa urma_common_static nl-genl-3 nl-3 ssl crypto)
 
 install(TARGETS tpsa
     DESTINATION /usr/lib64

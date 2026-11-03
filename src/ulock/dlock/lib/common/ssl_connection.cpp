@@ -132,7 +132,6 @@ ssize_t ssl_connection::blocking_send(const void *buf, size_t len)
         n_ret = SSL_get_error(m_ssl, ret);
         if (n_ret == SSL_ERROR_NONE) {
             length -= ret;
-            buf = static_cast<char *>(const_cast<void *>(buf)) + ret;
             continue;
         }
 
@@ -211,7 +210,6 @@ ssize_t ssl_connection::blocking_recv(void *buf, size_t len)
         n_ret = SSL_get_error(m_ssl, ret);
         if (n_ret == SSL_ERROR_NONE) {
             length -= ret;
-            buf = static_cast<char *>(buf) + ret;
             continue;
         }
 

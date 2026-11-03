@@ -21,7 +21,6 @@
 #include <linux/if_vlan.h>
 
 #include <ub/urma/ubcore_types.h>
-#include <ub/urma/ubcore_uapi.h>
 
 #ifndef KERNEL_VERSION_4
 #include "ums_dim.h"
@@ -126,9 +125,8 @@ int ums_ubcore_determine_eid(struct ums_ubcore_determine_eid_param *param)
 
 	/* Try to locate the EID via IP address. */
 	for (i = 0; i < param->ums_ub_dev->ub_dev->eid_table.eid_cnt; i++) {
-		if ((param->net == param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].net) &&
-			ums_ubcore_sk_rcv_saddr_equal_eid(param->sk,
-			&param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].eid)) {
+		if (ums_ubcore_sk_rcv_saddr_equal_eid(param->sk,
+		    &param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].eid)) {
 			*param->eid_index = i;
 			(void)memcpy(param->eid->raw, param->ums_ub_dev->ub_dev->eid_table.eid_entries[i].eid.raw, UMS_EID_SIZE);
 			return 0;
@@ -255,24 +253,47 @@ static int ums_ubcore_get_route_eid(union ubcore_eid *src_v_eid, union ubcore_ei
 	union ubcore_eid *src_p_eid, union ubcore_eid *dst_p_eid)
 {
 	int ret = -1;
-	struct ubcore_path_set path_set = {0};
+	uint32_t i = 0;
+	uint32_t route_idx = 0;
+	bool route_found = false;
+	uint32_t min_hops = UINT32_MAX;
+	struct ubcore_route_list route_list = {0};
 
-	ret = ubcore_get_path_set(src_v_eid, dst_v_eid, UBCORE_RTP, false, &path_set);
+	struct ubcore_route route_v = {
+		.src = *src_v_eid,
+		.dst = *dst_v_eid,
+	};
+
+	ret = ubcore_get_route_list(&route_v, &route_list);
 	if (ret != 0) {
-		UMS_LOGE("ubcore_get_path_set failed, ret: %d, src_v_eid: %pI6c, dst_v_eid: %pI6c.",
+		UMS_LOGE("ubcore_get_route_list failed, ret: %d, src_v_eid: %pI6c, dst_v_eid: %pI6c.",
 			ret, src_v_eid->raw, dst_v_eid->raw);
 		return -ENETUNREACH;
 	}
 
-	if (path_set.path_count == 0) {
-		UMS_LOGE("path_set is empty, src_v_eid: %pI6c, dst_v_eid: %pI6c.",
-			src_v_eid->raw, dst_v_eid->raw);
+	for (i = 0; i < route_list.route_num; i++) {
+		if (route_list.buf[i].hops >= min_hops) {
+			continue;
+		}
+
+		if (route_list.buf[i].flag.bs.rtp == 0) { /* only supports UBCORE_RTP */
+			continue;
+		}
+
+		route_found = true;
+		route_idx = i;
+		if (route_list.buf[i].hops == 0) {
+			break;
+		}
+		min_hops = route_list.buf[i].hops;
+	}
+
+	if (!route_found) {
 		return -ENETUNREACH;
 	}
 
-	/* The path selection needs to be optimized later; for now, use paths[0] */
-	*src_p_eid = path_set.paths[0].src_eid;
-	*dst_p_eid = path_set.paths[0].dst_eid;
+	*src_p_eid = route_list.buf[route_idx].src;
+	*dst_p_eid = route_list.buf[route_idx].dst;
 	return 0;
 }
 
@@ -423,7 +444,6 @@ static void ums_ubcore_port_event_work(struct work_struct *work)
 static int ums_ubcore_import_jetty(struct ums_link *lnk)
 {
 	lnk->ub_tjetty = ubcore_import_jetty(lnk->ums_dev->ub_dev, &lnk->ub_tjetty_cfg, NULL);
-	memzero_explicit(&lnk->ub_tjetty_cfg.token_value, sizeof(lnk->ub_tjetty_cfg.token_value));
 	if (IS_ERR_OR_NULL(lnk->ub_tjetty)) {
 		lnk->ub_tjetty = NULL;
 		UMS_LOGE("failed to importing jetty");
@@ -566,7 +586,6 @@ void ums_ubcore_destroy_jetty(struct ums_link *lnk)
 	ums_ubcore_put_jfc(lnk->ums_ub_jfc);
 	lnk->ub_tjetty = NULL;
 	lnk->ums_ub_jfc = NULL;
-	memzero_explicit(&lnk->ub_tjetty_cfg.token_value, sizeof(lnk->ub_tjetty_cfg.token_value));
 	(void)memset(&lnk->ub_tjetty_cfg, 0, sizeof(struct ubcore_tjetty_cfg));
 }
 
@@ -606,7 +625,7 @@ static void ums_ubcore_create_jfr(struct ums_ubcore_jfc *ums_ub_jfc, struct ums_
 	cfg.eid_index = lnk->eid_index;
 	cfg.max_sge = 1;
 	cfg.min_rnr_timer = UMS_TYPICAL_MIN_RNR_TIMER;
-	if (g_ums_sys_tuning_config.ub_token_mode == UMS_TOKEN_MODE_DISABLE) {
+	if (g_ums_sys_tuning_config.ub_token_disable) {
 		cfg.flag.bs.token_policy = UBCORE_TOKEN_NONE;
 		cfg.token_value.token = 0;
 	} else {
@@ -620,67 +639,15 @@ static void ums_ubcore_create_jfr(struct ums_ubcore_jfc *ums_ub_jfc, struct ums_
 	if (IS_ERR(lnk->jfr))
 		lnk->jfr = NULL;
 
-	memzero_explicit(&cfg.token_value, sizeof(cfg.token_value));
 	return;
-}
-
-static int ums_ubcore_get_jetty_priority_for_ctp(struct ubcore_device_attr *dev_attr)
-{
-	int i;
-
-	for (i = 0; i < UBCORE_MAX_PRIORITY_CNT; i++) {
-		if (dev_attr->dev_cap.priority_info[i].tp_type.bs.ctp != 0) {
-			return i;
-		}
-	}
-
-	return -1;
-}
-
-static int ums_ubcore_get_jetty_priority_for_rtp(struct ubcore_device_attr *dev_attr)
-{
-	int i;
-
-	for (i = 0; i < UBCORE_MAX_PRIORITY_CNT; i++) {
-		if (dev_attr->dev_cap.priority_info[i].tp_type.bs.rtp != 0) {
-			return i;
-		}
-	}
-
-	return -1;
-}
-
-static int ums_ubcore_get_jetty_priority_by_tp_type(struct ubcore_device *ub_dev, enum ubcore_tp_type tp_type)
-{
-	struct ubcore_device_attr dev_attr = {0};
-	int rc;
-
-	rc = ubcore_query_device_attr(ub_dev, &dev_attr);
-	if (rc != 0) {
-		UMS_LOGE("ubcore query device attr failed, rc: %d, dev_name: %s", rc, ub_dev->dev_name);
-		return -1;
-	}
-
-	if (tp_type == UBCORE_CTP) {
-		return ums_ubcore_get_jetty_priority_for_ctp(&dev_attr);
-	}
-
-	return ums_ubcore_get_jetty_priority_for_rtp(&dev_attr);
 }
 
 /* create a queue pair within the protection domain for a link */
 int ums_ubcore_create_jetty(struct ums_link *lnk)
 {
-	int priority = ums_ubcore_get_jetty_priority_by_tp_type(lnk->ums_dev->ub_dev, UBCORE_RTP);
-	if (priority < 0) {
-		UMS_LOGE("Failed to get priority by ty_type: %d, dev_name: %s", UBCORE_RTP, lnk->ums_dev->ub_dev->dev_name);
-		return -EINVAL;
-	}
-
 	struct ums_ubcore_jfc *ums_ub_jfc = ums_ubcore_get_least_used_jfc(lnk->ums_dev);
 	struct ubcore_jetty_cfg jetty_cfg = {
 		.jfs_depth = UMS_JFS_DEPTH,
-		.priority = priority,
 		.jfr_depth = UMS_WR_BUF_CNT,
 		.send_jfc = ums_ub_jfc->jfc,
 		.recv_jfc = ums_ub_jfc->jfc,

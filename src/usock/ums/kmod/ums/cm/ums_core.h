@@ -96,9 +96,9 @@ static inline bool ums_conn_lgr_valid(const struct ums_connection *conn)
 /*
  * Returns true if the specified link is usable.
  *
- * A link is usable, meaning that the link has been initialized, but this does not necessarily
- * mean that the link is ready to receive UB messages or can be used to send UB messages.
- * If sending UB messages is needed, use ums_link_sendable().
+ * usable means the link is ready to receive UB messages, map memory
+ * on the link, etc. This doesn't ensure we are able to send UB messages
+ * on this link, if sending UB messages is needed, use ums_link_sendable()
  */
 static inline bool ums_link_usable(const struct ums_link *lnk)
 {
@@ -111,20 +111,15 @@ static inline bool ums_link_usable(const struct ums_link *lnk)
  * Returns true if the specified link is ready to receive AND send UB
  * messages.
  *
- * The underlying Jetty may still in RESET state when the link state is ACTIVATING,
- * checks in ums_link_usable() is not strong enough. For those places that need to
- * send any UB messages(e.g., Data, CDC or LLC), use ums_link_sendable(), otherwise,
- * use ums_link_usable() instead.
+ * For the client side in first contact, the underlying QP may still in
+ * RESET or RTR when the link state is ACTIVATING, checks in ums_link_usable()
+ * is not strong enough. For those places that need to send any CDC or LLC
+ * messages, use ums_link_sendable(), otherwise, use ums_link_usable() instead
  */
 static inline bool ums_link_sendable(struct ums_link *lnk)
 {
-	/*
-	 * Currently, the Jetty state transition implementation may not be consistent with
-	 * the UB protocol. Therefore, you can only confirm whether Jetty is ready to send
-	 * by checking the Jetty pointers.
-	 */
-	return ums_link_usable(lnk) && lnk->ub_jetty != NULL && lnk->ub_tjetty != NULL &&
-		lnk->ub_jetty->remote_jetty != NULL;
+	/* In use, the link is RTS/RTR once the jetty is bounded */
+	return ums_link_usable(lnk) && lnk->ub_jetty != NULL && lnk->ub_tjetty != NULL;
 }
 
 static inline bool ums_link_active(const struct ums_link *lnk)
@@ -213,31 +208,6 @@ static inline void ums_wait_conn_tx_rx_refcnt(struct ums_connection *conn)
 	lock_sock(&ums->sk);
 }
 
-static inline bool ums_token_mode_valid(u8 mode)
-{
-	return mode < UMS_TOKEN_MODE_MAX;
-}
-
-static inline bool ums_token_mode_match(enum ums_token_mode local,
-	enum ums_token_mode peer)
-{
-	if (local == UMS_TOKEN_MODE_SECURE || peer == UMS_TOKEN_MODE_SECURE)
-		return local == peer;
-	return true;
-}
-
-static inline void ums_token_xchg_init(struct ums_token_xchg *xchg)
-{
-	init_completion(&xchg->done);
-	xchg->result = 0;
-}
-
-static inline void ums_token_xchg_complete(struct ums_token_xchg *xchg, int result)
-{
-	xchg->result = result;
-	complete(&xchg->done);
-}
-
 struct ums_clc_msg_accept_confirm;
 
 void ums_lgr_cleanup_early(struct ums_link_group *lgr);
@@ -251,10 +221,6 @@ int ums_buf_create(struct ums_sock *ums);
 int ums_buf_register(struct ums_sock *ums);
 void ums_snd_recv_bufs_free(struct ums_sock *ums);
 int ums_uncompress_bufsize(u8 compressed);
-u32 ums_clc_session_id_generate(void);
-void ums_token_xchg_ctx_init(struct ums_token_xchg_ctx *ctx,
-	u32 clc_session_id, const u8 *initiator_id);
-int ums_wait_token_xchg(struct ums_token_xchg_ctx *ctx);
 int ums_rmb_import_seg(struct ums_connection *conn, struct ums_clc_msg_accept_confirm *clc);
 void ums_rmb_unimport_seg(struct ums_connection *conn);
 int ums_rtoken_delete(struct ums_link *lnk, __be32 nw_rkey);

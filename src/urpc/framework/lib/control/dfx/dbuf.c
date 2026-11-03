@@ -15,8 +15,7 @@
 
 #define URPC_DBUF_INFO_LEN 8192
 
-static int format_stats_string(char *buf, int len, const uint64_t *stats,
-                               int stats_len, const char *(*name_get)(int))
+static int format_stats_string(char *buf, int len, uint64_t *stats, int stats_len, const char *(*name_get)(int))
 {
     int ret;
     int offset = 0, remain = len;
@@ -28,11 +27,14 @@ static int format_stats_string(char *buf, int len, const uint64_t *stats,
 
     for (int i = 0; i < stats_len; i++) {
         ret = snprintf(buf + offset, remain, "%-15s: %20lu Byte(s)\n", name_get(i), stats[i]);
-        if (ret < 0 || ret >= remain) {
+        if (ret < 0) {
             URPC_LIB_LOG_ERR("format stats info failed, error %d\n", ret);
             return ret;
         }
 
+        if (remain <= ret) {
+            break;
+        }
         offset += ret;
         remain -= ret;
     }

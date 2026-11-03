@@ -16,7 +16,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <syslog.h>
-#include <mutex>
 
 #include "dlock_types.h"
 #include "dlock_client_api.h"
@@ -42,7 +41,6 @@ static int g_client_num = CLIENT_NUM;
 static trans_mode_t g_tp_mode = SEPERATE_CONN;
 
 static int g_loop_num = LOOP_NUM;
-static std::mutex g_client_mgr_lock;
 
 void* client_launch(void *p_object)
 {
@@ -53,10 +51,7 @@ void* client_launch(void *p_object)
     char desc_str[256] = "dlock_desc";
     uint64_t v = 1;
 
-    {
-        std::unique_lock<std::mutex> locker(g_client_mgr_lock);
-        ret = CLIENT_INIT(&client_id, g_server_ip);
-    }
+    ret = CLIENT_INIT(&client_id, g_server_ip);
     if (ret != 0) {
         printf("client_init failed! ret: %d\n", ret);
         return 0;
@@ -116,10 +111,7 @@ void* client_launch(void *p_object)
     }
     printf("client destroy object id %d\n", object_id);
 
-    {
-        std::unique_lock<std::mutex> locker(g_client_mgr_lock);
-        ret = client_deinit(client_id);
-    }
+    ret = client_deinit(client_id);
     if (ret != 0) {
         printf("client_deinit failed! ret: %d\n", ret);
         return 0;

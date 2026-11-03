@@ -18,52 +18,9 @@
 #include "udma_u_db.h"
 #include "udma_u_jetty.h"
 
-static int exec_jetty_active_cmd(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
-{
-	struct udma_create_jetty_resp resp = {};
-	struct udma_create_jetty_ucmd cmd = {};
-	urma_cmd_udrv_priv_t udata = {};
-	int ret;
-
-	if (cfg->jfs_cfg.priority >= UDMA_MAX_PRIORITY) {
-		UDMA_LOG_ERR("user mode jetty priority is out of range, priority is %u.\n",
-			     cfg->jfs_cfg.priority);
-		return EINVAL;
-	}
-
-	cmd.buf_addr = (uintptr_t)jetty->sq.qbuf;
-	cmd.buf_len = jetty->sq.qbuf_size;
-	cmd.db_addr = (uintptr_t)jetty->sq.db.addr;
-	cmd.jetty_addr = (uintptr_t)&jetty->sq;
-	cmd.sqe_bb_cnt = jetty->sq.sqe_bb_cnt;
-	cmd.pi_type = jetty->sq.pi_type;
-	cmd.jetty_type = jetty->jetty_type;
-	cmd.non_pin = jetty->sq.cstm;
-	cmd.is_hugepage = jetty->sq.hugepage != NULL;
-
-	udma_u_set_udata(&udata, &cmd, (uint32_t)sizeof(cmd), &resp, (uint32_t)sizeof(resp));
-	ret = urma_cmd_active_jetty(&jetty->base, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("URMA active jetty failed.\n");
-		return ret;
-	}
-
-	ret = udma_u_set_sq_by_resp(&jetty->sq, &resp);
-	if (ret != 0) {
-		(void)urma_cmd_deactive_jetty(&jetty->base, NULL);
-		return ret;
-	}
-
-	jetty->sq.idx = jetty->base.jetty_id.id;
-	jetty->sq.db.id = jetty->base.jetty_id.id;
-
-	return 0;
-}
-
 int exec_jetty_create_cmd(urma_context_t *ctx, struct udma_u_jetty *jetty,
-				 urma_jetty_cfg_t *cfg)
+			  urma_jetty_cfg_t *cfg)
 {
-	struct udma_create_jetty_resp resp = {};
 	struct udma_create_jetty_ucmd cmd = {};
 	urma_cmd_udrv_priv_t udata = {};
 	int ret;
@@ -79,20 +36,15 @@ int exec_jetty_create_cmd(urma_context_t *ctx, struct udma_u_jetty *jetty,
 	cmd.db_addr = (uintptr_t)jetty->sq.db.addr;
 	cmd.jetty_addr = (uintptr_t)&jetty->sq;
 	cmd.sqe_bb_cnt = jetty->sq.sqe_bb_cnt;
-	cmd.pi_type = jetty->sq.pi_type;
+	cmd.pi_type = jetty->pi_type;
 	cmd.jetty_type = jetty->jetty_type;
 	cmd.non_pin = jetty->sq.cstm;
-	cmd.dtu_en = jetty->sq.dtu_en;
 	cmd.is_hugepage = jetty->sq.hugepage != NULL;
-	udma_u_set_udata(&udata, &cmd, (uint32_t)sizeof(cmd), &resp, (uint32_t)sizeof(resp));
+
+	udma_u_set_udata(&udata, &cmd, (uint32_t)sizeof(cmd), NULL, 0);
 	ret = urma_cmd_create_jetty(ctx, &jetty->base, cfg, &udata);
 	if (ret) {
-		UDMA_LOG_ERR("URMA create JETTY failed.\n");
-		return ret;
-	}
-	ret = udma_u_set_sq_by_resp(&jetty->sq, &resp);
-	if (ret != 0) {
-		(void)urma_cmd_delete_jetty(&jetty->base);
+		UDMA_LOG_ERR("urma create jetty failed.\n");
 		return ret;
 	}
 
@@ -111,8 +63,8 @@ int init_jetty_trans_mode(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
 		return 0;
 	}
 
-	UDMA_LOG_ERR("transport mode of JFS and JFR is not equal,"
-		     "JFS trans_mode is %u, JFR trans_mode is %u.\n",
+	UDMA_LOG_ERR("transmode of jfs and jfr is not equal,"
+		     "jfs trans_mode is %u, jfr trans_mode is %u.\n",
 		     cfg->jfs_cfg.trans_mode, jfr_cfg->trans_mode);
 
 	return EINVAL;
@@ -127,7 +79,7 @@ int add_jetty_to_grp(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
 		return 0;
 
 	if (jetty->sq.trans_mode != URMA_TM_RM) {
-		UDMA_LOG_ERR("JETTY must be RM model, if assigned group.\n");
+		UDMA_LOG_ERR("Jetty must be RM model, if assigned grp.\n");
 		return EINVAL;
 	}
 
@@ -135,7 +87,7 @@ int add_jetty_to_grp(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
 
 	(void)pthread_spin_lock(&udma_jetty_grp->lock);
 	if (udma_jetty_grp->jetty_cnt >= MAX_JETTY_IN_GRP) {
-		UDMA_LOG_ERR("JETTY group is already full.\n");
+		UDMA_LOG_ERR("Jetty Group is aleady full.\n");
 		ret = EINVAL;
 		goto out;
 	}
@@ -193,38 +145,6 @@ urma_status_t insert_jetty_node(struct udma_u_context *udma_ctx,
 	return URMA_SUCCESS;
 }
 
-static int udma_u_active_jetty_prepare(urma_jetty_t *jetty, urma_jetty_cfg_t *cfg)
-{
-	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
-	int ret;
-
-	ret = init_jetty_trans_mode(udma_jetty, cfg);
-	if (ret) {
-		UDMA_LOG_ERR("init JETTY transport mode failed when active JETTY, ret = %d.\n", ret);
-		return ret;
-	}
-
-	ret = add_jetty_to_grp(udma_jetty, cfg);
-	if (ret) {
-		UDMA_LOG_ERR("active JETTY add JETTY to group failed, ret = %d.\n", ret);
-		return ret;
-	}
-
-	udma_jetty->sq.sq_reserved = udma_jetty->sq.ctx->sq_reserved;
-	udma_jetty->sq.db.id = jetty->jetty_cfg.id;
-	udma_jetty->sq.is_jetty = true;
-	ret = udma_u_create_sq(&udma_jetty->sq, &cfg->jfs_cfg);
-	if (ret) {
-		UDMA_LOG_ERR("active JETTY create SQ failed, ret = %d.\n", ret);
-		remove_jetty_from_grp(udma_jetty);
-		return ret;
-	}
-
-	udma_jetty->jfr = to_udma_u_jfr(cfg->shared.jfr);
-
-	return 0;
-}
-
 urma_jetty_t *udma_u_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg)
 {
 	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
@@ -237,27 +157,30 @@ urma_jetty_t *udma_u_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg)
 		return NULL;
 	}
 
-	jetty->sq.ctx = udma_ctx;
-	jetty->sq.dtu_en = udma_ctx->dtu_enable;
-	ret = udma_u_active_jetty_prepare(&jetty->base, cfg);
-	if (ret)
-		goto err_active_jetty_prepare;
+	ret = init_jetty_trans_mode(jetty, cfg);
+	if (ret) {
+		UDMA_LOG_ERR("init jetty transmode failed.\n");
+		goto err_add_to_grp;
+	}
 
+	ret = add_jetty_to_grp(jetty, cfg);
+	if (ret) {
+		UDMA_LOG_ERR("add Jetty to grp failed.\n");
+		goto err_add_to_grp;
+	}
+
+	jetty->sq.ctx = udma_ctx;
+	ret = udma_u_create_sq(&jetty->sq, &cfg->jfs_cfg);
+	if (ret) {
+		UDMA_LOG_ERR("Jetty create sq failed.\n");
+		goto err_create_sq;
+	}
+
+	jetty->jfr = to_udma_u_jfr(cfg->shared.jfr);
 	jetty->jetty_type = UDMA_URMA_NORMAL_JETTY_TYPE;
 	if (exec_jetty_create_cmd(ctx, jetty, cfg)) {
-		if(jetty->sq.dtu_en) {
-			jetty->sq.dtu_en = false;
-			if (!udma_u_alloc_queue_buf(&jetty->sq, jetty->sq.sqe_bb_cnt * cfg->jfs_cfg.depth,
-			    UDMA_JFS_WQEBB, jetty->sq.aligned_size, true)) {
-				UDMA_LOG_ERR("failed to alloc JETTY SQ after DTU failed.\n");
-				goto err_jetty_create_cmd;
-			}
-			if (exec_jetty_create_cmd(ctx, jetty, cfg))
-				goto err_jetty_create_cmd;
-		} else {
-			UDMA_LOG_ERR("failed to create jetty.\n");
-			goto err_jetty_create_cmd;
-		}
+		UDMA_LOG_ERR("failed to create jetty.\n");
+		goto err_jetty_create_cmd;
 	}
 
 	jetty->sq.db.type = UDMA_MMAP_JETTY_DSQE;
@@ -276,8 +199,9 @@ err_alloc_db:
 	(void)urma_cmd_delete_jetty(&jetty->base);
 err_jetty_create_cmd:
 	udma_u_delete_sq(&jetty->sq);
+err_create_sq:
 	remove_jetty_from_grp(jetty);
-err_active_jetty_prepare:
+err_add_to_grp:
 	free(jetty);
 
 	return NULL;
@@ -296,15 +220,11 @@ void udma_u_jetty_table_remove(struct udma_u_context *udma_ctx,
 		return;
 	}
 
-	if (!udma_ctx->jetty_table[table_id].jetty_array[jetty->sq.idx & mask]) {
-		(void)pthread_rwlock_unlock(&udma_ctx->jetty_table_lock);
-		return;
-	}
-	udma_ctx->jetty_table[table_id].jetty_array[jetty->sq.idx & mask] = NULL;
-
 	if (!--udma_ctx->jetty_table[table_id].refcnt) {
 		free(udma_ctx->jetty_table[table_id].jetty_array);
 		udma_ctx->jetty_table[table_id].jetty_array = NULL;
+	} else {
+		udma_ctx->jetty_table[table_id].jetty_array[jetty->sq.idx & mask] = NULL;
 	}
 	(void)pthread_rwlock_unlock(&udma_ctx->jetty_table_lock);
 }
@@ -318,7 +238,7 @@ static urma_status_t udma_u_delete_jetty_prepare(urma_jetty_t *jetty)
 	if (sq->trans_mode == URMA_TM_RC && sq->tjetty) {
 		ret = udma_u_unbind_jetty(jetty);
 		if (ret) {
-			UDMA_LOG_ERR("unbind JETTY failed, JETTY id %u.\n", sq->idx);
+			UDMA_LOG_ERR("unbind jetty failed, jetty_id %u.\n", sq->idx);
 			return URMA_FAIL;
 		}
 	}
@@ -326,7 +246,7 @@ static urma_status_t udma_u_delete_jetty_prepare(urma_jetty_t *jetty)
 	return URMA_SUCCESS;
 }
 
-static void udma_u_free_jetty_prepare(urma_jetty_t* jetty)
+static void udma_u_free_jetty(urma_jetty_t *jetty)
 {
 	struct udma_u_context *udma_ctx = to_udma_u_ctx(jetty->urma_ctx);
 	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
@@ -348,17 +268,9 @@ static void udma_u_free_jetty_prepare(urma_jetty_t* jetty)
 
 	udma_u_jetty_table_remove(udma_ctx, udma_jetty);
 	udma_u_free_db(jetty->urma_ctx, &udma_jetty->sq.db);
-	if (udma_jetty->jetty_type == UDMA_LOCK_BUFFER_JETTY_TYPE)
-		udma_u_lock_delete_sq(&udma_jetty->sq);
-	else
-		udma_u_delete_sq(&udma_jetty->sq);
+	udma_u_delete_sq(&udma_jetty->sq);
 	remove_jetty_from_grp(udma_jetty);
-}
-
-static void udma_u_free_jetty_detail(urma_jetty_t *jetty)
-{
-	udma_u_free_jetty_prepare(jetty);
-	free(jetty);
+	free(udma_jetty);
 }
 
 urma_status_t udma_u_delete_jetty(urma_jetty_t *jetty)
@@ -377,7 +289,7 @@ urma_status_t udma_u_delete_jetty(urma_jetty_t *jetty)
 		goto delete_err;
 	}
 
-	udma_u_free_jetty_detail(jetty);
+	udma_u_free_jetty(jetty);
 
 	return URMA_SUCCESS;
 
@@ -400,7 +312,7 @@ urma_status_t udma_u_delete_jetty_batch(urma_jetty_t **jetty, int jetty_cnt, urm
 	}
 
 	if (!jetty_cnt) {
-		UDMA_LOG_ERR("JETTY count is 0.\n");
+		UDMA_LOG_ERR("jetty cnt is 0.\n");
 		return URMA_EINVAL;
 	}
 
@@ -414,12 +326,12 @@ urma_status_t udma_u_delete_jetty_batch(urma_jetty_t **jetty, int jetty_cnt, urm
 
 	ret = urma_cmd_delete_jetty_batch(jetty, jetty_cnt, bad_jetty);
 	if (ret) {
-		UDMA_LOG_ERR("batch JETTY delete failed, ret = %d.\n", ret);
+		UDMA_LOG_ERR("batch jetty delete failed, ret = %d.\n", ret);
 		goto delete_err;
 	}
 
 	for (i = 0; i < jetty_cnt; i++)
-		udma_u_free_jetty_detail(jetty[i]);
+		udma_u_free_jetty(jetty[i]);
 
 	return 0;
 
@@ -437,13 +349,13 @@ static int udma_check_jetty_grp_info(urma_tjetty_cfg_t *cfg)
 {
 	if (cfg->type == URMA_JETTY_GROUP) {
 		if (cfg->trans_mode != URMA_TM_RM) {
-			UDMA_LOG_ERR("import JETTY group only support RM, transmode is %u.\n",
+			UDMA_LOG_ERR("import jg only support RM, transmode is %u.\n",
 				     cfg->trans_mode);
 			return EINVAL;
 		}
 
 		if (cfg->policy != URMA_JETTY_GRP_POLICY_HASH_HINT) {
-			UDMA_LOG_ERR("import JETTY group only support hint, policy is %u.\n",
+			UDMA_LOG_ERR("import jg only support hint, policy is %u.\n",
 				     cfg->policy);
 			return EINVAL;
 		}
@@ -458,13 +370,13 @@ urma_status_t udma_u_unimport_jetty(urma_target_jetty_t *target_jetty)
 
 	if (target_jetty->trans_mode == URMA_TM_RC &&
 	    target_jetty->tp.tpn != INVALID_TPN) {
-		UDMA_LOG_ERR("the RC target JETTY is still being used, id = %u.\n",
+		UDMA_LOG_ERR("the RC target jetty is still being used, id = %u.\n",
 			     target_jetty->id.id);
 		return URMA_FAIL;
 	}
 
 	if (urma_cmd_unimport_jetty(target_jetty)) {
-		UDMA_LOG_ERR("URMA command unimport JETTY failed.\n");
+		UDMA_LOG_ERR("urma cmd unimport jetty failed.\n");
 		return URMA_FAIL;
 	}
 
@@ -514,20 +426,20 @@ urma_status_t udma_u_unbind_jetty(urma_jetty_t *jetty)
 	int ret;
 
 	if (tjetty == NULL || udma_jetty->sq.tjetty == NULL) {
-		UDMA_LOG_ERR("the jetty not bind a remote jetty, id = %u.\n",
+		UDMA_LOG_ERR("The Jetty not bind a remote Jetty, id = %u.\n",
 			     jetty->jetty_id.id);
 		return URMA_EINVAL;
 	}
 
 	if (udma_jetty->sq.trans_mode != URMA_TM_RC ||
 	    tjetty->trans_mode != URMA_TM_RC) {
-		UDMA_LOG_ERR("the transport mode of JETTY or target JETTY is not RC.\n");
+		UDMA_LOG_ERR("The transmode of Jetty or tJetty is not rc.\n");
 		return URMA_EINVAL;
 	}
 
 	ret = urma_cmd_unbind_jetty(jetty);
 	if (ret) {
-		UDMA_LOG_ERR("URMA command unbind JETTY failed, ret = %d.\n", ret);
+		UDMA_LOG_ERR("urma cmd unbind jetty failed, ret = %d.\n", ret);
 		return URMA_FAIL;
 	}
 
@@ -552,7 +464,7 @@ urma_status_t udma_u_modify_jetty(urma_jetty_t *jetty,
 
 	ret = urma_cmd_modify_jetty(jetty, jetty_attr, &udata);
 	if (ret) {
-		UDMA_LOG_ERR("URMA command modify JETTY failed.\n");
+		UDMA_LOG_ERR("urma cmd modify jetty failed.\n");
 		return URMA_FAIL;
 	}
 
@@ -576,18 +488,18 @@ urma_jetty_grp_t *udma_u_create_jetty_grp(urma_context_t *ctx,
 
 	jetty_grp = (struct udma_u_jetty_grp *)calloc(1, sizeof(*jetty_grp));
 	if (!jetty_grp) {
-		UDMA_LOG_ERR("alloc JETTY group failed.\n");
+		UDMA_LOG_ERR("alloc jetty grp failed.\n");
 		return NULL;
 	}
 
 	if (pthread_spin_init(&jetty_grp->lock, PTHREAD_PROCESS_PRIVATE)) {
-		UDMA_LOG_ERR("init JETTY group lock failed.\n");
+		UDMA_LOG_ERR("init jetty grp lock failed.\n");
 		goto err_spin_init;
 	}
 
 	ret = urma_cmd_create_jetty_grp(ctx, &jetty_grp->base, cfg, &udata);
 	if (ret) {
-		UDMA_LOG_ERR("URMA command create JETTY group failed.\n");
+		UDMA_LOG_ERR("urma cmd create jetty grp failed.\n");
 		goto err_cmd_create_jetty_grp;
 	}
 
@@ -613,7 +525,7 @@ urma_status_t udma_u_delete_jetty_grp(urma_jetty_grp_t *jetty_grp)
 
 	ret = urma_cmd_delete_jetty_grp(jetty_grp);
 	if (ret) {
-		UDMA_LOG_ERR("URMA command delete JETTY group failed.\n");
+		UDMA_LOG_ERR("urma cmd delete jetty grp failed.\n");
 		return URMA_FAIL;
 	}
 
@@ -655,7 +567,7 @@ urma_status_t udma_u_query_jetty(urma_jetty_t *jetty, urma_jetty_cfg_t *cfg,
 
 	ret = urma_cmd_query_jetty(jetty, cfg, attr);
 	if (ret) {
-		UDMA_LOG_ERR("failed to query JETTY in URMA command, ret = %d.\n", ret);
+		UDMA_LOG_ERR("failed to query jetty in urma cmd, ret = %d.\n", ret);
 		return URMA_FAIL;
 	}
 
@@ -674,7 +586,7 @@ urma_target_jetty_t *udma_u_import_jetty_ex(urma_context_t *ctx,
 	struct udma_u_target_jetty *tjetty;
 
 	if (rjetty->type != URMA_JETTY && rjetty->type != URMA_JETTY_GROUP) {
-		UDMA_LOG_ERR("the JETTY type %u cannot import JETTY ex.\n",
+		UDMA_LOG_ERR("The Jetty type %u cannot imported jetty ex.\n",
 			     rjetty->type);
 		return NULL;
 	}
@@ -684,14 +596,14 @@ urma_target_jetty_t *udma_u_import_jetty_ex(urma_context_t *ctx,
 
 	tjetty = (struct udma_u_target_jetty *)calloc(1, sizeof(*tjetty));
 	if (tjetty == NULL) {
-		UDMA_LOG_ERR("target JETTY alloc failed in imported JETTY ex.\n");
+		UDMA_LOG_ERR("target jetty alloc failed in imported jetty ex.\n");
 		return NULL;
 	}
 
 	udma_u_set_udata(&udrv_data, NULL, 0, NULL, 0);
 	if (urma_cmd_import_jetty_ex(ctx, &tjetty->urma_tjetty, &cfg,
 				     (urma_import_jetty_ex_cfg_t *)active_tp_cfg, &udrv_data) != 0) {
-		UDMA_LOG_ERR("URMA command import JETTY in export failed.\n");
+		UDMA_LOG_ERR("urma cmd import jetty in exp failed.\n");
 		free(tjetty);
 		return NULL;
 	}
@@ -719,24 +631,24 @@ urma_status_t udma_u_bind_jetty_ex(urma_jetty_t *jetty,
 
 	if (udma_jetty->sq.trans_mode != URMA_TM_RC ||
 	    tjetty->trans_mode != URMA_TM_RC) {
-		UDMA_LOG_ERR("the transport mode of JETTY or target JETTY in export is not RC.\n");
+		UDMA_LOG_ERR("The transmode of Jetty or tJetty in exp is not rc.\n");
 		return URMA_EINVAL;
 	}
 
 	if (udma_jetty->sq.tjetty == udma_tjetty) {
-		UDMA_LOG_INFO("reentry bind JETTY in exp, jetty_id = %u, tjetty_id = %u.\n",
+		UDMA_LOG_INFO("reentry bind jetty in exp, jetty_id = %u, tjetty_id = %u.\n",
 			      jetty->jetty_id.id, tjetty->id.id);
 		return URMA_SUCCESS;
 	}
 
 	if (udma_jetty->sq.tjetty != NULL) {
-		UDMA_LOG_ERR("the RC JETTY has bound a remote JETTY in export,"
+		UDMA_LOG_ERR("The rc Jetty has bound a remote Jetty in exp,"
 			     "jetty_id = %u.\n", jetty->jetty_id.id);
 		return URMA_EEXIST;
 	}
 
 	if (tjetty->tp.tpn != INVALID_TPN) {
-		UDMA_LOG_ERR("the target JETTY has been bound in export, id = %u.\n",
+		UDMA_LOG_ERR("the target jetty has been bound in exp, id = %u.\n",
 			     tjetty->id.id);
 		return URMA_EINVAL;
 	}
@@ -744,466 +656,11 @@ urma_status_t udma_u_bind_jetty_ex(urma_jetty_t *jetty,
 	ret = urma_cmd_bind_jetty_ex(jetty, tjetty,
 				     (urma_bind_jetty_ex_cfg_t *)active_tp_cfg, NULL);
 	if (ret != 0) {
-		UDMA_LOG_ERR("URMA command bind JETTY in export failed, ret = %d.\n", ret);
+		UDMA_LOG_ERR("urma cmd bind jetty in exp failed, ret = %d.\n", ret);
 		return URMA_FAIL;
 	}
 
 	udma_jetty->sq.tjetty = udma_tjetty;
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_alloc_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg,
-				urma_jetty_t **jetty)
-{
-	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
-	struct udma_u_jetty *udma_jetty;
-	urma_cmd_udrv_priv_t udata;
-	int ret;
-
-	udma_jetty = (struct udma_u_jetty *)calloc(1, sizeof(struct udma_u_jetty));
-	if (udma_jetty == NULL) {
-		UDMA_LOG_ERR("UDMA JETTY allocation failed.\n");
-		return URMA_ENOMEM;
-	}
-
-	ret = urma_cmd_alloc_jetty(ctx, cfg, &udma_jetty->base, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("alloc jetty failed, ret = %d.\n", ret);
-		free(udma_jetty);
-		return URMA_FAIL;
-	}
-
-	*jetty = &udma_jetty->base;
-	udma_jetty->sq.ctx = udma_ctx;
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_free_jetty(urma_jetty_t *jetty)
-{
-	urma_cmd_udrv_priv_t udata;
-	int ret;
-
-	ret = urma_cmd_free_jetty(jetty, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("free jetty failed, ret = %d.\n", ret);
-		return URMA_FAIL;
-	}
-
-	free(jetty);
-
-	return URMA_SUCCESS;
-}
-
-static uint64_t udma_jetty_opt[] = {
-	URMA_JFS_DEPTH,
-	URMA_JFS_FLAG,
-	URMA_JFS_TRANS_MODE,
-	URMA_JFS_PRIORITY,
-	URMA_JFS_MAX_SGE,
-	URMA_JFS_MAX_RSGE,
-	URMA_JFS_MAX_INLINE_DATA,
-	URMA_JFS_RNR_RETRY,
-	URMA_JFS_ERR_TIMEOUT,
-	URMA_JFS_BIND_JFC,
-	URMA_JFS_USER_CTX,
-	URMA_JFS_SQE_BASE_ADDR,
-	URMA_JFS_ID,
-	URMA_JFS_DB_ADDR,
-	URMA_JFS_DB_STATUS,
-	URMA_JFS_PI,
-	URMA_JFS_PI_TYPE,
-	URMA_JFS_CI,
-	URMA_JFS_FULL_CTX,
-	URMA_JETTY_ID,
-	URMA_JETTY_FLAG,
-	URMA_JETTY_BIND_JFR,
-	URMA_JETTY_BIND_RX_JFC,
-	URMA_JETTY_BIND_JTG,
-	URMA_JETTY_USER_CTX,
-	URMA_JETTY_FULL_CTX,
-};
-
-static struct udma_u_jetty_opt_info opt_info[] = {
-	{sizeof(uint32_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint32_t), PERM_R | PERM_W, JETTY_IGNORE, JFS_MODE | JETTY_MODE},
-	{sizeof(uint32_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint8_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint8_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint8_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint32_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint8_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint8_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, JFS_IGNORE | JETTY_IGNORE, JFS_MODE | JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint32_t), PERM_R | PERM_W, 0, JFS_MODE},
-	{sizeof(uint64_t), PERM_R, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint8_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint16_t), PERM_R, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint16_t), PERM_R | PERM_W, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint16_t), PERM_R, 0, JFS_MODE | JETTY_MODE},
-	{UDMA_JFS_CTX_SIZE, PERM_R, 0, JFS_MODE | JETTY_MODE},
-	{sizeof(uint32_t), PERM_R | PERM_W, 0, JETTY_MODE},
-	{sizeof(uint32_t), PERM_R | PERM_W, 0, JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, 0, JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, 0, JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, 0, JETTY_MODE},
-	{sizeof(uint64_t), PERM_R | PERM_W, JETTY_IGNORE, JETTY_MODE},
-	{UDMA_JETTY_CTX_SIZE, PERM_R, 0, JETTY_MODE},
-};
-
-urma_status_t udma_u_verify_jetty_opt(uint64_t opt, void *buf, uint32_t len,
-				      enum udma_u_set_get_jetty_opt_mode jetty_mode,
-				      enum udma_u_set_get_jetty_opt_perm jetty_perm)
-{
-	uint32_t opt_index = ARRAY_SIZE(udma_jetty_opt);
-	uint32_t i;
-
-	if (buf == NULL) {
-		UDMA_LOG_ERR("JETTY/JFS option buffer is null\n");
-		return URMA_EINVAL;
-	}
-
-	for (i = 0; i < ARRAY_SIZE(udma_jetty_opt); i++) {
-		if (udma_jetty_opt[i] == opt) {
-			opt_index = i;
-			break;
-		}
-	}
-
-	if (opt_index >= ARRAY_SIZE(opt_info) || (opt_info[opt_index].mode & jetty_mode) == 0) {
-		UDMA_LOG_ERR("option %lu mode %u is invalid\n", opt, jetty_mode);
-		return URMA_EINVAL;
-	}
-
-	if (len != opt_info[opt_index].buf_len) {
-		UDMA_LOG_ERR("option %lu length %u error, should be %u\n",
-			     opt, len, opt_info[opt_index].buf_len);
-		return URMA_EINVAL;
-	}
-
-	if ((opt_info[opt_index].perm & jetty_perm) == 0) {
-		UDMA_LOG_ERR("option %lu not allow read\n", opt);
-		return URMA_EINVAL;
-	}
-
-	/* The EEXIST return value indicates that there is no need to enter kernel mode. */
-	if (opt_info[opt_index].ignore_attr & jetty_mode) {
-		UDMA_LOG_ERR("option %lu no need to trap kernel\n", opt);
-		return URMA_EEXIST;
-	}
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_set_jetty_field(struct udma_u_jetty_queue *sq, uint64_t opt, void *buf)
-{
-	uint8_t in_data;
-
-	switch (opt) {
-	case URMA_JFS_SQE_BASE_ADDR:
-		sq->qbuf = (void *)(uintptr_t)(*((uint64_t *)buf));
-		if (!sq->qbuf && !sq->ctx->lock_buffer_en) {
-			UDMA_LOG_ERR("set SQE base address is null and no support wqe lock buffer.\n");
-			return URMA_EINVAL;
-		}
-		sq->cstm = true;
-		break;
-	case URMA_JFS_DB_STATUS:
-		in_data = *((uint8_t *)buf);
-		if (in_data > 1) {
-			UDMA_LOG_ERR("doorbell status %hhu is invalid\n", in_data);
-			return URMA_EINVAL;
-		}
-		sq->db_status = in_data;
-		if (sq->db_status == 0 && sq->need_ring_db) {
-			if (!sq->lock_free)
-				(void)pthread_spin_lock(&sq->lock);
-
-			sq->need_ring_db = false;
-			udma_update_sq_db(sq);
-
-			if (!sq->lock_free)
-				(void)pthread_spin_unlock(&sq->lock);
-		}
-		break;
-	case URMA_JFS_PI_TYPE:
-		in_data = *((uint8_t *)buf);
-		if (in_data > 1) {
-			UDMA_LOG_ERR("doorbell status %hhu is invalid\n", in_data);
-			return URMA_EINVAL;
-		}
-		sq->pi_type = in_data;
-		break;
-	default:
-		break;
-	}
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_set_jetty_opt(urma_jetty_t *jetty, uint64_t opt, void *buf, uint32_t len)
-{
-	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
-	urma_cmd_udrv_priv_t udata;
-	urma_status_t verify_ret;
-	urma_status_t urma_ret;
-	int ret;
-
-	verify_ret = udma_u_verify_jetty_opt(opt, buf, len, JETTY_MODE, PERM_W);
-	if (verify_ret && verify_ret != URMA_EEXIST)
-		return verify_ret;
-
-	urma_ret = udma_u_set_jetty_field(&udma_jetty->sq, opt, buf);
-	if (urma_ret)
-		return urma_ret;
-
-	if (verify_ret == URMA_EEXIST)
-		return URMA_SUCCESS;
-
-	ret = urma_cmd_set_jetty_opt(jetty, opt, buf, len, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("set JETTY option failed, ret = %d.\n", ret);
-		return URMA_FAIL;
-	}
-
-	return URMA_SUCCESS;
-}
-
-void udma_u_get_jetty_field(struct udma_u_jetty_queue *sq, uint64_t opt, void *buf)
-{
-	switch (opt) {
-	case URMA_JFS_SQE_BASE_ADDR:
-		*((uint64_t *)buf) = (uint64_t)(uintptr_t)sq->qbuf;
-		break;
-	case URMA_JFS_DB_ADDR:
-		*((uint64_t *)buf) = (uint64_t)(uintptr_t)(sq->dwqe_addr + UDMA_DOORBELL_OFFSET);
-		break;
-	case URMA_JFS_DB_STATUS:
-		*((uint8_t *)buf) = sq->db_status;
-		break;
-	case URMA_JFS_PI_TYPE:
-		*((uint8_t *)buf) = sq->pi_type;
-		break;
-	default:
-		break;
-	}
-}
-
-void udma_u_get_jfs_cfg_field(urma_jfs_cfg_t *jfs_cfg, uint64_t opt, void *buf)
-{
-	switch (opt) {
-	case URMA_JFS_DEPTH:
-		*((uint32_t *)buf) = jfs_cfg->depth;
-		break;
-	case URMA_JFS_FLAG:
-		*((uint32_t *)buf) = jfs_cfg->flag.value;
-		break;
-	case URMA_JFS_TRANS_MODE:
-		*((uint32_t *)buf) = jfs_cfg->trans_mode;
-		break;
-	case URMA_JFS_PRIORITY:
-		*((uint8_t *)buf) = jfs_cfg->priority;
-		break;
-	case URMA_JFS_MAX_SGE:
-		*((uint8_t *)buf) = jfs_cfg->max_sge;
-		break;
-	case URMA_JFS_MAX_RSGE:
-		*((uint8_t *)buf) = jfs_cfg->max_rsge;
-		break;
-	case URMA_JFS_MAX_INLINE_DATA:
-		*((uint32_t *)buf) = jfs_cfg->max_inline_data;
-		break;
-	case URMA_JFS_RNR_RETRY:
-		*((uint8_t *)buf) = jfs_cfg->rnr_retry;
-		break;
-	case URMA_JFS_ERR_TIMEOUT:
-		*((uint8_t *)buf) = jfs_cfg->err_timeout;
-		break;
-	case URMA_JFS_BIND_JFC:
-		*((uint64_t *)buf) = (uint64_t)(uintptr_t)jfs_cfg->jfc;
-		break;
-	case URMA_JFS_USER_CTX:
-		*((uint64_t *)buf) = jfs_cfg->user_ctx;
-		break;
-	default:
-		break;
-	}
-}
-
-static void udma_u_get_jetty_cfg_field(urma_jetty_cfg_t *jetty_cfg, uint64_t opt, void *buf)
-{
-	switch (opt) {
-	case URMA_JETTY_ID:
-		*((uint32_t *)buf) = jetty_cfg->id;
-		break;
-	case URMA_JETTY_FLAG:
-		*((uint32_t *)buf) = jetty_cfg->flag.value;
-		break;
-	case URMA_JETTY_BIND_JFR:
-		*((uint64_t *)buf) =
-			(uint64_t)(uintptr_t)jetty_cfg->shared.jfr;
-		break;
-	case URMA_JETTY_BIND_RX_JFC:
-		*((uint64_t *)buf) =
-			(uint64_t)(uintptr_t)jetty_cfg->shared.jfc;
-		break;
-	case URMA_JETTY_BIND_JTG:
-		*((uint64_t *)buf) = (uint64_t)(uintptr_t)jetty_cfg->jetty_grp;
-		break;
-	case URMA_JETTY_USER_CTX:
-		*((uint64_t *)buf) = jetty_cfg->user_ctx;
-		break;
-	default:
-		udma_u_get_jfs_cfg_field(&jetty_cfg->jfs_cfg, opt, buf);
-		break;
-	}
-}
-
-urma_status_t udma_u_get_jetty_opt(urma_jetty_t *jetty, uint64_t opt, void *buf, uint32_t len)
-{
-	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
-	urma_cmd_udrv_priv_t udata;
-	urma_status_t urma_ret;
-	int ret;
-
-	urma_ret = udma_u_verify_jetty_opt(opt, buf, len, JETTY_MODE, PERM_R);
-	if (urma_ret && urma_ret != URMA_EEXIST)
-		return urma_ret;
-
-	if (urma_ret != URMA_EEXIST) {
-		ret = urma_cmd_get_jetty_opt(jetty, opt, buf, len, &udata);
-		if (ret) {
-			UDMA_LOG_ERR("get JETTY option failed, ret = %d.\n", ret);
-			return URMA_FAIL;
-		}
-	}
-
-	udma_u_get_jetty_field(&udma_jetty->sq, opt, buf);
-	udma_u_get_jetty_cfg_field(&jetty->jetty_cfg, opt, buf);
-
-	return URMA_SUCCESS;
-}
-
-static int udma_u_active_jetty_after(urma_jetty_t *jetty)
-{
-	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
-	int ret;
-
-	udma_jetty->sq.db.type = UDMA_MMAP_JETTY_DSQE;
-
-	ret = udma_u_alloc_db(jetty->urma_ctx, &udma_jetty->sq.db);
-	if (ret)
-		return ret;
-
-	udma_jetty->sq.dwqe_addr = (void *)udma_jetty->sq.db.addr;
-
-	ret = insert_jetty_node(udma_jetty->sq.ctx, udma_jetty);
-	if (ret)
-		udma_u_free_db(jetty->urma_ctx, &udma_jetty->sq.db);
-
-	return ret;
-}
-
-static int udma_u_check_wqe_lock_buffer_jetty(struct udma_u_jetty *udma_jetty)
-{
-	if (!udma_jetty->sq.cstm) {
-		UDMA_LOG_ERR("ccu jetty no support address not configured.\n");
-		return URMA_EINVAL;
-	}
-
-	if (((uint64_t)udma_jetty->sq.qbuf) >= UDMA_WQE_LOCK_BUFFER_JETTY_IDX) {
-		UDMA_LOG_ERR("buffer index is out of range, buffer index = %lu.\n",
-			     (uint64_t)udma_jetty->sq.qbuf);
-		return URMA_EINVAL;
-	}
-
-	return 0;
-}
-
-static int udma_u_check_normal_jetty(struct udma_u_jetty *udma_jetty)
-{
-	if (udma_jetty->sq.cstm && !udma_jetty->sq.qbuf) {
-		UDMA_LOG_ERR("set SQE base address is null.\n");
-		return URMA_EINVAL;
-	}
-
-	return 0;
-}
-
-urma_status_t udma_u_active_jetty(urma_jetty_t *jetty)
-{
-	struct udma_u_context *udma_ctx = to_udma_u_ctx(jetty->urma_ctx);
-	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
-	urma_jetty_cfg_t *cfg = &jetty->jetty_cfg;
-	urma_cmd_udrv_priv_t udata = {};
-	int ret;
-
-    udma_jetty->sq.is_wqe_lock_buf_jetty =
-		is_support_wqe_lock_buffer_jetty(udma_jetty->sq.ctx, jetty->jetty_cfg.id, true);
-	if (udma_jetty->sq.is_wqe_lock_buf_jetty) {
-		if (udma_u_check_wqe_lock_buffer_jetty(udma_jetty))
-			return URMA_EINVAL;
-	} else {
-		if (udma_u_check_normal_jetty(udma_jetty))
-			return URMA_EINVAL;
-	}
-
-	udma_jetty->sq.dtu_en = udma_ctx->dtu_enable;
-	ret = udma_u_active_jetty_prepare(jetty, cfg);
-	if (ret)
-		return ret;
-
-	udma_jetty->jetty_type = UDMA_URMA_EX_JETTY_TYPE;
-	ret = exec_jetty_active_cmd(udma_jetty, cfg);
-	if (ret) {
-		if (udma_jetty->sq.dtu_en) {
-			udma_jetty->sq.dtu_en = false;
-			if (!udma_u_alloc_queue_buf(&udma_jetty->sq, udma_jetty->sq.sqe_bb_cnt * cfg->jfs_cfg.depth,
-			    UDMA_JFS_WQEBB, udma_jetty->sq.aligned_size, true)) {
-				UDMA_LOG_ERR("failed to alloc JETTY SQ after DTU failed.\n");
-				goto err_active_jetty_cmd;
-			}
-			if (exec_jetty_active_cmd(udma_jetty, cfg))
-				goto err_active_jetty_cmd;
-		} else {
-			UDMA_LOG_ERR("failed to create jetty.\n");
-			goto err_active_jetty_cmd;
-		}
-	}
-
-	ret = udma_u_active_jetty_after(jetty);
-	if (ret)
-		goto err_active_jetty_after;
-
-	return URMA_SUCCESS;
-err_active_jetty_after:
-	urma_cmd_deactive_jetty(jetty, &udata);
-err_active_jetty_cmd:
-	udma_u_delete_sq(&udma_jetty->sq);
-	remove_jetty_from_grp(udma_jetty);
-
-	return URMA_FAIL;
-}
-
-urma_status_t udma_u_deactive_jetty(urma_jetty_t *jetty)
-{
-	urma_cmd_udrv_priv_t udata;
-	int ret;
-
-	ret = udma_u_delete_jetty_prepare(jetty);
-	if (ret)
-		return URMA_FAIL;
-
-	ret = urma_cmd_deactive_jetty(jetty, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("deactivate JETTY failed, ret = %d.\n", ret);
-		return URMA_FAIL;
-	}
-
-	udma_u_free_jetty_prepare(jetty);
 
 	return URMA_SUCCESS;
 }

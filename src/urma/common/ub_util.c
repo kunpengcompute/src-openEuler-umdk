@@ -227,9 +227,9 @@ int ub_str_to_bool(const char *buf, bool *bool_res)
         return -EINVAL;
     }
 
-    if (strcmp(buf, "true") == 0) {
+    if (!strcmp(buf, "true")) {
         *bool_res = true;
-    } else if (strcmp(buf, "false") == 0) {
+    } else if (!strcmp(buf, "false")) {
         *bool_res = false;
     } else {
         return -EINVAL;

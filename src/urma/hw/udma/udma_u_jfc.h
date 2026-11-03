@@ -18,8 +18,6 @@
 #define UDMA_U_JFC_DB_CI_IDX_M GENMASK(21, 0)
 #define UDMA_U_CQE_INV_TOKEN_ID GENMASK(19, 0)
 
-#define UDMA_JFC_CTX_SIZE 128
-
 struct udma_u_jfc_cqe {
 	/* DW0 */
 	uint32_t s_r : 1;
@@ -61,12 +59,6 @@ static inline void *get_u_buf_entry(struct udma_u_jetty_queue *cq, uint32_t n)
 }
 
 urma_jfc_t *udma_u_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg);
-urma_status_t udma_u_alloc_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg, urma_jfc_t **jfc);
-urma_status_t udma_u_set_jfc_opt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len);
-urma_status_t udma_u_active_jfc(urma_jfc_t *jfc);
-urma_status_t udma_u_get_jfc_opt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len);
-urma_status_t udma_u_deactive_jfc(urma_jfc_t *jfc);
-urma_status_t udma_u_free_jfc(urma_jfc_t *jfc);
 urma_status_t udma_u_delete_jfc(urma_jfc_t *jfc);
 int udma_u_poll_jfc(urma_jfc_t *jfc, int cr_cnt, urma_cr_t *cr);
 int udma_u_wait_jfc(urma_jfce_t *jfce, uint32_t jfc_cnt, int time_out,

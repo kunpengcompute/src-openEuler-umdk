@@ -23,13 +23,13 @@ static int udma_u_check_jfc_cfg(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
 	urma_device_cap_t *cap = &ctx->dev->sysfs_dev->dev_attr.dev_cap;
 
 	if (cfg->depth == 0 || cfg->depth > cap->max_jfc_depth) {
-		UDMA_LOG_ERR("invalid JFC config depth = %u, cap depth = %u.\n",
+		UDMA_LOG_ERR("invalid jfc cfg depth = %u, cap depth = %u.\n",
 			     cfg->depth, cap->max_jfc_depth);
 		return EINVAL;
 	}
 
 	if (cfg->ceqn >= cap->ceq_cnt) {
-		UDMA_LOG_ERR("invalid ceqn = %u, cap CEQ count = %u.\n",
+		UDMA_LOG_ERR("invalid ceqn = %u, cap ceq cnt = %u.\n",
 			     cfg->ceqn, cap->ceq_cnt);
 		return EINVAL;
 	}
@@ -39,35 +39,6 @@ static int udma_u_check_jfc_cfg(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
 
 static int udma_u_jfc_cmd(urma_context_t *ctx, struct udma_u_jfc *jfc,
 			  urma_jfc_cfg_t *cfg)
-{
-	struct udma_create_jfc_resp resp = {};
-	struct udma_create_jfc_ucmd cmd = {};
-	urma_cmd_udrv_priv_t udata = {};
-	int ret;
-
-	cmd.buf_addr = (uintptr_t)jfc->cq.qbuf;
-	cmd.db_addr = (uintptr_t)jfc->sw_db;
-	cmd.buf_len = jfc->cq.qbuf_size;
-	cmd.is_hugepage = jfc->cq.hugepage != NULL;
-	cmd.dtu_en = jfc->cq.dtu_en;
-	udma_u_set_udata(&udata, &cmd, sizeof(cmd), &resp, sizeof(resp));
-
-	ret = urma_cmd_create_jfc(ctx, &jfc->base, cfg, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("failed to URMA command create JFC, ret = %d.\n", ret);
-		return ret;
-	}
-
-	if (jfc->cq.dtu_en) {
-		jfc->cq.qbuf = (void *)(uintptr_t)resp.buf_addr;
-		jfc->cq.qbuf_curr = jfc->cq.qbuf;
-		jfc->cq.qbuf_end = jfc->cq.qbuf + jfc->cq.qbuf_size;
-	}
-
-	return ret;
-}
-
-static int udma_u_active_jfc_cmd(struct udma_u_jfc *jfc)
 {
 	struct udma_create_jfc_ucmd cmd = {};
 	urma_cmd_udrv_priv_t udata = {};
@@ -79,14 +50,13 @@ static int udma_u_active_jfc_cmd(struct udma_u_jfc *jfc)
 
 	udma_u_set_udata(&udata, &cmd, sizeof(cmd), NULL, 0);
 
-	return urma_cmd_active_jfc(&jfc->base, &udata);
+	return urma_cmd_create_jfc(ctx, &jfc->base, cfg, &udata);
 }
 
 static int udma_u_create_cq(struct udma_u_jetty_queue *cq, urma_jfc_cfg_t *cfg)
 {
 	uint32_t depth;
 
-	cq->ci = 0;
 	cq->lock_free = cfg->flag.bs.lock_free;
 	if (!cq->lock_free &&
 	    pthread_spin_init(&cq->lock, PTHREAD_PROCESS_PRIVATE)) {
@@ -96,7 +66,7 @@ static int udma_u_create_cq(struct udma_u_jetty_queue *cq, urma_jfc_cfg_t *cfg)
 
 	depth = cfg->depth < UDMA_U_MIN_JFC_DEPTH ? UDMA_U_MIN_JFC_DEPTH : cfg->depth;
 	if (!udma_u_alloc_queue_buf(cq, depth, cq->ctx->cqe_size, UDMA_HW_PAGE_SIZE, false)) {
-		UDMA_LOG_ERR("failed to alloc JFC work queue entry buffer.\n");
+		UDMA_LOG_ERR("failed to alloc jfc wqe buf.\n");
 		goto err_alloc_buf;
 	}
 
@@ -121,7 +91,6 @@ urma_jfc_t *udma_u_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
 {
 	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
 	struct udma_u_jfc *jfc;
-	uint32_t depth;
 	int ret;
 
 	ret = udma_u_check_jfc_cfg(ctx, cfg);
@@ -130,39 +99,26 @@ urma_jfc_t *udma_u_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
 
 	jfc = (struct udma_u_jfc *)calloc(1, sizeof(*jfc));
 	if (!jfc) {
-		UDMA_LOG_ERR("failed to alloc user UDMA JFC memory.\n");
+		UDMA_LOG_ERR("failed to alloc user udma jfc memory.\n");
 		return NULL;
 	}
 
 	jfc->cq.ctx = udma_ctx;
-	jfc->cq.dtu_en = udma_ctx->dtu_enable;
 	if (udma_u_create_cq(&jfc->cq, cfg)) {
-		UDMA_LOG_ERR("failed to create CQ.\n");
+		UDMA_LOG_ERR("failed to create cq.\n");
 		goto err_create_cq;
 	}
 
 	jfc->sw_db = (uint32_t *)udma_u_alloc_sw_db(udma_ctx, UDMA_JFC_TYPE_DB);
 	if (!jfc->sw_db) {
-		UDMA_LOG_ERR("failed to create and alloc user JFC SW DB.\n");
+		UDMA_LOG_ERR("failed to create alloc user jfc sw db.\n");
 		goto err_alloc_sw_db;
 	}
 
 	ret = udma_u_jfc_cmd(ctx, jfc, cfg);
 	if (ret) {
-		if (jfc->cq.dtu_en) {
-			jfc->cq.dtu_en = false;
-			depth = cfg->depth < UDMA_U_MIN_JFC_DEPTH ? UDMA_U_MIN_JFC_DEPTH : cfg->depth;
-			if (!udma_u_alloc_queue_buf(&jfc->cq, depth, jfc->cq.ctx->cqe_size,
-						    UDMA_HW_PAGE_SIZE, false)) {
-				UDMA_LOG_ERR("failed to alloc JFC work queue entry buffer after DTU failed.\n");
-				goto err_create_jfc;
-			}
-			if (udma_u_jfc_cmd(ctx, jfc, cfg))
-				goto err_create_jfc;
-		} else {
-			UDMA_LOG_ERR("UDMA JFC failed to create URMA command.\n");
-			goto err_create_jfc;
-		}
+		UDMA_LOG_ERR("udma jfc failed to create urma cmd.\n");
+		goto err_create_jfc;
 	}
 
 	jfc->cq_shift = align_power2(jfc->cq.baseblk_cnt);
@@ -177,326 +133,7 @@ err_alloc_sw_db:
 	udma_u_delete_cq(&jfc->cq);
 err_create_cq:
 	free(jfc);
-
 	return NULL;
-}
-
-urma_status_t udma_u_alloc_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg, urma_jfc_t **jfc)
-{
-	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
-	urma_cmd_udrv_priv_t udata = {};
-	struct udma_u_jfc *ujfc;
-	int ret;
-
-	if (udma_u_check_jfc_cfg(ctx, cfg))
-		return URMA_EINVAL;
-
-	ujfc = (struct udma_u_jfc *)calloc(1, sizeof(*ujfc));
-	if (!ujfc) {
-		UDMA_LOG_ERR("failed to alloc user UDMA JFC memory.\n");
-		return URMA_ENOMEM;
-	}
-
-	ret = urma_cmd_alloc_jfc(ctx, cfg, &ujfc->base, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("UDMA JFC failed to create URMA command.\n");
-		free(ujfc);
-		return ret;
-	}
-
-	ujfc->cq.ctx = udma_ctx;
-	*jfc = &ujfc->base;
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_active_jfc(urma_jfc_t *jfc)
-{
-	struct udma_u_context *udma_ctx = to_udma_u_ctx(jfc->urma_ctx);
-	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
-	uint32_t depth;
-	int ret;
-
-	ujfc->cq.dtu_en = udma_ctx->dtu_enable;
-	if (udma_u_create_cq(&ujfc->cq, &jfc->jfc_cfg)) {
-		UDMA_LOG_ERR("failed to create CQ.\n");
-		return URMA_FAIL;
-	}
-
-	if (!ujfc->db_cstm) {
-		ujfc->sw_db = (uint32_t *)udma_u_alloc_sw_db(ujfc->cq.ctx, UDMA_JFC_TYPE_DB);
-		if (!ujfc->sw_db) {
-			UDMA_LOG_ERR("failed to alloc user JFC SW DB.\n");
-			goto err_alloc_sw_db;
-		}
-	}
-
-	ret = udma_u_active_jfc_cmd(ujfc);
-	if (ret != 0) {
-		if (ujfc->cq.dtu_en) {
-			ujfc->cq.dtu_en = false;
-			depth = jfc->jfc_cfg.depth < UDMA_U_MIN_JFC_DEPTH ?
-				UDMA_U_MIN_JFC_DEPTH : jfc->jfc_cfg.depth;
-			if (!udma_u_alloc_queue_buf(&ujfc->cq, depth, ujfc->cq.ctx->cqe_size,
-						    UDMA_HW_PAGE_SIZE, false)) {
-				UDMA_LOG_ERR("failed to alloc JFC work queue entry buffer after DTU failed.\n");
-				goto err_create_jfc;
-			}
-			if (udma_u_active_jfc_cmd(ujfc))
-				goto err_create_jfc;
-		} else {
-			UDMA_LOG_ERR("UDMA JFC failed to create URMA command.\n");
-			goto err_create_jfc;
-		}
-	}
-
-	ujfc->cq_shift = align_power2(ujfc->cq.baseblk_cnt);
-	ujfc->cq.idx = ujfc->base.jfc_id.id;
-	ujfc->arm_sn = 1;
-
-	return URMA_SUCCESS;
-
-err_create_jfc:
-    if (!ujfc->db_cstm) {
-	    udma_u_free_sw_db(ujfc->cq.ctx, ujfc->sw_db, UDMA_JFC_TYPE_DB);
-	}
-err_alloc_sw_db:
-	udma_u_delete_cq(&ujfc->cq);
-
-	return URMA_FAIL;
-}
-
-static int udma_u_set_jfc_depth(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	urma_cmd_udrv_priv_t udata = {};
-	int ret;
-
-	ret = urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("fail to set JFC depth, depth = %u.\n", *(uint32_t *)buf);
-		return ret;
-	}
-	jfc->jfc_cfg.depth = *(uint32_t *)buf;
-
-	return ret;
-}
-
-static int udma_u_set_jfc_ceqn(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	struct urma_device *dev = jfc->urma_ctx->dev;
-	urma_device_cap_t dev_cap = dev->sysfs_dev->dev_attr.dev_cap;
-	uint32_t ceqn_to_set = *(uint32_t *)buf;
-	urma_cmd_udrv_priv_t udata = {};
-
-	if (ceqn_to_set >= dev_cap.ceq_cnt) {
-		UDMA_LOG_ERR("fail to set ceqn, invalid ceqn = %u, cap CEQ count = %u.\n", ceqn_to_set, dev_cap.ceq_cnt);
-		return EINVAL;
-	}
-
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
-}
-
-static int udma_u_set_jfc_flag(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	urma_jfc_flag_t *flag = (urma_jfc_flag_t *)buf;
-	urma_cmd_udrv_priv_t udata = {};
-
-	jfc->jfc_cfg.flag = *flag;
-
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
-}
-
-static int udma_u_set_jfc_cqe_base_addr(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
-	urma_cmd_udrv_priv_t udata = {};
-
-	ujfc->cq.qbuf = (void*)*(uint64_t *)buf;
-	ujfc->cq.cstm = true;
-
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
-}
-
-static int udma_u_set_jfc_id(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	urma_cmd_udrv_priv_t udata = {};
-	int ret;
-
-	ret = urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("failed to set JFC id, id in invalid range or used, ret = %d.\n", ret);
-		return ret;
-	}
-
-	return ret;
-}
-
-static int udma_u_set_jfc_db_addr(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
-	urma_cmd_udrv_priv_t udata = {};
-	uint64_t addr = 0;
-
-	memcpy(&addr, buf, sizeof(addr));
-
-	ujfc->sw_db = (uint32_t *)(uintptr_t)addr;
-	ujfc->db_cstm = true;
-
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
-}
-
-static int udma_u_get_jfc_opt_from_kernel(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	urma_cmd_udrv_priv_t udata = {};
-
-	return urma_cmd_get_jfc_opt(jfc, opt, buf, len, &udata);
-}
-
-static int udma_u_get_jfc_full_ctx(urma_jfc_t *jfc, void *buf, uint32_t len)
-{
-	if (len != UDMA_JFC_CTX_SIZE) {
-		UDMA_LOG_ERR("get JFC full context length %u error, should be %d.\n",
-			      len, UDMA_JFC_CTX_SIZE);
-		return URMA_EINVAL;
-	}
-
-	return udma_u_get_jfc_opt_from_kernel(jfc, URMA_JFC_FULL_CTX, buf, len);
-}
-
-static int udma_u_get_jfc_flag(urma_jfc_t *jfc, void *buf)
-{
-	urma_jfc_flag_t flag = jfc->jfc_cfg.flag;
-
-	(void)memcpy(buf, &flag, sizeof(flag));
-
-	return 0;
-}
-
-static int udma_u_get_jfc_cqe_base_addr(urma_jfc_t *jfc, void *buf)
-{
-	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
-
-	*(uint64_t*)buf = (uint64_t)(uintptr_t)ujfc->cq.qbuf;
-
-	return URMA_SUCCESS;
-}
-
-static int udma_u_get_jfc_db_addr(urma_jfc_t *jfc, void *buf)
-{
-	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
-
-	*((uint64_t *)buf) = (uint64_t)(uintptr_t)ujfc->sw_db;
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_set_jfc_opt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	switch (opt) {
-	case URMA_JFC_DEPTH:
-		return udma_u_set_jfc_depth(jfc, opt, buf, len);
-	case URMA_JFC_CEQN:
-		return udma_u_set_jfc_ceqn(jfc, opt, buf, len);
-	case URMA_JFC_FLAG:
-		return udma_u_set_jfc_flag(jfc, opt, buf, len);
-	case URMA_JFC_BIND_JFCE:
-		break;
-	case URMA_JFC_USER_CTX:
-		break;
-	case URMA_JFC_CQE_BASE_ADDR:
-		return udma_u_set_jfc_cqe_base_addr(jfc, opt, buf, len);
-	case URMA_JFC_ID:
-		return udma_u_set_jfc_id(jfc, opt, buf, len);
-	case URMA_JFC_DB_ADDR:
-		return udma_u_set_jfc_db_addr(jfc, opt, buf, len);
-	case URMA_JFC_DB_STATUS:
-		break;
-	case URMA_JFC_PI_TYPE:
-		break;
-	default:
-		return URMA_FAIL;
-	}
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_get_jfc_opt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
-{
-	switch (opt) {
-	case URMA_JFC_DEPTH:
-		return udma_u_get_jfc_opt_from_kernel(jfc, opt, buf, len);
-	case URMA_JFC_CEQN:
-		return udma_u_get_jfc_opt_from_kernel(jfc, opt, buf, len);
-	case URMA_JFC_FLAG:
-		return udma_u_get_jfc_flag(jfc, buf);
-	case URMA_JFC_BIND_JFCE:
-		*(uint64_t *)buf = (uintptr_t)jfc->jfc_cfg.jfce;
-		break;
-	case URMA_JFC_USER_CTX:
-		*(uint64_t *)buf = jfc->jfc_cfg.user_ctx;
-		break;
-	case URMA_JFC_CQE_BASE_ADDR:
-		return udma_u_get_jfc_cqe_base_addr(jfc, buf);
-	case URMA_JFC_ID:
-		*(uint32_t *)buf = jfc->jfc_id.id;
-		break;
-	case URMA_JFC_DB_ADDR:
-		return udma_u_get_jfc_db_addr(jfc, buf);
-	case URMA_JFC_DB_STATUS:
-		break;
-	case URMA_JFC_PI:
-		return udma_u_get_jfc_opt_from_kernel(jfc, opt, buf, len);
-	case URMA_JFC_PI_TYPE:
-		break;
-	case URMA_JFC_CI:
-		return udma_u_get_jfc_opt_from_kernel(jfc, opt, buf, len);
-	case URMA_JFC_FULL_CTX:
-		return udma_u_get_jfc_full_ctx(jfc, buf, len);
-	default:
-		return URMA_FAIL;
-	}
-
-	return URMA_SUCCESS;
-}
-
-static void udma_u_free_jfc_prepare(struct udma_u_jfc *udma_jfc, struct udma_u_context *udma_ctx)
-{
-	if (udma_jfc->cq.cstm == false) {
-		udma_u_free_queue_buf(&udma_jfc->cq);
-	}
-	udma_u_free_sw_db(udma_ctx, udma_jfc->sw_db, UDMA_JFC_TYPE_DB);
-
-	if (!udma_jfc->cq.lock_free)
-		(void)pthread_spin_destroy(&udma_jfc->cq.lock);
-}
-
-urma_status_t udma_u_deactive_jfc(urma_jfc_t *jfc)
-{
-	struct udma_u_context *udma_ctx = to_udma_u_ctx(jfc->urma_ctx);
-	struct udma_u_jfc *udma_jfc = to_udma_u_jfc(jfc);
-	urma_cmd_udrv_priv_t udata = {};
-	int ret;
-
-	ret = urma_cmd_deactive_jfc(jfc, &udata);
-	if (ret) {
-		UDMA_LOG_ERR("ubcore deactivate JFC failed, errcode:%d.\n", ret);
-		return URMA_FAIL;
-	}
-	udma_u_free_jfc_prepare(udma_jfc, udma_ctx);
-
-	return URMA_SUCCESS;
-}
-
-urma_status_t udma_u_free_jfc(urma_jfc_t *jfc)
-{
-	struct udma_u_jfc *udma_jfc = to_udma_u_jfc(jfc);
-	urma_cmd_udrv_priv_t udata = {};
-
-	if (urma_cmd_free_jfc(jfc, &udata)) {
-		UDMA_LOG_ERR("ubcore free JFC failed.\n");
-		return URMA_FAIL;
-	}
-	free(udma_jfc);
-	return URMA_SUCCESS;
 }
 
 urma_status_t udma_u_delete_jfc(urma_jfc_t *jfc)
@@ -505,11 +142,18 @@ urma_status_t udma_u_delete_jfc(urma_jfc_t *jfc)
 	struct udma_u_jfc *udma_jfc = to_udma_u_jfc(jfc);
 
 	if (urma_cmd_delete_jfc(jfc)) {
-		UDMA_LOG_ERR("ubcore delete JFC failed.\n");
+		UDMA_LOG_ERR("ubcore delete jfc failed.\n");
 		return URMA_FAIL;
 	}
 
-	udma_u_free_jfc_prepare(udma_jfc, udma_ctx);
+	if (!udma_jfc->mode) {
+		udma_u_free_sw_db(udma_ctx, udma_jfc->sw_db, UDMA_JFC_TYPE_DB);
+		udma_u_free_queue_buf(&udma_jfc->cq);
+	}
+
+	if (!udma_jfc->cq.lock_free)
+		(void)pthread_spin_destroy(&udma_jfc->cq.lock);
+
 	free(udma_jfc);
 
 	return URMA_SUCCESS;
@@ -550,7 +194,7 @@ struct udma_cr_status {
 		return JFC_OK;
 	}
 
-	UDMA_LOG_ERR("CQE status(%u) sub status(%u) is invalid.\n",
+	UDMA_LOG_ERR("cqe_status (%u) substatus (%u) is invalid.",
 		     src_status, substatus);
 
 	return JFC_POLL_ERR;
@@ -608,7 +252,7 @@ static void udma_u_parse_opcode_for_res(struct udma_u_jfc_cqe *cqe, urma_cr_t *c
 		cr->opcode = URMA_CR_OPC_SEND_WITH_INV;
 		ret = ummu_free_tid(cr->invalid_token.token_id);
 		if (ret)
-			UDMA_LOG_ERR("invalidation of TID failed, ret = %d.\n", ret);
+			UDMA_LOG_ERR("invalidation of tid failed, ret = %d.\n", ret);
 
 		cr->invalid_token.token_id <<= UDMA_TID_SHIFT;
 		break;
@@ -619,7 +263,7 @@ static void udma_u_parse_opcode_for_res(struct udma_u_jfc_cqe *cqe, urma_cr_t *c
 		break;
 	default:
 		cr->opcode = (urma_cr_opcode_t)UINT8_MAX;
-		UDMA_LOG_ERR("receive invalid opcode: %u.\n", opcode);
+		UDMA_LOG_ERR("receive invalid opcode :%u.\n", opcode);
 		cr->status = URMA_CR_UNSUPPORTED_OPCODE_ERR;
 		break;
 	}
@@ -647,25 +291,25 @@ static bool udma_u_update_jfr_idx(struct udma_u_context *udma_ctx,
 		if (udma_ctx->jetty_table[table_id].refcnt) {
 			jetty = (struct udma_u_jetty *)udma_ctx->jetty_table[table_id].jetty_array[jetty_id & mask];
 			if (!jetty) {
-				UDMA_LOG_INFO("JETTY not found, JETTY 0x%x has been destroyed.\n", jetty_id);
+				UDMA_LOG_INFO("Failed to get jetty. JT 0x%x has been destroyed.\n", jetty_id);
 				return true;
 			}
 			cr->user_data = (uintptr_t)&jetty->base;
 			jfr = jetty->jfr;
 		} else {
-			UDMA_LOG_INFO("JFC not polled, JETTY 0x%x has been destroyed.\n", jetty_id);
+			UDMA_LOG_INFO("Failed to poll jfc. JT 0x%x has been destroyed.\n", jetty_id);
 			return true;
 		}
 	} else {
 		if (udma_ctx->jfr_table[table_id].refcnt) {
 			jfr = (struct udma_u_jfr *)udma_ctx->jfr_table[table_id].jfr_array[jetty_id & mask];
 			if (!jfr) {
-				UDMA_LOG_INFO("JETTY not found, JETTY 0x%x has been destroyed.\n", jetty_id);
+				UDMA_LOG_INFO("Failed to get jetty. JT 0x%x has been destroyed.\n", jetty_id);
 				return true;
 			}
 			cr->user_data = (uintptr_t)&jfr->base;
 		} else {
-			UDMA_LOG_INFO("JFC not polled, JFR 0x%x has been destroyed.\n", jetty_id);
+			UDMA_LOG_INFO("Failed to poll jfc. JFR 0x%x has been destroyed.\n", jetty_id);
 			return true;
 		}
 	}
@@ -796,7 +440,7 @@ static void dump_cqe_aux_info(urma_context_t *ctx, urma_cr_t *cr)
 
 	ret = udma_u_query_cqe_aux_info(ctx, &in, &out, 0);
 	if (ret)
-		UDMA_LOG_ERR("query CQE aux info failed, ret = %d.\n", ret);
+		UDMA_LOG_ERR("query cqe aux info failed, ret = %d.\n", ret);
 }
 
 static enum jfc_poll_state udma_u_poll_one(struct udma_u_context *udma_ctx,
@@ -899,7 +543,7 @@ urma_jfce_t *udma_u_create_jfce(urma_context_t *ctx)
 
 	jfce->fd = urma_cmd_create_jfce(ctx);
 	if (jfce->fd < 0) {
-		UDMA_LOG_ERR("ubcore create JFCE failed, fd = %d.\n",
+		UDMA_LOG_ERR("ubcore create jfce failed, fd = %d.\n",
 			     jfce->fd);
 		free(jfce);
 		return NULL;
@@ -952,14 +596,14 @@ static int udma_u_check_jfc_attr(urma_jfc_attr_t *attr)
 
 	if ((attr->mask & JFC_MODERATE_COUNT) &&
 	    (attr->moderate_count >= UDMA_CQE_COALESCE_CNT_MAX)) {
-		UDMA_LOG_ERR("CQE coalesce count %u is invalid.\n",
+		UDMA_LOG_ERR("cqe coalesce cnt %u is invalid.\n",
 			     attr->moderate_count);
 		return EINVAL;
 	}
 
 	if ((attr->mask & JFC_MODERATE_PERIOD) &&
 	    (udma_u_check_jfc_cqe_period(attr->moderate_period))) {
-		UDMA_LOG_ERR("CQE coalesce period %u is invalid.\n",
+		UDMA_LOG_ERR("cqe coalesce period %u is invalid.\n",
 			     attr->moderate_period);
 		return EINVAL;
 	}
@@ -1008,8 +652,7 @@ void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id)
 	urma_cr_t cr;
 	uint32_t pi;
 
-	if ((udma_u_jfc->mode != (uint32_t)UDMA_U_NORMAL_JFC_TYPE) ||
-	    (udma_u_jfc->cq.cstm))
+	if (udma_u_jfc->mode != (uint32_t)UDMA_U_NORMAL_JFC_TYPE)
 		return;
 
 	cq = &udma_u_jfc->cq;
@@ -1023,7 +666,7 @@ void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id)
 			break;
 	}
 
-	while ((int)--pi - (int)cq->ci >= 0) {
+	while ((int) --pi - (int) cq->ci >= 0) {
 		cqe = (struct udma_u_jfc_cqe *)get_u_buf_entry(cq, pi);
 		UDMA_FROM_DEVICE_BARRIER();
 		local_id = (cqe->local_num_h << UDMA_SRC_IDX_SHIFT) | cqe->local_num_l;

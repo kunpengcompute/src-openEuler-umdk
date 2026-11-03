@@ -7,12 +7,9 @@
  * Note:
  * History: 2025-03-05
  */
-
 #include <stdint.h>
-
 #include "ub_bitmap.h"
 #include "urma_log.h"
-
 #include "bondp_slide_window.h"
 
 static bool is_seq_in_loop_range(uint32_t head, uint32_t len, uint32_t max_size, uint32_t seq)
@@ -38,7 +35,7 @@ int bdp_slide_wnd_init(bdp_slide_wnd_t *wnd, uint32_t total_size, uint32_t windo
     }
     wnd->bits = ub_bitmap_alloc(total_size);
     if (wnd->bits == NULL) {
-        URMA_LOG_ERR("Failed to init bitmap\n");
+        URMA_LOG_ERR("Failed to init bitmap");
         return -1;
     }
     wnd->total_size = total_size;
@@ -64,7 +61,7 @@ bool bdp_slide_wnd_seq_in_window(bdp_slide_wnd_t *wnd, uint32_t seq)
     }
     if (seq >= wnd->total_size) {
         URMA_LOG_ERR("Seq larger than total size of bitmap\n");
-        return false;
+        return -1;
     }
     return is_seq_in_loop_range(wnd->head, wnd->window_size, wnd->total_size, seq);
 }
@@ -73,14 +70,14 @@ bool bdp_slide_wnd_has(bdp_slide_wnd_t *wnd, uint32_t seq)
 {
     if (wnd == NULL) {
         URMA_LOG_ERR("Invalid param wnd\n");
-        return false;
+        return -1;
     }
     if (seq >= wnd->total_size) {
         URMA_LOG_ERR("Seq larger than total size of bitmap\n");
-        return false;
+        return -1;
     }
     return is_seq_in_loop_range(wnd->head, wnd->window_size, wnd->total_size, seq) &&
-           ub_bitmap_is_set(wnd->bits, seq);
+        ub_bitmap_is_set(wnd->bits, seq);
 }
 
 int bdp_slide_wnd_add(bdp_slide_wnd_t *wnd, uint32_t seq)

@@ -17,7 +17,6 @@
 #include <linux/atomic.h>
 #include <linux/hashtable.h>
 #include <linux/wait.h>
-#include <linux/vmalloc.h>
 
 #ifndef KERNEL_VERSION_4
 #include "ums_dim.h"
@@ -114,19 +113,14 @@ static void ums_wr_tx_process_cqe(struct ums_wc *wc)
 		wake_up(&link->wr_tx_wait);
 }
 
-static int ums_wr_tx_get_free_slot_index(struct ums_link *link, u32 *idx, bool emergency)
+static int ums_wr_tx_get_free_slot_index(struct ums_link *link, u32 *idx)
 {
 	*idx = link->wr_tx_cnt;
 	if (!ums_link_sendable(link))
 		return -ENOLINK;
 
-	if (unlikely(emergency)) {
-		if (ums_wr_tx_get_credit_emergency(link) == 0)
-			return -EBUSY;
-	} else {
-		if (ums_wr_tx_get_credit(link) == 0)
-			return -EBUSY;
-	}
+	if (ums_wr_tx_get_credit(link) == 0)
+		return -EBUSY;
 
 	for_each_clear_bit (*idx, link->wr_tx_mask, link->wr_tx_cnt) {
 		if (!test_and_set_bit(*idx, link->wr_tx_mask))
@@ -165,11 +159,10 @@ void ums_wr_tx_put_slot(struct ums_link *link, struct ums_wr_tx_pend_priv *wr_pe
  * @wr_buf:		Out value returns pointer to message buffer.
  * @wr_ub_buf:		Out value returns pointer to ub work request.
  * @wr_pend_priv:	Out value returns pointer serving as handler context.
- * @emergency:		If true, can use reserved emergency credits (for LLC announce credits only).
  */
 int ums_wr_tx_get_free_slot(struct ums_link *link, ums_wr_tx_handler handler,
 	struct ums_wr_buf **wr_buf, struct ubcore_jfs_wr **wr_ub_buf,
-	struct ums_wr_tx_pend_priv **wr_pend_priv, bool emergency)
+	struct ums_wr_tx_pend_priv **wr_pend_priv)
 {
 	struct ums_link_group *lgr = ums_get_lgr(link);
 	struct ums_wr_tx_pend *wr_pend;
@@ -180,12 +173,12 @@ int ums_wr_tx_get_free_slot(struct ums_link *link, ums_wr_tx_handler handler,
 
 	*wr_pend_priv = NULL;
 	if (in_softirq() || (lgr->terminating != 0)) {
-		rc = ums_wr_tx_get_free_slot_index(link, &idx, emergency);
+		rc = ums_wr_tx_get_free_slot_index(link, &idx);
 		if (rc != 0)
 			return rc;
 	} else {
 		rc = (int)wait_event_interruptible_timeout(link->wr_tx_wait, !ums_link_sendable(link) ||
-			(lgr->terminating != 0) || (ums_wr_tx_get_free_slot_index(link, &idx, emergency) != -EBUSY),
+			(lgr->terminating != 0) || (ums_wr_tx_get_free_slot_index(link, &idx) != -EBUSY),
 			UMS_WR_TX_WAIT_FREE_SLOT_TIME);
 		if (rc == 0) {
 			/* timeout - terminate link */
@@ -757,8 +750,7 @@ int ums_wr_create_link(struct ums_link *lnk)
 {
 	struct ubcore_device *ubdev = lnk->ums_dev->ub_dev;
 	union ubcore_reg_seg_flag flag = {
-		.bs.token_policy = g_ums_sys_tuning_config.ub_token_mode == UMS_TOKEN_MODE_DISABLE ?
-			UBCORE_TOKEN_NONE : UBCORE_TOKEN_PLAIN_TEXT,
+		.bs.token_policy = g_ums_sys_tuning_config.ub_token_disable ? UBCORE_TOKEN_NONE : UBCORE_TOKEN_PLAIN_TEXT,
 		.bs.cacheable = UBCORE_NON_CACHEABLE,
 		.bs.access = UCT_UBCORE_MEM_ACCESS_FLAGS,
 		.bs.reserved = 0
@@ -780,7 +772,7 @@ int ums_wr_create_link(struct ums_link *lnk)
 		.iova = 0
 	};
 	int rc = 0;
-	if (g_ums_sys_tuning_config.ub_token_mode != UMS_TOKEN_MODE_DISABLE) {
+	if (!g_ums_sys_tuning_config.ub_token_disable) {
 		get_random_bytes(&rx_cfg.token_value.token, sizeof(rx_cfg.token_value.token));
 		get_random_bytes(&tx_cfg.token_value.token, sizeof(tx_cfg.token_value.token));
 	}

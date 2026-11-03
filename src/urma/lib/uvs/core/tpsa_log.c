@@ -19,8 +19,6 @@
 #include <sys/types.h>
 #include <syslog.h>
 #include <pthread.h>
-#include <unistd.h>
-#include <sys/syscall.h>
 #include "tpsa_log.h"
 
 #ifdef UNIT_TEST
@@ -31,8 +29,7 @@
 
 #define MAX_LOG_LEN 1024
 #define MAX_PROCESS_NAME_LEN 1024
-#define URMA_LOG_TAG "URMA"
-#define LIBUVS_LOG "libuvs"
+#define TPSA_LOG_TAG "LogTag_TPSA"
 #define TPSA_PROCESS_PATH "/proc/self/exe"
 
 static pthread_mutex_t g_tpsa_log_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -57,7 +54,7 @@ void uvs_set_worker_idx(int idx)
 
 void tpsa_log_init(void)
 {
-    openlog(NULL, LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
+    openlog("tpsa", LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
     (void)setlogmask(LOG_MASK(LOG_ERR) | LOG_MASK(LOG_WARNING) | LOG_MASK(LOG_INFO) | LOG_MASK(LOG_DEBUG));
 }
 
@@ -141,7 +138,7 @@ void tpsa_getenv_log_level(void)
     }
 
     if (strnlen(level_str, UVS_LOG_LEVEL_ENV_MAX_BUF_LEN) >= UVS_LOG_LEVEL_ENV_MAX_BUF_LEN) {
-        TPSA_LOG_ERR("Invalid parameter: log level str.\n");
+        TPSA_LOG_ERR("Invalid parameter: log level str.");
         return;
     }
 
@@ -153,8 +150,7 @@ void tpsa_getenv_log_level(void)
     }
 }
 
-static int tpsa_vlog(const char *file, const char *function, int line, unsigned int level,
-    const char *format, va_list va)
+static int tpsa_vlog(const char *function, int line, unsigned int level, const char *format, va_list va)
 {
     int ret;
     char newformat[MAX_LOG_LEN + 1] = {0};
@@ -170,14 +166,13 @@ static int tpsa_vlog(const char *file, const char *function, int line, unsigned 
 
     int woker_idx = uvs_get_worker_idx();
     if (woker_idx != -1) {
-        /* add log head info, "[URMA][libuvs][thread_id][tpsaprocessname][worker_idx][file:func:line]format" */
-        ret = snprintf(newformat, sizeof(newformat), "[%s][%s][%ld][%s][work_%d][%s:%s:%d]%s",
-            URMA_LOG_TAG, LIBUVS_LOG, (long)syscall(__NR_gettid), g_tpsa_process_name,
-            woker_idx, file, function, line, format);
+        /* add log head info, "TPSA_LOG_TAG|*tpsaprocessname*|worker_idx|function|[line]|format" */
+        ret = snprintf(newformat, sizeof(newformat), "%s|*%s*|worker_%d|%s[%d]|%s",
+            TPSA_LOG_TAG, g_tpsa_process_name, woker_idx, function, line, format);
     } else {
-        /* add log head info, "[URMA][libuvs][thread_id][tpsaprocessname][-][file:func:line]format" */
-        ret = snprintf(newformat, sizeof(newformat), "[%s][%s][%ld][%s][-][%s:%s:%d]%s",
-            URMA_LOG_TAG, LIBUVS_LOG, (long)syscall(__NR_gettid), g_tpsa_process_name, file, function, line, format);
+        /* add log head info, "TPSA_LOG_TAG|*tpsaprocessname*|function|[line]|format" */
+        ret = snprintf(newformat, sizeof(newformat), "%s|*%s*|%s[%d]|%s",
+            TPSA_LOG_TAG, g_tpsa_process_name, function, line, format);
     }
 
     if (ret < 0 || ret >= (int)sizeof(newformat)) {
@@ -194,12 +189,11 @@ static int tpsa_vlog(const char *file, const char *function, int line, unsigned 
     return ret;
 }
 
-void tpsa_log(const char *file, const char *function, int line, uint32_t level,
-    const char *format, ...)
+void tpsa_log(const char *function, int line, uint32_t level, const char *format, ...)
 {
     va_list va;
 
     va_start(va, format);
-    (void)tpsa_vlog(file, function, line, level, format, va);
+    (void)tpsa_vlog(function, line, level, format, va);
     va_end(va);
 }

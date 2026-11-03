@@ -6,7 +6,6 @@
  */
 
 #include <pthread.h>
-#include <syslog.h>
 
 #include "urpc_util.h"
 #include "util_log.h"
@@ -19,12 +18,12 @@ static umq_vlog_config_t g_umq_log_config = {
         .level = UTIL_VLOG_LEVEL_INFO,
         .vlog_name = "UMQ",
         .vlog_output_func = default_vlog_output,
-        .vlog_output_ext_func = NULL,
         .rate_limited = {
             .interval_ms = UTIL_VLOG_PRINT_PERIOD_MS,
             .num = UTIL_VLOG_PRINT_TIMES,
         },
     },
+    .log_lock = PTHREAD_MUTEX_INITIALIZER,
 };
 
 umq_vlog_config_t *umq_get_log_config(void)
@@ -39,6 +38,5 @@ util_vlog_ctx_t *umq_get_log_ctx(void)
 
 URPC_CONSTRUCTOR(umq_log_register, CONSTRUCTOR_PRIORITY_LOG_UMQ)
 {
-    openlog(NULL, LOG_PID | LOG_CONS | LOG_NDELAY, LOG_USER);
     util_log_ctx_set(umq_get_log_ctx());
 }
