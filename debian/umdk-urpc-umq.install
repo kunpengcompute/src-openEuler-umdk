@@ -4,4 +4,3 @@ usr/lib64/libumq_buf.so.* usr/lib/aarch64-linux-gnu
 usr/lib64/libumq_ub.so.* usr/lib/aarch64-linux-gnu
 etc/rsyslog.d/umq.conf
 etc/logrotate.d/umq
-usr/lib64/libumq_ipc.so.* usr/lib/aarch64-linux-gnu

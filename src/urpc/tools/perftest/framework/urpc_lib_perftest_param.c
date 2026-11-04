@@ -24,27 +24,23 @@ static struct option g_long_options[] = {
     {"port", required_argument, NULL, 'p'},
     {"local-ip", required_argument, NULL, 'l'},
     {"remote-ip", required_argument, NULL, 'r'},
-    {"thread-num", required_argument, NULL, 'n'},
-    {"target-queue", required_argument, NULL, 't'},
     {"size", required_argument, NULL, 's'},
     {"cpu_core", required_argument, NULL, 'u'},
-    {"func-period", no_argument, NULL, 'P'},
     {"help", no_argument, NULL, 'h'},
     /* Long options only */
     {"alloc-buf", no_argument, NULL, 'A'},
     {"server", no_argument, NULL, 'S'},
     {"client", no_argument, NULL, 'C'},
-    {"hw-offload", no_argument, NULL, 'H'},
     {"show-thread-qps", no_argument, NULL, 'Q'},
     {"trans-mode", required_argument, NULL, 'T'},
     {"rx-depth", required_argument, NULL, 'R'},
     {"tx-depth", required_argument, NULL, 'U'},
     {"use-one-queue", no_argument, NULL, 'V'},
-    {"disorder", no_argument, NULL, 'D'},
     {"align", no_argument, NULL, 'L'},
     {"is_ipv6_dev", no_argument, NULL, 'B'},
     {"concurrent-num", required_argument, NULL, 'W'},
     {"data-trans-mode", required_argument, NULL, 'E'},
+    {"eid", required_argument, NULL, 'e'},
 
     {NULL, 0, NULL, 0}
 };
@@ -53,39 +49,33 @@ static struct option g_long_options[] = {
 static void usage(void)
 {
     (void)printf("Usage:\n");
-    (void)printf("  -d, --dev-name <dev>                device name <dev>\n");
+    (void)printf("  -d, --dev <dev>                     device name <dev>\n");
     (void)printf("  -c, --test-case <case index>        test case to be performed(default: 0)\n");
     (void)printf("                                      0: test urpc latency(default)\n");
     (void)printf("                                      1: test urpc qps\n");
     (void)printf("      --server                        to launch server.\n");
     (void)printf("      --client                        to launch client.\n");
-    (void)printf("      --hw-offload                    set URPC_FEATURE_HWUB_OFFLOAD, default not set\n");
+    (void)printf("      --eid                           set dev eid.\n");
     (void)printf("      --show-thread-qps               show all worker thread qps, effective in qps test\n");
     (void)printf("      --tx-depth                      set queue tx-depth(default 512).\n");
     (void)printf("      --rx-depth                      set queue rx-depth(default 512).\n");
     (void)printf("      --trans-mode                    set urpc_trans_mode.\n");
     (void)printf("      --use-one-queue                 use one queue in latency test(default 2 queues).\n");
-    (void)printf("      --alloc-buf                     don't reuse allocator buffer in latency test(allocator only "
+    (void)printf("      --alloc-buf                     don't reuse allocator buffer in latency test(allocator only\n"
                  "                                      has one sge in latency test by default).\n");
     (void)printf("      --align                         memory address align to 4K.\n");
     (void)printf("      --is_ipv6_dev                   use ipv6 dev for data plane.\n");
-    (void)printf("      --concurrent-num <num>          concurrent num for wqe in one time, should go with --alloc-buf,"
-                 "                                      and size larger than 105.\n");
-    (void)printf("      --data-trans-mode <num>         urpc data trans mode, 0 for send(default), "
-                 "                                      2 for read(only support one queue, not support concurrent).\n");
-    (void)printf("      --disorder                      use disorder queue.\n");
-    (void)printf("  -p, --port <port>                   listen on/connect to server's port <port>, server and client "
+    (void)printf("      --concurrent-num <num>          concurrent num for wqe in one time, should go with\n"
+                 "                                      --alloc-buf, and size larger than 105.\n");
+    (void)printf("      --data-trans-mode <num>         urpc data trans mode, 0 for send(default).\n");
+    (void)printf("  -p, --port <port>                   listen on/connect to server's port <port>, server and client\n"
                  "may use <port+1> to sync and client may use <port-1> in latency test case (default: 19875)\n");
     (void)printf("  -f, --unix-file-path <path>         unix-file-path for dfx\n");
     (void)printf("  -l, --local-ip <ip-address>         local ip address\n");
     (void)printf("  -r, --remote-ip <ip-address>        remote ip address\n");
-    (void)printf("  -n, --thread-num <thread-num>       number of process threads\n");
-    (void)printf("  -s, --size <size1,size2...>         size of request, support most 32 sizes, each size should not "
+    (void)printf("  -s, --size <size1,size2...>         size of request, support most 32 sizes, each size should not\n"
                  "                                      more than 8192, and will provide in order of input\n");
-    (void)printf("  -t, --target-queue <target-queue>   target-queue index of remote for client to send request to\n");
     (void)printf("  -u, --cpu_core <cpu_core>           from which cpu core to set affinity for each thread\n");
-    (void)printf("  -P, --func-period <func-period>     time for simulating the server to execute handler.\n");
-    (void)printf("      --soft                          enable soft feature.\n");
     (void)printf("  -h, --help                          show help info.\n\n");
 }
 
@@ -118,7 +108,7 @@ static int cfg_check(perftest_framework_config_t *cfg)
     return 0;
 }
 
-static int cfg_size_get(uint32_t *size, uint32_t *total, char *data)
+static uint32_t cfg_size_get(uint32_t *size, uint32_t *total, char *data)
 {
     char *save;
     char *new_data = strtok_r(data, ",", &save);
@@ -137,6 +127,17 @@ static int cfg_size_get(uint32_t *size, uint32_t *total, char *data)
     return i;
 }
 
+static int copy_optarg_to_buf(char *dst, size_t dst_size, const char *opt_name, const char *opt_arg)
+{
+    int ret = snprintf(dst, dst_size, "%s", opt_arg);
+    if (ret < 0 || (size_t)ret >= dst_size) {
+        LOG_PRINT("%s is too long\n", opt_name);
+        return -1;
+    }
+
+    return 0;
+}
+
 int urpc_perftest_parse_arguments(int argc, char **argv, perftest_framework_config_t *cfg)
 {
     if (argc == 1) {
@@ -148,14 +149,16 @@ int urpc_perftest_parse_arguments(int argc, char **argv, perftest_framework_conf
 
     while (1) {
         int long_option_index = -1;
-        int c = getopt_long(argc, argv, "c:d:f:h:l:n:p:r:s:t:u:P:", g_long_options, &long_option_index);
+        int c = getopt_long(argc, argv, "c:d:f:h:l:p:r:s:u:e:", g_long_options, &long_option_index);
         if (c == -1) {
             break;
         }
 
         switch (c) {
             case 'd':
-                strcpy(cfg->dev_name, optarg);
+                if (copy_optarg_to_buf(cfg->dev_name, sizeof(cfg->dev_name), "--dev", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 'c':
                 cfg->case_type = (uint32_t)strtoul(optarg, NULL, 0);
@@ -165,19 +168,22 @@ int urpc_perftest_parse_arguments(int argc, char **argv, perftest_framework_conf
                 }
                 break;
             case 'f':
-                strcpy(cfg->path, optarg);
+                if (copy_optarg_to_buf(cfg->path, sizeof(cfg->path), "--unix-file-path", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 'p':
                 cfg->tcp_port = (uint16_t)strtoul(optarg, NULL, 0);
                 break;
             case 'l':
-                strcpy(cfg->local_ip, optarg);
+                if (copy_optarg_to_buf(cfg->local_ip, sizeof(cfg->local_ip), "--local-ip", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 'r':
-                strcpy(cfg->remote_ip, optarg);
-                break;
-            case 'n':
-                cfg->thread_num = (uint32_t)strtoul(optarg, NULL, 0);
+                if (copy_optarg_to_buf(cfg->remote_ip, sizeof(cfg->remote_ip), "--remote-ip", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 's':
                 cfg->size_len = cfg_size_get(cfg->size, &cfg->size_total, optarg);
@@ -195,14 +201,8 @@ int urpc_perftest_parse_arguments(int argc, char **argv, perftest_framework_conf
             case 'C':
                 cfg->instance_mode = cfg->instance_mode == NONE ? CLIENT : cfg->instance_mode;
                 break;
-            case 'P':
-                cfg->func_period = (uint32_t)strtoul(optarg, NULL, 0);
-                break;
             case 'u':
                 cfg->cpu_affinity = (uint32_t)strtoul(optarg, NULL, 0);
-                break;
-            case 't':
-                cfg->target_queue = (uint8_t)strtoul(optarg, NULL, 0);
                 break;
             case 'H':
                 cfg->hwub_offlad = true;
@@ -233,9 +233,18 @@ int urpc_perftest_parse_arguments(int argc, char **argv, perftest_framework_conf
                 break;
             case 'W':
                 cfg->con_num = (uint32_t)strtoul(optarg, NULL, 0);
+                if (cfg->con_num == 0 || cfg->con_num > MAX_CONCURRENT_NUM) {
+                    LOG_PRINT("concurrent num should be in [1, %u]\n", MAX_CONCURRENT_NUM);
+                    return -1;
+                }
                 break;
             case 'E':
                 cfg->data_trans_mode = (data_trans_mode_t)strtoul(optarg, NULL, 0);
+                break;
+            case 'e':
+                if (copy_optarg_to_buf(cfg->eid, sizeof(cfg->eid), "--eid", optarg) != 0) {
+                    return -1;
+                }
                 break;
             default:
                 usage();

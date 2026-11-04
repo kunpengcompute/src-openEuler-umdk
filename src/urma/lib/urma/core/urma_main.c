@@ -17,12 +17,15 @@
 #include <errno.h>
 #include <stdio.h>
 #include <syslog.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 
 #include "urma_device.h"
 #include "urma_log.h"
 #include "urma_private.h"
 #include "urma_provider.h"
 #include "urma_types.h"
+#include "urma_cmd_tlv.h"
 
 #if defined(__ANDROID__) || defined(__OHOS__)
 #define LIBURMA_DIR "/system/lib64/urma"
@@ -30,6 +33,7 @@
 #define LIBURMA_DIR "/usr/lib64/urma"
 #endif
 #define URMA_MAX_LIB_PATH 256
+#define URMA_DEV_PATH     "/dev/uburma"
 
 static struct ub_list g_driver_list = UB_LIST_INITIALIZER(&g_driver_list);
 static struct ub_list g_so_list = UB_LIST_INITIALIZER(&g_so_list);
@@ -53,7 +57,7 @@ static void urma_close_provider(void *handler, const char *file)
         if (ret == 0) {
             URMA_LOG_INFO("%s is closed.\n", file);
         } else {
-            URMA_LOG_ERR("%s close failed, err: %s.\n", file, dlerror());
+            URMA_LOG_ERR("%s close failed, err=%s.\n", file, dlerror());
         }
     }
 }
@@ -61,23 +65,15 @@ static void urma_close_provider(void *handler, const char *file)
 #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
 static int urma_open_provider(const char file[URMA_MAX_LIB_PATH])
 {
-    int ret;
     char *canonicalized_path = NULL;
 
-    ret = access(file, F_OK | R_OK | X_OK); // Determine permission: exist & read & execute
-    if (ret != 0) {
-        URMA_LOG_ERR("%s doesn't exist or doesn't have permission.\n", file);
-        return -1;
-    }
-
-    /* Resolve symbols only as the code that references them is executed.
-       If the symbol is never referenced, then it is never resolved. */
     canonicalized_path = realpath(file, NULL);
     if (canonicalized_path == NULL) {
-        URMA_LOG_ERR("realpath failed.\n");
+        URMA_LOG_ERR("realpath %s failed, errno=%d.\n", file, errno);
         return -1;
     }
 
+    /* Resolve symbols immediately to report provider dependency issues during load. */
     urma_so_t *so = calloc(1, sizeof(urma_so_t));
     if (so == NULL) {
         free(canonicalized_path);
@@ -86,13 +82,13 @@ static int urma_open_provider(const char file[URMA_MAX_LIB_PATH])
     (void)strncpy(so->path, file, URMA_MAX_LIB_PATH);
     so->dl = dlopen(canonicalized_path, RTLD_NOW);
     if (so->dl == NULL) {
-        URMA_LOG_ERR("%s open failed, err: %s.\n", canonicalized_path, dlerror());
+        URMA_LOG_ERR("%s open failed, err=%s.\n", canonicalized_path, dlerror());
         free(so);
         free(canonicalized_path);
         return -1;
     }
 
-    URMA_LOG_INFO("%s open succeed.\n", canonicalized_path);
+    URMA_LOG_INFO("%s opened successfully.\n", canonicalized_path);
     free(canonicalized_path);
     ub_list_push_back(&g_so_list, &so->node);
     return 0;
@@ -111,7 +107,7 @@ int urma_register_provider_ops(urma_provider_ops_t *provider_ops)
     }
     driver->ops = provider_ops;
     ub_list_push_back(&g_driver_list, &driver->node);
-    URMA_LOG_INFO("%s ops register succeed.\n", provider_ops->name);
+    URMA_LOG_INFO("%s ops registered successfully.\n", provider_ops->name);
     return 0;
 }
 
@@ -130,8 +126,45 @@ int urma_unregister_provider_ops(urma_provider_ops_t *provider_ops)
             break;
         }
     }
-    URMA_LOG_INFO("%s ops unregister succeed.\n", provider_ops->name);
+    URMA_LOG_INFO("%s ops unregistered successfully.\n", provider_ops->name);
     return 0;
+}
+
+/* Register the log callback with all loaded providers. No-op when g_driver_list
+ * is empty (before urma_init / after urma_uninit). */
+void urma_register_log_func_to_providers(urma_log_cb_t func)
+{
+    if (func == NULL) {
+        return;
+    }
+    urma_driver_t *driver, *next;
+    UB_LIST_FOR_EACH_SAFE (driver, next, node, &g_driver_list) {
+        if (driver->ops == NULL || driver->ops->register_log_func == NULL) {
+            continue;
+        }
+        urma_status_t ret = driver->ops->register_log_func(func);
+        if (ret != URMA_SUCCESS) {
+            URMA_LOG_ERR("Register log func to provider %s failed, ret=%d.\n",
+                         driver->ops->name ? driver->ops->name : "unknown", ret);
+        }
+    }
+}
+
+/* Unregister the log callback from all loaded providers. No-op when g_driver_list
+ * is empty (before urma_init / after urma_uninit). */
+void urma_unregister_log_func_to_providers(void)
+{
+    urma_driver_t *driver, *next;
+    UB_LIST_FOR_EACH_SAFE (driver, next, node, &g_driver_list) {
+        if (driver->ops == NULL || driver->ops->unregister_log_func == NULL) {
+            continue;
+        }
+        urma_status_t ret = driver->ops->unregister_log_func();
+        if (ret != URMA_SUCCESS) {
+            URMA_LOG_ERR("Unregister log func from provider %s failed, ret=%d.\n",
+                         driver->ops->name ? driver->ops->name : "unknown", ret);
+        }
+    }
 }
 
 #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
@@ -146,7 +179,7 @@ static bool urma_validate_driver(struct dirent *dent)
     const char *driver_prefix = "liburma";
     if (dent->d_type == DT_LNK || dent->d_type == DT_REG) {
         if (len < strlen(".so") || strncmp(dent->d_name, driver_prefix, strlen(driver_prefix)) != 0) {
-            URMA_LOG_INFO("dent_name: %s is not valid\n", dent->d_name);
+            URMA_LOG_INFO("dent_name=%s is not valid\n", dent->d_name);
             return false;
         }
         return true;
@@ -159,11 +192,11 @@ static int urma_open_drivers(void)
     Dl_info info;
     int ret = dladdr((void *)&urma_open_drivers, &info);
     if (ret == 0) {
-        URMA_LOG_ERR("Failed to get dl addr: %s\n", dlerror());
+        URMA_LOG_ERR("Failed to get dl addr=%s\n", dlerror());
         return -1;
     }
     if (info.dli_fname != NULL) {
-        URMA_LOG_INFO("dl_addr: %s\n", info.dli_fname);
+        URMA_LOG_INFO("dl_addr=%s\n", info.dli_fname);
     }
 
     char dl_dir[URMA_MAX_LIB_PATH] = {0};
@@ -173,15 +206,15 @@ static int urma_open_drivers(void)
     }
     char *last_char = strrchr(dl_dir, '/');
     if (last_char == NULL) {
-        URMA_LOG_ERR("strrchr %s failed, errno: %d\n", dl_dir, errno);
+        URMA_LOG_ERR("strrchr %s failed, errno=%d\n", dl_dir, errno);
         return -1;
     }
     *last_char = 0;
     strcat(dl_dir, "/urma");
     DIR *dir = opendir(dl_dir);
     if (dir == NULL) {
-        URMA_LOG_ERR("Failed to open liburma dir %s\n", dl_dir);
-        return -1;
+        URMA_LOG_INFO("Skipping driver scan for directory %s\n", dl_dir);
+        return 0;
     }
 
     int n_loaded_drivers = 0;
@@ -209,16 +242,14 @@ static int urma_open_drivers(void)
 
 urma_status_t urma_init(urma_init_attr_t *conf)
 {
-    urma_getenv_log_level();
-
     /* g_init_flag is initialized as 0 */
     if (atomic_load(&g_init_flag) > 0) {
-        URMA_LOG_ERR("urma_init has been called before.\n");
+        URMA_LOG_WARN("urma_init has been called before.\n");
         return URMA_EEXIST;
     }
 #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
     /* TODONEXT: call ubcore to allocate uasid */
-    if (urma_open_drivers() <= 0) {
+    if (urma_open_drivers() < 0) {
         URMA_LOG_ERR("None of the providers registered.\n");
         /* we can continue on android platform */
 #if !defined(__ANDROID__) && !defined(SO_LINKED)
@@ -228,19 +259,30 @@ urma_status_t urma_init(urma_init_attr_t *conf)
 #endif
 
     (void)pthread_spin_init(&g_dev_list_lock, PTHREAD_PROCESS_PRIVATE);
+    /* Compensate: a callback registered before init could not be forwarded
+     * (providers not loaded yet); now they are. */
+    if (urma_is_log_func_registered()) {
+        urma_register_log_func_to_providers(urma_get_log_func());
+    }
     urma_driver_t *driver, *next;
     UB_LIST_FOR_EACH_SAFE (driver, next, node, &g_driver_list) {
         if (driver->ops->init == NULL || driver->ops->init(conf) != URMA_SUCCESS) {
-            URMA_LOG_WARN("Provider init failed %s", driver->ops->name);
+            URMA_LOG_WARN("Provider init failed %s\n", driver->ops->name);
             ub_list_remove(&driver->node);
             free(driver);
         }
     }
-    (void)pthread_spin_lock(&g_dev_list_lock);
 #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
-    (void)urma_discover_devices(&g_dev_list, &g_driver_list);
-#endif
+    /* Phase 1: scan sysfs and match drivers outside the lock (I/O heavy) */
+    struct ub_list candidate_list = UB_LIST_INITIALIZER(&candidate_list);
+    struct ub_list dev_name_list = UB_LIST_INITIALIZER(&dev_name_list);
+    urma_scan_sysfs_devices(&candidate_list, &dev_name_list, &g_driver_list);
+
+    /* Phase 2: merge candidates into dev_list under the lock (lightweight) */
+    (void)pthread_spin_lock(&g_dev_list_lock);
+    (void)urma_merge_sysfs_devices(&g_dev_list, &candidate_list, &dev_name_list);
     (void)pthread_spin_unlock(&g_dev_list_lock);
+#endif
 
     atomic_fetch_add(&g_init_flag, 1);
     return URMA_SUCCESS;
@@ -261,9 +303,7 @@ urma_status_t urma_uninit(void)
             ret = URMA_FAIL;
         }
     }
-    (void)pthread_spin_lock(&g_dev_list_lock);
     urma_free_devices(&g_dev_list);
-    (void)pthread_spin_unlock(&g_dev_list_lock);
     (void)pthread_spin_destroy(&g_dev_list_lock);
     /* unload urma so */
     urma_so_t *so, *next;
@@ -313,9 +353,17 @@ urma_device_t **urma_get_device_list(int *num_devices)
         return NULL;
     }
 
-    (void)pthread_spin_lock(&g_dev_list_lock);
 #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
-    (void)urma_discover_devices(&g_dev_list, &g_driver_list);
+    /* Phase 1: scan sysfs and match drivers outside the lock (I/O heavy) */
+    struct ub_list candidate_list = UB_LIST_INITIALIZER(&candidate_list);
+    struct ub_list dev_name_list = UB_LIST_INITIALIZER(&dev_name_list);
+    urma_scan_sysfs_devices(&candidate_list, &dev_name_list, &g_driver_list);
+
+    /* Phase 2: merge candidates and build device list under the lock */
+    (void)pthread_spin_lock(&g_dev_list_lock);
+    (void)urma_merge_sysfs_devices(&g_dev_list, &candidate_list, &dev_name_list);
+#else
+    (void)pthread_spin_lock(&g_dev_list_lock);
 #endif
     *num_devices = (int)ub_list_size(&g_dev_list);
     if (*num_devices == 0) {
@@ -349,7 +397,7 @@ urma_eid_info_t *urma_get_eid_list(urma_device_t *dev, uint32_t *cnt)
 
     uint32_t max_eid_cnt = dev->sysfs_dev->dev_attr.dev_cap.max_eid_cnt;
     if (max_eid_cnt == 0) {
-        URMA_LOG_ERR("max eid cnt %u is err", max_eid_cnt);
+        URMA_LOG_ERR("max eid cnt %u is err\n", max_eid_cnt);
         errno = EINVAL;
         return NULL;
     }
@@ -388,6 +436,13 @@ urma_status_t urma_query_device(urma_device_t *dev, urma_device_attr_t *dev_attr
     }
 
     urma_update_port_attr(dev->sysfs_dev);
+
+    int ret = urma_query_device_attr(dev->sysfs_dev);
+    if (ret != 0) {
+        URMA_LOG_ERR("Failed to query device attr, ret=%d.\n", ret);
+        return URMA_FAIL;
+    }
+
     (void)memcpy(dev_attr, &dev->sysfs_dev->dev_attr, sizeof(urma_device_attr_t));
 
     return URMA_SUCCESS;
@@ -396,7 +451,7 @@ urma_status_t urma_query_device(urma_device_t *dev, urma_device_attr_t *dev_attr
 urma_device_t *urma_get_device_by_name(char *dev_name)
 {
     if (dev_name == NULL || strnlen(dev_name, URMA_MAX_NAME) >= URMA_MAX_NAME) {
-        URMA_LOG_ERR("Invalid parameter.\n");
+        URMA_LOG_ERR("Invalid dev_name.\n");
         errno = EINVAL;
         return NULL;
     }
@@ -404,7 +459,7 @@ urma_device_t *urma_get_device_by_name(char *dev_name)
     int device_num = 0;
     urma_device_t **device_list = urma_get_device_list(&device_num);
     if (device_list == NULL || device_num == 0) {
-        URMA_LOG_ERR("urma get device list failed, device_num: %d.\n", device_num);
+        URMA_LOG_ERR("urma get device list failed, device_num=%d.\n", device_num);
         return NULL;
     }
 
@@ -416,7 +471,7 @@ urma_device_t *urma_get_device_by_name(char *dev_name)
         }
     }
     for (int i = 0; urma_dev == NULL && i < device_num; i++) {
-        URMA_LOG_ERR("device list name:%s does not match dev_name: %s.\n", device_list[i]->name, dev_name);
+        URMA_LOG_ERR("device list name=%s does not match dev_name=%s.\n", device_list[i]->name, dev_name);
         if (i == device_num - 1) {
             errno = ENODEV;
         }
@@ -465,7 +520,7 @@ int urma_open_cdev(char *path)
 
     file_path = realpath(path, NULL);
     if (file_path == NULL) {
-        URMA_LOG_ERR("file_path:%s is not standardize.\n", path);
+        URMA_LOG_ERR("file_path=%s is not standardized.\n", path);
         return -1;
     }
     fd = open(file_path, O_RDWR);
@@ -481,7 +536,7 @@ int urma_query_eid(urma_device_t *dev, uint32_t eid_index, urma_eid_t *eid)
 urma_context_t *urma_create_context(urma_device_t *dev, uint32_t eid_index)
 {
     if (dev == NULL || dev->ops == NULL || dev->ops->create_context == NULL) {
-        URMA_LOG_ERR("Failed to find device by eid.\n");
+        URMA_LOG_ERR("Invalid parameter with err dev or ops.\n");
         errno = EINVAL;
         return NULL;
     }
@@ -498,7 +553,8 @@ urma_context_t *urma_create_context(urma_device_t *dev, uint32_t eid_index)
         }
         dev_fd = urma_open_cdev(dev->path);
         if (dev_fd < 0) {
-            URMA_LOG_ERR("Failed to open urma cdev with path %s\n", dev->path);
+            URMA_LOG_ERR("Failed to open urma cdev with path %s, dev_fd=%d\n",
+                dev->path, dev_fd);
             errno = EIO;
             return NULL;
         }
@@ -506,7 +562,7 @@ urma_context_t *urma_create_context(urma_device_t *dev, uint32_t eid_index)
 
     urma_context_t *ctx = dev->ops->create_context(dev, eid_index, dev_fd);
     if (ctx == NULL) {
-        URMA_LOG_ERR("Failed to create urma context.\n");
+        URMA_LOG_ERR("[DRV_ERR]Failed to create urma context.\n");
         if (dev_fd >= 0) {
             (void)close(dev_fd);
         }
@@ -524,15 +580,18 @@ urma_context_t *urma_create_context(urma_device_t *dev, uint32_t eid_index)
 
 urma_status_t urma_delete_context(urma_context_t *ctx)
 {
-    URMA_LOG_INFO("urma delete context start.\n");
     if (ctx == NULL || ctx->dev == NULL || ctx->dev->ops == NULL || ctx->dev->ops->delete_context == NULL) {
         URMA_LOG_ERR("Invalid parameter.\n");
         return URMA_EINVAL;
     }
 
+    char dev_name[URMA_MAX_NAME] = {0};
+    (void)strcpy(dev_name, ctx->dev->name);
+    uint32_t eid_index = ctx->eid_index;
     uint64_t atomic_cnt = (uint64_t)atomic_load(&ctx->ref.atomic_cnt);
     if (atomic_cnt > 1) {
-        URMA_LOG_WARN("already in use, atomic_cnt: %lu.\n", atomic_cnt);
+        URMA_LOG_WARN("already in use, atomic_cnt=%lu, dev_name=%s, eid_idx=%u.\n",
+            atomic_cnt, dev_name, eid_index);
         return URMA_EAGAIN;
     }
 
@@ -541,10 +600,10 @@ urma_status_t urma_delete_context(urma_context_t *ctx)
     if (ret == URMA_SUCCESS && dev_fd >= 0) {
         (void)close(dev_fd);
     } else {
-        URMA_LOG_WARN("Delete context error, fd: %d not closed, ret: %d.\n", dev_fd, ret);
+        URMA_LOG_WARN("[DRV_ERR]Delete ctx error, fd=%d, ret=%d, dev_name=%s, eid_idx=%u.\n",
+            dev_fd, ret, dev_name, eid_index);
     }
 
-    URMA_LOG_INFO("urma delete context end.\n");
     return ret;
 }
 
@@ -557,6 +616,10 @@ urma_status_t urma_set_context_opt(urma_context_t *ctx, urma_opt_name_t opt_name
 
     switch (opt_name) {
         case URMA_OPT_AGGR_MODE:
+            if (opt_value == NULL) {
+                URMA_LOG_ERR("Invalid option value.\n");
+                return URMA_EINVAL;
+            }
             if (opt_len != sizeof(urma_context_aggr_mode_t)) {
                 URMA_LOG_ERR("Invalid option value len.\n");
                 return URMA_EINVAL;
@@ -565,7 +628,7 @@ urma_status_t urma_set_context_opt(urma_context_t *ctx, urma_opt_name_t opt_name
                 URMA_LOG_ERR("Cannot set aggregated mode for non-aggregated device.\n");
                 return URMA_EINVAL;
             }
-            const uint32_t URMA_USER_CTL_BOND_SET_AGGR_MODE = 5;
+            const uint32_t URMA_USER_CTL_BOND_SET_AGGR_MODE = 4;
             urma_user_ctl_in_t in = {
                 .opcode = URMA_USER_CTL_BOND_SET_AGGR_MODE,
                 .addr = (uint64_t)opt_value,
@@ -577,6 +640,72 @@ urma_status_t urma_set_context_opt(urma_context_t *ctx, urma_opt_name_t opt_name
             URMA_LOG_ERR("Invalid option name.\n");
             return URMA_EINVAL;
     }
+}
+
+urma_status_t urma_get_jfce_cnt_info(urma_jfce_cnt_info_t *info_arr, uint32_t *cnt)
+{
+    if (info_arr == NULL || cnt == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return URMA_EINVAL;
+    }
+
+    *cnt = 0;
+
+    DIR *dir = opendir(URMA_DEV_PATH);
+    if (dir == NULL) {
+        URMA_LOG_ERR("Failed to open %s directory.\n", URMA_DEV_PATH);
+        return URMA_FAIL;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        if (urma_is_bonding_dev(entry->d_name)) {
+            continue;
+        }
+
+        if (*cnt >= URMA_JFCE_CNT_MAX_DEV_NUM) {
+            break;
+        }
+
+        char dev_path[URMA_MAX_PATH] = {0};
+        if (snprintf(dev_path, URMA_MAX_PATH, "%s/%s", URMA_DEV_PATH, entry->d_name) <= 0) {
+            URMA_LOG_WARN("Failed to construct device path for %s.\n", entry->d_name);
+            continue;
+        }
+
+        int dev_fd = urma_open_cdev(dev_path);
+        if (dev_fd < 0) {
+            URMA_LOG_WARN("Failed to open device %s.\n", entry->d_name);
+            continue;
+        }
+
+        urma_cmd_get_jfce_cnt_t arg = {0};
+        int ret = urma_ioctl_get_jfce_cnt(dev_fd, &arg);
+        if (ret != 0) {
+            URMA_LOG_WARN("Failed to get jfce cnt for dev %s, ret=%d.\n", entry->d_name, ret);
+            (void)close(dev_fd);
+            continue;
+        }
+
+        if (strlen(entry->d_name) >= URMA_MAX_NAME) {
+            URMA_LOG_WARN("Device name %s is too long.\n", entry->d_name);
+            (void)close(dev_fd);
+            continue;
+        }
+
+        (void)strcpy(info_arr[*cnt].dev_name, entry->d_name);
+        info_arr[*cnt].jfce_total_cnt = arg.out.jfce_total_cnt;
+        info_arr[*cnt].jfce_thresh_cnt = arg.out.jfce_thresh_cnt;
+        (*cnt)++;
+        (void)close(dev_fd);
+    }
+
+    (void)closedir(dir);
+    return URMA_SUCCESS;
 }
 
 /* Temporarily use uasid allocated by provider */
@@ -606,35 +735,41 @@ int urma_register_sysfs_dev(struct urma_sysfs_dev *dev)
         URMA_LOG_DEBUG("Register device failed. Invalid input.\n");
         return -1;
     }
+    /* Match driver outside the lock (read-only traversal of g_driver_list) */
+    if (!urma_match_driver(dev, &g_driver_list)) {
+        URMA_LOG_ERR("Register device failed. Failed to match driver for device %s.\n", dev->dev_name);
+        return -1;
+    }
+    dev->urma_device->ops = dev->driver->ops;
+
+    /* Only hold the lock for dev_list lookup and insertion */
     (void)pthread_spin_lock(&g_dev_list_lock);
     if (urma_find_dev_by_name(&g_dev_list, dev->dev_name) != NULL) {
         (void)pthread_spin_unlock(&g_dev_list_lock);
         URMA_LOG_DEBUG("Register device failed. %s device already existed.\n", dev->dev_name);
         return -1;
     }
-    if (!urma_match_driver(dev, &g_driver_list)) {
-        (void)pthread_spin_unlock(&g_dev_list_lock);
-        URMA_LOG_ERR("Register device failed. Failed to match driver for device %s.\n", dev->dev_name);
-        return -1;
-    }
-    dev->urma_device->ops = dev->driver->ops;
     ub_list_insert_after(&g_dev_list, &dev->node);
     (void)pthread_spin_unlock(&g_dev_list_lock);
-    URMA_LOG_DEBUG("Success register the %s device.\n", dev->dev_name);
+    URMA_LOG_DEBUG("Successfully registered the %s device.\n", dev->dev_name);
     return 0;
 }
 
 static __attribute__((constructor)) void liburma_init(void)
 {
+    urma_log_init();
+    urma_getenv_log_separator();
+    urma_getenv_log_level();
 #if !defined(__OHOS__) && !defined(__OH__) && !defined(__ANDROID__)
     urma_discover_sysfs_path();
 #endif
-    syslog(LOG_INFO, "LogTag_URMA|%s[%d]|Start to init liburma.\n", __func__, __LINE__);
+    /* URMA_LOG_X should be used after the above log operations finish */
+    URMA_LOG_INFO("Start to init liburma.\n");
     return;
 }
 
 static __attribute__((destructor)) void liburma_uninit(void)
 {
-    syslog(LOG_INFO, "LogTag_URMA|%s[%d]|Finish to uninit liburma.\n", __func__, __LINE__);
+    URMA_LOG_INFO("Finish to uninit liburma.\n");
     return;
 }

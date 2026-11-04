@@ -25,17 +25,18 @@ extern "C" {
 #define PERFTEST_1MB                    (0x100000)
 #define DEFAULT_REQUEST_SIZE_4K         4096
 #define DEFAULT_REQUEST_SIZE64          64
-#define DEFAULT_DEPTH                   512
-#define PERFTEST_DEV_NAME_SIZE          128
+#define DEFAULT_DEPTH                   2048
+#define PERFTEST_DEV_NAME_SIZE          64
 #define DEFAULT_LAT_TEST_ROUND          100000
 #define DEFAULT_LISTEN_PORT             19876
+#define DEFAULT_PRIORITY                4
 #define MAX_SGE_SIZE                    32
 #define DEFAULT_LISTEN_IP_ADDR          "127.0.0.1"
 #define INTERRUPT_MAX_WAIT_TIME_MS      3000
 #define ITER_MAX_WAIT_TIME_US           20000000
 
 #define URPC_PERFTEST_ACCEPT_WAIT_US    (10000)     // 10ms
-#define MAX_INFO_SIZE                   (256)
+#define MAX_INFO_SIZE                   (8192)
 
 #define LOG_PRINT(fmt, ...) \
     (void)printf("%s|%s|%s|%d:" fmt "", __DATE__, __TIME__, __FUNCTION__, __LINE__, ##__VA_ARGS__)

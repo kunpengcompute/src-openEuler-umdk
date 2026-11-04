@@ -13,7 +13,6 @@
 #include "urpc_framework_client.h"
 
 #define CLIENT_SGE_SIZE          4096
-#define CLIENT_USE_SGE_SIZE      256
 #define DEFAULT_TIMEOUT          1000
 #define CLIENT_SLEEP_TIME        (1000 * 1000)
 
@@ -302,7 +301,8 @@ FREE_WR_ARGS:
     return ret;
 }
 
-int client_run(uint32_t chid, uint64_t qh, urpc_channel_qinfos_t *qinfos, uint64_t func_id, urpc_allocator_t *allocator)
+int client_run(uint32_t chid, uint64_t qh, urpc_channel_qinfos_t *qinfos,
+               uint64_t func_id, const urpc_allocator_t *allocator)
 {
     g_allocator = allocator;
     for (uint32_t i = 0; i < (uint32_t)sizeof(g_test_cases) / sizeof(client_test_case_t); i++) {

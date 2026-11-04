@@ -7,47 +7,17 @@
  * Note:
  * History:
  */
+
 #ifndef UBAGG_IOCTL_H
 #define UBAGG_IOCTL_H
 
 #include <stdint.h>
-#include "topo_info.h"
+
+#include "bondp_topo_info.h"
 #include "urma_ubagg.h"
 #include "urma_types.h"
 
 #define UBAGG_MAX_DEV_NAME_LEN    (64)
-#define UBAGG_EID_SIZE            (sizeof(urma_eid_t))
-
-typedef enum ubagg_cmd {
-    UBAGG_ADD_DEV = 1,
-    UBAGG_RMV_DEV,
-	UBAGG_SET_TOPO_INFO
-} ubagg_cmd_t;
-
-struct ubagg_cmd_hdr {
-    uint32_t command;
-    uint32_t args_len;
-    uint64_t args_addr;
-};
-
-#define UBAGG_CMD_MAGIC 'B'
-#define UBAGG_CMD _IOWR(UBAGG_CMD_MAGIC, 1, struct ubagg_cmd_hdr)
-
-struct ubagg_add_dev {
-    struct {
-        int slave_dev_num;
-        char master_dev_name[UBAGG_MAX_DEV_NAME_LEN];
-        char slave_dev_name[URMA_UBAGG_DEV_MAX_NUM][UBAGG_MAX_DEV_NAME_LEN];
-        urma_eid_t eid;
-        struct urma_device_cap dev_cap;
-    } in;
-};
-
-struct ubagg_rmv_dev {
-    struct {
-        char master_dev_name[UBAGG_MAX_DEV_NAME_LEN];
-    } in;
-};
 
 struct ubagg_set_topo_info {
     struct {
@@ -59,17 +29,26 @@ struct ubagg_set_topo_info {
 typedef enum ubagg_userctl_opcode {
     GET_SLAVE_DEVICE = 1,
     GET_TOPO_INFO    = 2,
-    GET_JFR_ID = 3,
-    GET_JETTY_ID = 4,
+    GET_RJETTY       = 9,
+    GET_SEG_CTX      = 10,
+    FAILBACK_START   = 11,
+    FAILBACK_RESULT  = 12,
 } ubagg_userctl_opcode_t;
 
-struct ubagg_slave_device {
-    int slave_dev_num;
-    char slave_dev_name[URMA_UBAGG_DEV_MAX_NUM][UBAGG_MAX_DEV_NAME_LEN];
-};
+typedef struct bondp_physical_device {
+	char dev_name[UBAGG_MAX_DEV_NAME_LEN];
+	uint32_t chip_id;
+	uint32_t primary_eid_idx;
+	uint32_t port_eid_idx[PORT_NUM];
+} bondp_physical_device_t;
+
+typedef struct bondp_userctl_physical_device_out {
+	int physical_dev_num;
+	bondp_physical_device_t physical_devs[IODIE_NUM];
+} bondp_userctl_physical_device_out_t;
 
 struct ubagg_topo_info_out {
-    struct topo_info topo_info[MAX_NODE_NUM];
+    bondp_topo_node_t topo_info[MAX_NODE_NUM];
     uint32_t node_num;
 };
 #endif // UBAGG_IOCTL_H

@@ -29,16 +29,19 @@ static struct option g_long_options[] = {
     {"trans-mode", required_argument, NULL, 'T'},
     {"rx-depth", required_argument, NULL, 'R'},
     {"tx-depth", required_argument, NULL, 'U'},
+    {"tp-mode", required_argument, NULL, 'M'},
+    {"tp-type", required_argument, NULL, 'P'},
+    {"priority", required_argument, NULL, 'O'},
 
     {"buf-mode", required_argument, NULL, 'b'},
     {"interrupt", no_argument, NULL, 'I'},
-    {"cna", required_argument, NULL, 'N'},
-    {"deid", required_argument, NULL, 'D'},
     {"eid-index", required_argument, NULL, 'E'},
     {"use_atomic_window", no_argument, NULL, 'A'},
     {"buf_multiplex", no_argument, NULL, 'B'},
     {"num", required_argument, NULL, 'n'},
-    {"perf-thresh", required_argument, NULL, 't'},
+    {"enable-perf", no_argument, NULL, 'F'},
+    {"blk-size", required_argument, NULL, 'L'},
+    {"share-jfr", no_argument, NULL, 'j'},
     {NULL, 0, NULL, 0}
 };
 // clang-format on
@@ -46,30 +49,35 @@ static struct option g_long_options[] = {
 static void usage(void)
 {
     (void)printf("Usage:\n");
-    (void)printf("  -d, --dev-name <dev>                device name <dev>\n");
+    (void)printf("  -d, --dev <dev>                     device name <dev>\n");
     (void)printf("  -l, --local-ip <ip-address>         local ip address\n");
     (void)printf("  -r, --remote-ip <ip-address>        remote ip address\n");
-    (void)printf("  -p, --port <port>                   listen on/connect to server's port <port>");
+    (void)printf("  -p, --port <port>                   listen on/connect to server's port <port>\n");
     (void)printf("  -c, --test-case <case index>        test case to be performed(default: 0)\n");
     (void)printf("                                      0: test umq latency(default)\n");
     (void)printf("                                      1: test umq qps\n");
-    (void)printf("  -u, --cpu-core <cpu_core>           from which cpu core to set affinity for each thread\n");
+    (void)printf("  -u, --cpu_core <cpu_core>           from which cpu core to set affinity for each thread\n");
     (void)printf("      --server                        to launch server.\n");
     (void)printf("      --client                        to launch client.\n");
 
     (void)printf("      --buf-mode                      set umq_buf_mode_t.\n");
     (void)printf("  -f, --feature <feature>             umq feature, 0 for base api, 1 for pro api\n");
     (void)printf("      --interrupt                     set interrupt mode.\n");
-    (void)printf("      --cna                           set cna for ubmm mode.\n");
-    (void)printf("      --deid                          set deid for ubmm mode.\n");
     (void)printf("  -s, --size <size>                   size of request, not more than 8192\n");
     (void)printf("      --trans-mode                    set umq_trans_mode_t.\n");
     (void)printf("      --tx-depth                      set queue tx-depth(default 512).\n");
     (void)printf("      --rx-depth                      set queue rx-depth(default 512).\n");
+    (void)printf("      --tp-mode                       set queue umq_tp_mode_t(default UMQ_TM_RC).\n");
+    (void)printf("      --tp-type                       set queue umq_tp_type_t(default UMQ_TP_TYPE_CTP).\n");
+    (void)printf("      --priority                      set queue priority(default 4).\n");
     (void)printf("      --eid-index                     set eid index.\n");
     (void)printf("      --use_atomic_window             use atomic window when enable flow control.\n");
     (void)printf("      --num                           set number of iterations.\n");
-    (void)printf("      --perf-thresh                   set perf thresh array, length not exceed 8.\n");
+    (void)printf("      --enable-perf                   enable perf.\n");
+    (void)printf("      --blk-size                      set umq_buf_block_size(default:0), 0=BLOCK_SIZE_4K\n");
+    (void)printf("      --share-jfr                     enable shared jfr: create 1 main + 1 sub umq,\n");
+    (void)printf("                                      sub reuses main's FC jfr_ctx (worker bound to sub)\n");
+    (void)printf("                                      requires pro api (-f 1)\n");
     (void)printf("  -h, --help                          show help info.\n\n");
 }
 
@@ -90,8 +98,23 @@ static void init_cfg(umq_perftest_config_t *cfg)
     cfg->trans_mode = UMQ_TRANS_MODE_IB;
     cfg->eid_idx = 0;
     cfg->use_atomic_window = false;
+    cfg->enable_perf = false;
     cfg->test_round = DEFAULT_LAT_TEST_ROUND;
-    cfg->thresh_num = 0;
+    cfg->blk_mode = 0;
+    cfg->tp_type = UMQ_TP_TYPE_CTP;
+    cfg->priority = DEFAULT_PRIORITY;
+    cfg->share_jfr = false;
+}
+
+static int copy_optarg_to_buf(char *dst, size_t dst_size, const char *opt_name, const char *opt_arg)
+{
+    int ret = snprintf(dst, dst_size, "%s", opt_arg);
+    if (ret < 0 || (size_t)ret >= dst_size) {
+        LOG_PRINT("%s is too long\n", opt_name);
+        return -1;
+    }
+
+    return 0;
 }
 
 int umq_perftest_parse_arguments(int argc, char **argv, umq_perftest_config_t *cfg)
@@ -102,16 +125,17 @@ int umq_perftest_parse_arguments(int argc, char **argv, umq_perftest_config_t *c
     }
 
     init_cfg(cfg);
-    int start_idx = 0;
     while (1) {
-        int c = getopt_long(argc, argv, "c:d:f:l:r:p:u:s:hN:D:E:n:", g_long_options, NULL);
+        int c = getopt_long(argc, argv, "c:d:f:l:r:p:u:s:hE:n:L:", g_long_options, NULL);
         if (c == -1) {
             break;
         }
 
         switch (c) {
             case 'd':
-                memcpy(cfg->config.dev_name, optarg, strlen(optarg));
+                if (copy_optarg_to_buf(cfg->config.dev_name, sizeof(cfg->config.dev_name), "--dev", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 'c':
                 cfg->config.case_type = (uint32_t)strtoul(optarg, NULL, 0);
@@ -127,10 +151,16 @@ int umq_perftest_parse_arguments(int argc, char **argv, umq_perftest_config_t *c
                 cfg->config.tcp_port = (uint16_t)strtoul(optarg, NULL, 0);
                 break;
             case 'l':
-                memcpy(cfg->config.local_ip, optarg, strlen(optarg));
+                if (copy_optarg_to_buf(cfg->config.local_ip, sizeof(cfg->config.local_ip),
+                    "--local-ip", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 'r':
-                memcpy(cfg->config.remote_ip, optarg, strlen(optarg));
+                if (copy_optarg_to_buf(cfg->config.remote_ip, sizeof(cfg->config.remote_ip),
+                    "--remote-ip", optarg) != 0) {
+                    return -1;
+                }
                 break;
             case 's':
                 cfg->config.size = (uint32_t)strtoul(optarg, NULL, 0);
@@ -170,24 +200,39 @@ int umq_perftest_parse_arguments(int argc, char **argv, umq_perftest_config_t *c
             case 'B':
                 cfg->config.buf_multiplex = true;
                 break;
-            case 'N':
-                cfg->cna = (uint16_t)strtoul(optarg, NULL, 0);
+            case 'M':
+                cfg->tp_mode = (umq_tp_mode_t)strtoul(optarg, NULL, 0);
+                if (cfg->tp_mode >= UMQ_TM_MAX) {
+                    return -1;
+                }
                 break;
-            case 'D':
-                cfg->deid = (uint32_t)strtoul(optarg, NULL, 0);
+            case 'P':
+                cfg->tp_type = (umq_tp_type_t)strtoul(optarg, NULL, 0);
+                if (cfg->tp_type >= UMQ_TP_TYPE_MAX) {
+                    return -1;
+                }
                 break;
             case 'E':
                 cfg->eid_idx = (uint16_t)strtoul(optarg, NULL, 0);
                 break;
             case 'n':
                 cfg->test_round = (uint32_t)strtoul(optarg, NULL, 0);
-                break;
-            case 't':
-                start_idx = optind - 1;
-                while (start_idx < argc && *argv[start_idx] != '-' && cfg->thresh_num < UMQ_PERF_QUANTILE_MAX_NUM) {
-                    cfg->thresh_array[cfg->thresh_num++] = (uint64_t)strtoul(argv[start_idx++], NULL, 0);
+                if (cfg->test_round == 0) {
+                    LOG_PRINT("test_round must be greater than 0\n");
+                    return -1;
                 }
-                optind = start_idx;
+                break;
+            case 'F':
+                cfg->enable_perf = true;
+                break;
+            case 'L':
+                cfg->blk_mode = (uint32_t)strtoul(optarg, NULL, 0);
+                break;
+            case 'O':
+                cfg->priority = (uint8_t)strtoul(optarg, NULL, 0);
+                break;
+            case 'j':
+                cfg->share_jfr = true;
                 break;
             default:
                 usage();
@@ -197,6 +242,12 @@ int umq_perftest_parse_arguments(int argc, char **argv, umq_perftest_config_t *c
 
     if (optind < argc) {
         usage();
+        return -1;
+    }
+
+    // share_jfr requires pro api: sub umq IO jetty reuse only supported in pro mode
+    if (cfg->share_jfr && (cfg->feature & UMQ_FEATURE_API_PRO) == 0) {
+        LOG_PRINT("--share-jfr requires pro api (-f 1)\n");
         return -1;
     }
 

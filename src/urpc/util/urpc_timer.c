@@ -25,7 +25,7 @@
 #define URPC_TIMER_HMAP_SIZE (16384)
 #define URPC_TIMER_DEFAULT_NUM (8192)  // default timer cost 800KB
 
-#define URPC_TIMING_WHEEL_HZ 500   /* 2ms per tick */
+#define URPC_TIMING_WHEEL_HZ 1000   /* 1ms per tick */
 #define URPC_TIMER_MIN_SLEEP 10000 /* 10us minimum sleep time per slot */
 
 /* timing wheel level depth and size. 1<<10 means 1024 ticks
@@ -36,7 +36,7 @@
 #define URPC_WHEEL_LEVEL_MASK (URPC_WHEEL_LEVEL_SIZE - 1)
 
 #define URPC_TIMER_MAGIC_NUM 0x33445577u
-#define URPC_TIMER_MIN_DELAY (10u)      /* 10ms */
+#define URPC_TIMER_MIN_DELAY (1u)      /* 1ms */
 #define URPC_TIMER_MAX_DELAY 0xFFFFFFFu /* in ms, 3 days */
 #define URPC_TIMER_MAX_JOB 1000
 
@@ -254,7 +254,7 @@ static int urpc_timer_pool_init(void)
 {
     int ret = urpc_hmap_init(&g_urpc_timing_wheel.pool, URPC_TIMER_HMAP_SIZE);
     if (ret != URPC_SUCCESS) {
-        UTIL_LOG_ERR("timer pool hmap init failed\n");
+        UTIL_LOG_ERR("timer pool hmap init failed, status: %d\n", ret);
         return URPC_FAIL;
     }
 
@@ -262,7 +262,7 @@ static int urpc_timer_pool_init(void)
 
     ret = urpc_timer_pool_add(URPC_INVALID_ID_U32, URPC_TIMER_DEFAULT_NUM, false);
     if (ret != URPC_SUCCESS) {
-        UTIL_LOG_ERR("timer pool hmap init failed\n");
+        UTIL_LOG_ERR("timer pool hmap init failed, status: %d\n", ret);
         urpc_timer_pool_delete(URPC_INVALID_ID_U32, false);
         urpc_hmap_uninit(&g_urpc_timing_wheel.pool);
         pthread_spin_destroy(&g_urpc_timing_wheel.p_lock);
@@ -587,7 +587,7 @@ int urpc_timing_wheel_init(void)
         goto UNINIT_TIMER_FD;
     }
 
-    UTIL_LOG_INFO("timing wheel init successful\n");
+    UTIL_LOG_INFO("timing wheel init success\n");
     return URPC_SUCCESS;
 
 UNINIT_TIMER_FD:

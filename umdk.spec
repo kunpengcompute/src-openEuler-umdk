@@ -10,9 +10,6 @@
 # add --with test option, i.e. disable test by default
 %bcond_with test
 
-# add --with ubagg_disable option, i.e. enable ubagg by default
-%bcond_with ubagg_disable
-
 # add --with release_enable option, i.e. disable release by default
 %bcond_with release_enable
 
@@ -28,19 +25,47 @@
 # add --with dlock option, i.e. disable dlock by default
 %bcond_with dlock
 
+# add --with extra_ubcore_symbols option, i.e. disable by default
+%bcond_with extra_ubcore_symbols
+
+%ifarch aarch64
+%define with_64kb  %{?_with_64kb: 1} %{?!_with_64kb: 0}
+%else
+%define with_64kb  0
+%endif
+
+%if %{with_64kb}
+%define kernel_devel_pkg kernel-64k-devel
+%define ums_suffix -64kb
+%define ums_summary kmod file of UMS (64KB page size)
+%define ums_desc UMS kernel module for transparent TCP acceleration via shared memory over UB
+%define ums_conflict umdk-ums
+%define ums_kernel_req kernel-64k
+%else
+%define kernel_devel_pkg kernel-devel
+%define ums_suffix %{nil}
+%define ums_summary kmod file of ums
+%define ums_desc UMS kernel module for transparent TCP acceleration via shared memory over UB
+%define ums_conflict umdk-ums-64kb
+%define ums_kernel_req kernel
+%endif
+
 %define build_all 1
 
 %if %{with ums} || %{with urma} || %{with urpc} || %{with dlock}
     %define build_all 0
 %endif
 
+# add --without udma option, i.e. enable udma by default
+%bcond_without udma
+
 %if %{defined kernel_version}
     %define kernel_build_path /lib/modules/%{kernel_version}/build
 %else
     %define kernel_version %(
-        KERNEL_DEVEL_COUNT=$(rpm -qa kernel-devel 2>/dev/null | wc -l);
+        KERNEL_DEVEL_COUNT=$(rpm -qa %{kernel_devel_pkg} 2>/dev/null | wc -l);
         if [ "$KERNEL_DEVEL_COUNT" -eq 1 ]; then
-            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' kernel-devel 2>/dev/null;
+            rpm -q --qf '%%{VERSION}-%%{RELEASE}.%%{ARCH}' %{kernel_devel_pkg} 2>/dev/null;
         else
             uname -r;
         fi
@@ -64,13 +89,37 @@ Source0       : %{name}-%{version}.tar.gz
 BuildRoot     : %{_buildirootdir}/%{name}-%{version}-build
 buildArch     : x86_64 aarch64
 
-BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, openssl-devel, glib2-devel, libnl3-devel, kernel-devel, libummu-devel
-Requires: glibc, glib2, libummu
+BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel
 %if %{with asan}
-Requires: libasan
+BuildRequires: libasan, libubsan
+%endif
+%if %{build_all} || %{with ums}
+BuildRequires : %{kernel_devel_pkg}
+%endif
+Requires: glibc, glib2
+%if %{with asan}
+Requires: libasan, libubsan
 %endif
 %if %{with tsan}
 Requires: libtsan
+%endif
+%if %{build_all}
+Requires: umdk-urma-lib = %{version}
+Requires: umdk-urma-devel = %{version}
+Requires: umdk-urma-tools = %{version}
+Requires: umdk-urma-bin = %{version}
+Requires: umdk-urpc-framework = %{version}
+Requires: umdk-urpc-framework-devel = %{version}
+Requires: umdk-urpc-framework-tools = %{version}
+Requires: umdk-urpc-umq = %{version}
+Requires: umdk-urpc-umq-devel = %{version}
+Requires: umdk-urpc-umq-tools = %{version}
+Requires: umdk-dlock-lib = %{version}
+Requires: umdk-dlock-devel = %{version}
+Requires: umdk-ums-kmod = %{version}
+Requires: umdk-ums-tools = %{version}
+Requires: umdk-ums-agent = %{version}
+%files
 %endif
 
 %description
@@ -78,7 +127,10 @@ A new system interconnect architecture
 
 %if %{build_all} || %{with urma} || %{with urpc}
 %package urma-lib
+%if %{with udma}
+BuildRequires:  libummu-devel
 Requires:       libummu
+%endif
 Summary:        Basic URMA libraries of UMDK
 
 %description urma-lib
@@ -97,11 +149,10 @@ libraries.
 Summary:        tools of urma
 Requires:       umdk-urma-lib = %{version}
 %description urma-tools
-tools of urma, contains  urma_perftest, urma_admin, ubagg_cli.
+tools of urma, contains  urma_perftest, urma_admin, urma_ping.
 
 %package urma-bin
 Summary:        binary file of urma
-BuildRequires:  gcc
 Requires:       glibc
 %description urma-bin
 binary file of urma
@@ -124,47 +175,17 @@ to develop applications based on urma_test.
 %endif
 %endif
 
-%if %{build_all} || %{with dlock}
-%package dlock-lib
-Summary:        Library files of dlock
-Requires:       umdk-urma-lib = %{version}
-
-%description dlock-lib
-This package contains the libdlock*.so files for the distributed lock feature.
-
-%package dlock-devel
-Summary:        Include development libraries and headers for dlock
-Requires:       umdk-dlock-lib = %{version}
-AutoReqProv:    on
-
-%description dlock-devel
-This package contains all necessary include files and libraries needed
-to develop applications based on dlock.
-
-%package dlock-example
-Summary:        Executable examples of dlock
-Requires:       umdk-dlock-lib = %{version}
-AutoReqProv:    on
-
-%description dlock-example
-This package contains all the executable examples of dlock.
-
-%files dlock-example
-%defattr(-,root,root)
-    %{_bindir}/dlock_primary_test
-    %{_bindir}/dlock_client_test
-    %{_bindir}/dlock_client_object_test
-%endif
-
 %if %{build_all} || %{with urpc}
 %package urpc-framework
 Summary:        URPC framework shared library
+BuildRequires:  openssl-devel
 Requires:       umdk-urma-lib
 %description urpc-framework
 This package contains the URPC framework shared libraries (e.g. liburpc.so).
 
 %package urpc-umq
 Summary:        URPC umq shared library
+BuildRequires:  openssl-devel
 Requires:       umdk-urma-lib
 %description urpc-umq
 This package contains the URPC umq shared libraries (e.g. libumq.so).
@@ -212,18 +233,56 @@ AutoReqProv:    on
 This package contains umq_perftest and related UMQ tools.
 %endif
 
+%if %{build_all} || %{with dlock}
+%package dlock-lib
+Summary:        Library files of dlock
+BuildRequires:  openssl-devel
+Requires:       umdk-urma-lib = %{version}
+
+%description dlock-lib
+This package contains the libdlock*.so files for the distributed lock feature.
+
+%package dlock-devel
+Summary:        Include development libraries and headers for dlock
+Requires:       umdk-dlock-lib = %{version}
+AutoReqProv:    on
+
+%description dlock-devel
+This package contains all necessary include files and libraries needed
+to develop applications based on dlock.
+
+%package dlock-example
+Summary:        Executable examples of dlock
+Requires:       umdk-dlock-lib = %{version}
+AutoReqProv:    on
+
+%description dlock-example
+This package contains all the executable examples of dlock.
+%endif
+
 %if %{build_all} || %{with ums}
-%package ums
-Summary:        kmod file of ums
-BuildRequires:  glib2-devel, libnl3-devel
-Requires:       glib2, libnl3
-%description ums
-kmod file of ums
+%package ums%{ums_suffix}
+Summary:        %{ums_summary}
+BuildRequires:  glib2-devel, libnl3-devel, %{kernel_devel_pkg}
+Requires:       glib2, libnl3, %{ums_kernel_req}
+Provides:       umdk-ums-kmod = %{version}
+Conflicts:      %{ums_conflict}
+%description ums%{ums_suffix}
+%{ums_desc}
 
 %package ums-tools
 Summary:        tools of ums
 %description ums-tools
 tools of ums, contains ums_run
+
+%package ums-agent
+Summary:        UMS Agent daemon for secure token exchange
+BuildRequires:  systemd-devel, keyutils-libs-devel, openssl-devel
+Requires:       systemd-libs, glib2, libnl3, openssl, keyutils
+Requires(pre):  shadow-utils
+%description ums-agent
+UMS Agent is a user-space daemon for secure TokenValue exchange
+between UMS kernel modules via TLS 1.3 channel.
 %endif
 
 %if "%{build_all}" == "0"
@@ -256,9 +315,6 @@ tools of ums, contains ums_run
     -DKERNEL_RELEASE=%{kernel_version} \
     -DKERNEL_PATH=%{kernel_build_path} \
 %endif
-%if %{without ubagg_disable}
-    -DUB_AGG="enable" \
-%endif
 %if %{with dfx_tool}
     -DDFX_TOOL="enable" \
 %endif
@@ -286,6 +342,12 @@ tools of ums, contains ums_run
 %if %{without udma_stb64_disable}
     -DUDMA_ST64B="enable" \
 %endif
+%if %{without udma}
+    -DBUILD_UDMA="disable" \
+%endif
+%if %{with extra_ubcore_symbols}
+    -DBUILD_EXTRA_UBCORE_SYMBOLS="enable" \
+%endif
 
 make %{?_smp_mflags}
 
@@ -307,7 +369,9 @@ make install DESTDIR=%{buildroot}
     %{_libdir}/liburma.so.*
     %{_libdir}/liburma_common.so.*
     %{_libdir}/urma/liburma_ubagg.so.*
+%if %{with udma}
     %{_libdir}/urma/liburma-udma.so
+%endif
     /etc/rsyslog.d/urma.conf
     /etc/logrotate.d/urma
 
@@ -321,24 +385,30 @@ fi
     %{_libdir}/liburma.so
     %{_libdir}/liburma_common.so
     %{_libdir}/urma/liburma_ubagg.so
-    %{_libdir}/urma/liburma-udma.so
     %dir %{_includedir}/ub/umdk/urma
-    %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/urma_*.h
     %{_includedir}/ub/umdk/urma/uvs_types.h
     %{_includedir}/ub/umdk/urma/uvs_api.h
+%if %{with udma}
+    %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/udma/udma_u_ctl.h
-%if %{with gcov}
-    %dir /var/lib/ub/umdk/urma/gcov/%{name}
-    /var/lib/ub/umdk/urma/gcov/%{name}/
 %endif
+%if %{with gcov}
+    %dir /var/lib/umdk/gcov/%{name}
+    /var/lib/umdk/gcov/%{name}/
+%endif
+
+%pre urma-tools
+if [ -d /usr/bin/urma_admin ] && [ ! -L /usr/bin/urma_admin ]; then
+    rm -rf /usr/bin/urma_admin
+fi
 
 %files urma-tools
 %defattr(-,root,root)
     %{_bindir}/urma_admin
+    %{_bindir}/urma_ping
     /etc/rsyslog.d/urma_admin.conf
     %{_bindir}/urma_perftest
-    %{_bindir}/ubagg_cli
 
 %post urma-tools
 if [ -x %{_bindir}/systemctl ] && [ -x %{_sbindir}/rsyslogd ]; then
@@ -379,7 +449,6 @@ fi
     %{_libdir}/libumq.so.*
     %{_libdir}/libumq_buf.so.*
     %{_libdir}/libumq_ub.so.*
-    %{_libdir}/libumq_ipc.so.*
     /etc/rsyslog.d/umq.conf
     /etc/logrotate.d/umq
 
@@ -398,7 +467,6 @@ fi
     %{_libdir}/libumq.so
     %{_libdir}/libumq_buf.so
     %{_libdir}/libumq_ub.so
-    %{_libdir}/libumq_ipc.so
     %dir %{_includedir}/ub
     %dir %{_includedir}/ub/umdk
     %dir %{_includedir}/ub/umdk/urpc
@@ -408,6 +476,8 @@ fi
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_api.h
     %{_includedir}/ub/umdk/urpc/umq/umq_pro_types.h
     %{_includedir}/ub/umdk/urpc/umq/umq_types.h
+    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_api.h
+    %{_includedir}/ub/umdk/urpc/umq/umq_dfx_types.h
 
 %files urpc-framework-example
 %defattr(-,root,root)
@@ -448,21 +518,42 @@ fi
     %{_includedir}/ub/umdk/ulock/dlock/dlock_client_api.h
     %{_includedir}/ub/umdk/ulock/dlock/dlock_types.h
     %{_includedir}/ub/umdk/ulock/dlock/dlock_server_api.h
+
+%files dlock-example
+%defattr(-,root,root)
+    %{_bindir}/dlock_primary_test
+    %{_bindir}/dlock_client_test
+    %{_bindir}/dlock_client_object_test
 %endif
 
 %if %{build_all} || %{with ums}
-%files ums
+%files ums%{ums_suffix}
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
     /lib/modules/%{kernel_version}/extra/ums/ums.ko
     /etc/modules-load.d/ums.conf
 
-%post ums
+%pre ums%{ums_suffix}
+RUNTIME_PAGESIZE=$(getconf PAGESIZE)
+%if %{with_64kb}
+EXPECTED_PAGESIZE=65536
+%else
+EXPECTED_PAGESIZE=4096
+%endif
+if [ "$RUNTIME_PAGESIZE" != "$EXPECTED_PAGESIZE" ]; then
+    fmt_size() { [ $1 -ge 1024 ] && echo "$(( $1 / 1024 ))KB" || echo "${1}B"; }
+    echo "ERROR: umdk-ums%{ums_suffix} requires $(fmt_size $EXPECTED_PAGESIZE) page size kernel," \
+         "but current is $(fmt_size $RUNTIME_PAGESIZE)." >&2
+    exit 1
+fi
+exit 0
+
+%post ums%{ums_suffix}
 if [ -d /lib/modules/$(uname -r)/kernel/net/smc ]; then
     %{__rm} -rf /lib/modules/$(uname -r)/kernel/net/smc
 fi
 if [[ %{kernel_version} != $(uname -r) ]]; then
-    %dir /lib/modules/$(uname -r)/weak-updates/drivers/ums/
+    mkdir -p /lib/modules/$(uname -r)/weak-updates/drivers/ums/
     echo "/lib/modules/%{kernel_version}/extra/ums/ums.ko" | /sbin/weak-modules --add-module --no-initramfs --verbose
 fi
 
@@ -470,7 +561,7 @@ echo "omit_drivers+=\" ums \"" > /etc/dracut.conf.d/ums.conf
 
 /sbin/depmod -a $(uname -r)
 
-%postun ums
+%postun ums%{ums_suffix}
 if [ $1 -eq 0 ]; then
     if [[ %{kernel_version} != $(uname -r) ]]; then
         if [ -d /lib/modules/$(uname -r)/weak-updates/drivers ]; then
@@ -496,8 +587,39 @@ if [ $1 -eq 0 ]; then
     [ -f /usr/lib/libums-preload.so ] && %{__rm} -f /usr/lib/libums-preload.so || :
     [ -f /usr/bin/ums_run ] && %{__rm} -f /usr/bin/ums_run || :
 fi
+
+%pre ums-agent
+getent passwd ums >/dev/null || \
+    useradd -r -s /sbin/nologin -d /var/lib/ums ums
+
+%post ums-agent
+if [ -x %{_bindir}/systemctl ] && [ -x %{_sbindir}/rsyslogd ]; then
+    %{_bindir}/systemctl restart rsyslog >/dev/null  2>&1
+fi
+%systemd_post ums_agent.service
+
+%preun ums-agent
+%systemd_preun ums_agent.service
+
+%postun ums-agent
+%systemd_postun ums_agent.service
+
+%files ums-agent
+%defattr(-,root,root)
+    %attr(750,root,ums) %{_sbindir}/ums_agent
+    %attr(644,root,root) %{_unitdir}/ums_agent.service
+    %dir %attr(750,root,ums) /etc/ums_agent
+    %attr(640,root,ums) %config(noreplace) /etc/ums_agent/ums_agent.conf
+    %attr(644,root,root) /etc/rsyslog.d/ums_agent.conf
+    %attr(644,root,root) /etc/logrotate.d/ums_agent
 %endif
 
 %changelog
+* Fri Jun 26 2026 umdk wujie <wujie66@huawei.com>
+- Change package version to 25.12.0 to keep package version consistency for sp3 branch.
+* Tue Jun 16 2026 huying <huying21@huawei.com>
+- ums: support building umdk-ums-64kb for 64KB page size kernel
+* Fri May 29 2026 umdk wujie <wujie66@huawei.com>
+- Change package version to 26.06.0.
 * Tue Dec 30 2025 umdk
--Initial UMDK-25.12.0 rpm spec file.
+- Initial UMDK-25.12.0 rpm spec file.

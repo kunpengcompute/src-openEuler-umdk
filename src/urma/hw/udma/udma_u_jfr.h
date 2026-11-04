@@ -17,6 +17,19 @@
 #define UDMA_U_MIN_JFR_DEPTH 64
 #define UDMA_JFR_LARGE_PACKAGE 4096
 
+#define UDMA_JFR_CTX_SIZE 64
+
+enum udma_set_get_jfr_opt_perm {
+	PERM_READ = 1,
+	PERM_WRITE = 1 << 1,
+};
+
+struct udma_u_jfr_opt_info {
+	uint64_t opt;
+	uint32_t buf_len;
+	enum udma_set_get_jfr_opt_perm perm;
+};
+
 static inline bool udma_jfrwq_overflow(struct udma_u_jfr *jfr)
 {
 	return (jfr->rq.pi - jfr->rq.ci) >= jfr->wqe_cnt;
@@ -38,6 +51,12 @@ static inline void set_data_of_sge(struct udma_wqe_sge *sge, const urma_sge_t *s
 	sge->length = htole32(sg->len);
 }
 
+static inline void udma_idx_ring_free(struct udma_u_idx_ring *ring)
+{
+	free(ring->idx);
+	free(ring);
+}
+
 urma_jfr_t *udma_u_create_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg);
 urma_status_t udma_u_delete_jfr(urma_jfr_t *jfr);
 urma_status_t udma_u_delete_jfr_batch(urma_jfr_t **jfr, int jfr_cnt, urma_jfr_t **bad_jfr);
@@ -57,4 +76,10 @@ urma_target_jetty_t *udma_u_import_jfr_ex(urma_context_t *ctx,
 					  urma_token_t *token_value,
 					  urma_active_tp_cfg_t *active_tp_cfg);
 int udma_u_insert_jfr_node(struct udma_u_context *udma_ctx, struct udma_u_jfr *jfr);
+urma_status_t udma_u_alloc_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg, urma_jfr_t **jfr);
+urma_status_t udma_u_set_jfr_opt(urma_jfr_t *jfr, uint64_t opt, void *buf, uint32_t len);
+urma_status_t udma_u_active_jfr(urma_jfr_t *jfr);
+urma_status_t udma_u_get_jfr_opt(urma_jfr_t *jfr, uint64_t opt, void *buf, uint32_t len);
+urma_status_t udma_u_deactive_jfr(urma_jfr_t *jfr);
+urma_status_t udma_u_free_jfr(urma_jfr_t *jfr);
 #endif /* __UDMA_U_JFR_H__ */

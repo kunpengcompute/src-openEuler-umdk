@@ -47,6 +47,7 @@ static void perf_func(urpc_perf_record_type_t type, urpc_perf_record_point_t poi
 static urma_status_t urma_query_device_mock(urma_device_t *dev, urma_device_attr_t *dev_attr)
 {
     dev_attr->dev_cap.max_msg_size = (1UL << 20);
+    dev_attr->dev_cap.priority_info[0].tp_type.bs.rtp = 1;
     return URMA_SUCCESS;
 }
 
@@ -123,9 +124,9 @@ public:
         MOCKER(urma_create_context).stubs().will(returnValue(&urma_ctx));
         MOCKER(urma_free_eid_list).stubs().will(ignoreReturnValue());
         MOCKER(urma_get_eid_list)
-        .stubs()
-        .with(any(), outBoundP((uint32_t *)&eid_num, sizeof(eid_num)))
-        .will(returnValue(&eid_info));
+            .stubs()
+            .with(mockcpp::any(), outBoundP((uint32_t *)&eid_num, sizeof(eid_num)))
+            .will(returnValue(&eid_info));
 
         static urma_jfr_t jfr = {0};
         static urma_jfc_t jfc = {0};

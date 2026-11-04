@@ -410,7 +410,11 @@ int queue_slab_init(queue_local_t *local_q)
         }
 
         uint32_t size = ctx_infos[i].size + sizeof(queue_ctx_head_t);
-        char *buf = urpc_dbuf_malloc(URPC_DBUF_TYPE_QUEUE, size * num);
+        uint64_t total_size = (uint64_t)size * num;
+        if (total_size > UINT32_MAX) {
+            goto ERROR;
+        }
+        char *buf = urpc_dbuf_malloc(URPC_DBUF_TYPE_QUEUE, (uint32_t)total_size);
         if (buf == NULL) {
             goto ERROR;
         }
@@ -982,11 +986,12 @@ uint32_t urpc_get_local_qh(uint64_t **qh_list)
     uint32_t index = 0;
     uint64_t *tmp_qh_list = urpc_dbuf_calloc(URPC_DBUF_TYPE_CP, queue_num, sizeof(uint64_t));
     if (tmp_qh_list == NULL) {
+        (void)pthread_mutex_unlock(&g_urpc_queue_transport_ctx.queue_list_mutex);
         URPC_LIB_LOG_ERR("get local qh list failed to calloc\n");
         return URPC_FAIL;
     }
     URPC_LIST_FOR_EACH(local_q, node, &g_urpc_queue_transport_ctx.queue_list) {
-        if (is_manager_queue(local_q->queue.flag)) {
+        if (is_manager_queue(&local_q->queue.flag)) {
             continue;
         }
         tmp_qh_list[index++] = (uint64_t)(uintptr_t)local_q;

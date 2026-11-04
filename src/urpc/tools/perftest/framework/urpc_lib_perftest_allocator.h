@@ -17,7 +17,6 @@ extern "C" {
 
 #define ALLOCATOR_BLOCK_NUM (16 * 1024)
 #define PLOG_HEADER_SGE_NUM     1
-#define URPC_EXT_HEADER_SIZE    256
 #define SIMULATE_PLOG_CMD_SIZE  96
 
 #define URPC_PERFTEST_ALIGNED_SIZE 4096
@@ -46,6 +45,7 @@ urpc_allocator_t *urpc_perftest_allocator_get(void);
 uint32_t get_recv_max_sge_size(uint32_t sge_num, int i);
 uint32_t get_set_sge_size(int i);
 uint32_t perftest_post_rx_buff(uint64_t qh, uint32_t post_num, uint32_t rx_buf_size);
+int perftest_mem_remote_access_enable(uint32_t urpc_chid);
 
 #ifdef __cplusplus
 }

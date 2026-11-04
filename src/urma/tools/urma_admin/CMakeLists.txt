@@ -4,12 +4,20 @@
 add_subdirectory(config)
 
 add_executable(urma_admin
-    urma_admin.c
-    urma_admin_log.c
-    admin_parameters.c
-    admin_file_ops.c
+    admin_cmd_agg.c
+    admin_cmd_dev.c
+    admin_cmd_eid.c
+    admin_cmd_main_ue_eid.c
+    admin_cmd_perf.c
+    admin_cmd_show.c
+    admin_cmd_show_res.c
+    admin_cmd_system.c
     admin_cmd.c
+    admin_file_ops.c
+    admin_log.c
     admin_netlink.c
+    admin_parameters.c
+    admin.c
 )
 
 set_target_properties(urma_admin
@@ -26,7 +34,7 @@ target_include_directories(urma_admin
 
 target_link_libraries(urma_admin
     PRIVATE
-        nl-genl-3 nl-3
+        nl-genl-3 nl-3 urma
 )
 
 install(TARGETS urma_admin

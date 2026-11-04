@@ -3,8 +3,11 @@
 
 add_executable(urma_perftest
     urma_perftest.c
+    perftest_log.c
+    perftest_mgmt.c
+    perftest_mgmt_tcp.c
+    perftest_mgmt_ub.c
     perftest_parameters.c
-    perftest_communication.c
     perftest_resources.c
     perftest_run_test.c
 )
@@ -12,6 +15,13 @@ add_executable(urma_perftest
 set_target_properties(urma_perftest
     PROPERTIES
         C_STANDARD 99
+)
+
+target_include_directories(urma_perftest
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/urma/lib/urma/core/include
+        ${CMAKE_SOURCE_DIR}/urma/lib/urma/bond/include
+        ${CMAKE_SOURCE_DIR}/urma/common/include
 )
 
 target_link_libraries(urma_perftest

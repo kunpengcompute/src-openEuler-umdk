@@ -54,21 +54,25 @@ typedef struct umq_buf_pro {
     umq_opcode_flag_t flag;
 
     uint64_t user_ctx;               // completion data
-
-    uint64_t imm_data;               // imm_data in host byte order;
-
+    union {
+        uint64_t imm_data;
+        struct {
+            uint64_t rsvd0 : 40;
+            uint64_t user_data : 24;
+        } imm;
+    };
     struct umq_ref_sge {
         uint64_t addr;
 
         uint32_t length;
-        uint32_t token_id;
-
+        uint32_t token_id : 20;
+        uint32_t mempool_id : 12;
         uint32_t token_value;
-        uint32_t mempool_id : 8;
-        uint32_t rsvd0 : 24;
+        uint32_t rsvd0;
     } remote_sge;                   // remote sge which reference read/write
 
-    uint64_t rsvd1[2];
+    uint64_t umq_ctx;               // umq ctx record when create umq, only share rx res will fill
+    uint64_t rsvd1;
 } umq_buf_pro_t;
 
 #ifdef __cplusplus

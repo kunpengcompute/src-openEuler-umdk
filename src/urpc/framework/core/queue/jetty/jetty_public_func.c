@@ -14,6 +14,8 @@
 #include "perf.h"
 #include "jetty_public_func.h"
 
+#define TP_TYPE_CNT 4
+
 typedef struct send_recv_src_queue_info {
     urma_jetty_id_t remote_id;
     queue_t *l_queue;
@@ -23,6 +25,7 @@ _Static_assert(sizeof(send_recv_src_queue_info_t) <= QUEUE_MSG_SRC_QUEUE_INFO_SI
                "send_recv_src_queue_info_t > QUEUE_MSG_SRC_QUEUE_INFO_SIZE");
 
 static mem_hmap_t g_urpc_ip_mem_hmap;
+static const char *g_urpc_tp_type_str[TP_TYPE_CNT] = {"rtp", "ctp", "utp", "unknown"};
 
 int send_recv_mem_seg_token_get(uint64_t mem_h, mem_seg_token_t *token)
 {
@@ -134,6 +137,31 @@ static inline int send_recv_set_cq_depth(urpc_qcfg_get_t *cfg_get, urpc_qcfg_cre
     return send_recv_tx_cq_depth_set(cfg_get, cfg);
 }
 
+static urma_tp_type_t urpc_tp_type_get(union urma_tp_type_en tp_type)
+{
+    if (tp_type.bs.rtp == 1 && tp_type.bs.ctp == 0 && tp_type.bs.utp == 0) {
+        return URMA_RTP;
+    }
+    if (tp_type.bs.rtp == 0 && tp_type.bs.ctp == 1 && tp_type.bs.utp == 0) {
+        return URMA_CTP;
+    }
+    if (tp_type.bs.rtp == 0 && tp_type.bs.ctp == 0 && tp_type.bs.utp == 1) {
+        return URMA_UTP;
+    }
+    return URMA_UTP + 1;
+}
+
+static int urpc_default_priority_get(urma_device_attr_t *dev_attr)
+{
+    for (int i = 0; i < URMA_MAX_PRIORITY_CNT; i++) {
+        urma_tp_type_t tp_type = urpc_tp_type_get(dev_attr->dev_cap.priority_info[i].tp_type);
+        if (tp_type == URMA_RTP) {
+            return i;
+        }
+    }
+    return URPC_FAIL;
+}
+
 int send_recv_set_local_queue_normal_cfg(
     jetty_provider_t *provider, urpc_qcfg_get_t *cfg_get, urpc_qcfg_create_t *cfg, urpc_queue_trans_mode_t trans_mode)
 {
@@ -142,7 +170,6 @@ int send_recv_set_local_queue_normal_cfg(
     cfg_get->rx_depth = (cfg->create_flag & QCREATE_FLAG_RX_DEPTH) != 0 ? cfg->rx_depth : 0;
     cfg_get->tx_depth = (cfg->create_flag & QCREATE_FLAG_TX_DEPTH) != 0 ? cfg->tx_depth : 0;
     cfg_get->custom_flag = (cfg->create_flag & QCREATE_FLAG_CUSTOM_FLAG) != 0 ? cfg->custom_flag : 0;
-    cfg_get->priority = (cfg->create_flag & QCREATE_FLAG_PRIORITY) != 0 ? cfg->priority : URPC_PLOG_PRIORITY;
     cfg_get->type = QUEUE_TYPE_NORMAL;
     cfg_get->max_rx_sge =
         (cfg->create_flag & QCREATE_FLAG_MAX_RX_SGE) != 0 ? cfg->max_rx_sge : provider->dev_attr.dev_cap.max_jfr_sge;
@@ -157,6 +184,26 @@ int send_recv_set_local_queue_normal_cfg(
     cfg_get->rnr_retry = (cfg->create_flag & QCREATE_FLAG_RNR_RETRY) != 0 ? cfg->rnr_retry : URPC_UB_TYPICAL_RNR_RETRY;
     cfg_get->min_rnr_timer =
         (cfg->create_flag & QCREATE_FLAG_MIN_RNR_TIMER) != 0 ? cfg->min_rnr_timer : URPC_UB_TYPICAL_MIN_RNR_TIMER;
+    if (cfg->create_flag & QCREATE_FLAG_PRIORITY) {
+        if (cfg->priority > URMA_MAX_PRIORITY) {
+            URPC_LIB_LOG_ERR("priority[%u] is invalid\n", cfg->priority);
+            return -URPC_ERR_EINVAL;
+        }
+        urma_tp_type_t tp_type = urpc_tp_type_get(provider->dev_attr.dev_cap.priority_info[cfg->priority].tp_type);
+        if (tp_type != URMA_RTP) {
+            URPC_LIB_LOG_ERR("priority[%u] is invalid, associated tp_type is %s, actual tp_type is rtp\n",
+                cfg->priority, g_urpc_tp_type_str[tp_type]);
+            return -URPC_ERR_EINVAL;
+        }
+        cfg_get->priority = cfg->priority;
+    } else {
+        int ret = urpc_default_priority_get(&provider->dev_attr);
+        if (ret < 0) {
+            URPC_LIB_LOG_ERR("there is no priority for tp_type rtp\n");
+            return -URPC_ERR_EINVAL;
+        }
+        cfg_get->priority = (uint8_t)ret;
+    }
 
     return send_recv_set_cq_depth(cfg_get, cfg);
 }
@@ -501,7 +548,7 @@ static void send_recv_flush_jfr(queue_local_t *local_q)
 static ALWAYS_INLINE void send_recv_destroy_jfr_ctx(q_res_ref_t *ref, void *args)
 {
     queue_local_t *local_q = (queue_local_t *)args;
-    if (local_q != NULL && is_manager_queue(local_q->queue.flag)) {
+    if (local_q != NULL && is_manager_queue(&local_q->queue.flag)) {
         send_recv_flush_jfr(local_q);
     }
 
@@ -1205,7 +1252,7 @@ int send_recv_flush_jetty(queue_local_t *local_q, urma_jetty_t *jetty, urma_jfc_
                           uint64_t (*user_ctx_get)(uint64_t cr_user_ctx))
 {
     // only manage queue need flush, user queue flush by user
-    if (!is_manager_queue(local_q->queue.flag)) {
+    if (!is_manager_queue(&local_q->queue.flag)) {
         return URPC_SUCCESS;
     }
 
@@ -1404,14 +1451,14 @@ int jetty_provider_import_mem(provider_t *provider, xchg_mem_info_t *mem_info, u
         uint32_t list_size = provider_get_list_size();
         if (list_size == 0) {
             (void)pthread_rwlock_unlock(&g_urpc_ip_mem_hmap.lock);
-            URPC_LIB_LOG_ERR("no provider is avaliable, please init urpc at first\n");
+            URPC_LIB_LOG_ERR("no provider is available, please init urpc at first\n");
             return URPC_FAIL;
         }
         size_t size = sizeof(tseg_handle_t) + list_size * sizeof(uint64_t);
         tseg_handle = (tseg_handle_t *)urpc_dbuf_calloc(URPC_DBUF_TYPE_ALLOCATOR, 1, size);
         if (tseg_handle == NULL) {
             (void)pthread_rwlock_unlock(&g_urpc_ip_mem_hmap.lock);
-            URPC_LIB_LOG_ERR("tseg hanle calloc failed\n");
+            URPC_LIB_LOG_ERR("tseg handle calloc failed\n");
             return -URPC_ERR_ENOMEM;
         }
         new_tsge_handle = true;
@@ -1424,12 +1471,13 @@ int jetty_provider_import_mem(provider_t *provider, xchg_mem_info_t *mem_info, u
         return -URPC_ERR_EEXIST;
     }
 
-    urma_seg_t remote_seg;
-    remote_seg.attr.value = mem_info->seg_flag.value;
-    remote_seg.len = mem_info->seg_len;
-    remote_seg.token_id = mem_info->seg_token_id;
+    urma_seg_t remote_seg = {
+        .attr.value = mem_info->seg_flag.value,
+        .len = mem_info->seg_len,
+        .token_id = mem_info->seg_token_id,
+        .ubva = mem_info->ubva,
+    };
     urma_token_t token = mem_info->token;
-    remote_seg.ubva = mem_info->ubva;
     urma_import_seg_flag_t flag = {
         .bs.cacheable = URMA_NON_CACHEABLE,
         .bs.mapping = URMA_SEG_NOMAP,
@@ -1440,6 +1488,9 @@ int jetty_provider_import_mem(provider_t *provider, xchg_mem_info_t *mem_info, u
     jetty_provider_t *jetty_provider = (jetty_provider_t *)(uintptr_t)provider;
     if (jetty_provider->urma_ctx == NULL) {
         (void)pthread_rwlock_unlock(&g_urpc_ip_mem_hmap.lock);
+        if (new_tsge_handle) {
+            urpc_dbuf_free(tseg_handle);
+        }
         URPC_LIB_LOG_ERR("urma context is null\n");
         return URPC_FAIL;
     }
@@ -1447,6 +1498,9 @@ int jetty_provider_import_mem(provider_t *provider, xchg_mem_info_t *mem_info, u
     urma_target_seg_t *import_tseg = urma_import_seg(jetty_provider->urma_ctx, &remote_seg, &token, 0, flag);
     if (import_tseg == NULL) {
         (void)pthread_rwlock_unlock(&g_urpc_ip_mem_hmap.lock);
+        if (new_tsge_handle) {
+            urpc_dbuf_free(tseg_handle);
+        }
         URPC_LIB_LOG_ERR("urma import segment failed\n");
         return URPC_FAIL;
     }

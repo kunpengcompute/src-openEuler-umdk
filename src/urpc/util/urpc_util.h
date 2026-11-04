@@ -117,6 +117,7 @@ enum destructor_priority {
 #define NS_PER_SEC 1000000000UL
 #define NS_PER_MS 1000000
 #define NS_PER_US 1000
+#define US_PER_MS 1000
 
 /* Undefined when x == 0 */
 static inline int urpc_count_trail_zero(uint64_t x)
@@ -154,6 +155,7 @@ static inline uint64_t urpc_get_cpu_hz_aarch64(void)
 static inline uint64_t urpc_get_cpu_cycles(void)
 {
     uint64_t tsc;
+    asm volatile("isb" : : : "memory");
     asm volatile("mrs %0, cntvct_el0" : "=r"(tsc));
     return tsc;
 }
@@ -183,6 +185,13 @@ static inline uint64_t get_timestamp_ms(void)
     struct timespec tc;
     (void)clock_gettime(CLOCK_MONOTONIC, &tc);
     return (uint64_t)(tc.tv_sec * MS_PER_SEC + tc.tv_nsec / NS_PER_MS);
+}
+
+static inline uint64_t get_timestamp_us(void)
+{
+    struct timespec tc;
+    (void)clock_gettime(CLOCK_MONOTONIC, &tc);
+    return (uint64_t)(tc.tv_sec * US_PER_SEC + tc.tv_nsec / NS_PER_US);
 }
 
 int urpc_rand_seed_init(void);

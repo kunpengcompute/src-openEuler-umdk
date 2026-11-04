@@ -35,7 +35,7 @@ typedef struct urpc_pool_config {
 } urpc_pool_config_t;
 
 typedef struct urpc_pool {
-    pthread_mutex_t lock;
+    pthread_spinlock_t lock;
     urpc_list_t global_free;            // container with element
     urpc_list_t global_free_container;  // only container
     urpc_pool_group_t *global_group;    // used for global uninit
@@ -48,6 +48,8 @@ typedef struct urpc_pool {
 int urpc_pool_init(urpc_pool_config_t *cfg, urpc_pool_t *pool);
 
 void urpc_pool_uninit(urpc_pool_t *pool);
+
+void urpc_pool_thread_closure(uint64_t arg);
 
 void *urpc_pool_element_get(urpc_pool_t *pool);
 

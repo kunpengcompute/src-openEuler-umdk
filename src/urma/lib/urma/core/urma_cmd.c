@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <stddef.h>
 
 #include "urma_cmd_tlv.h"
 #include "urma_log.h"
@@ -21,6 +22,9 @@
 #include "urma_types.h"
 
 #include "urma_cmd.h"
+
+#define urma_container_of(ptr, type, member) \
+    ((type *)((char *)(ptr) - offsetof(type, member)))
 
 static inline void urma_cmd_set_udrv_priv(urma_cmd_udrv_priv_t *arg, urma_cmd_udrv_priv_t *udata)
 {
@@ -60,7 +64,7 @@ int urma_cmd_create_context(urma_context_t *ctx, urma_context_cfg_t *cfg, urma_c
 {
     if (ctx == NULL || cfg == NULL || cfg->dev_fd < 0 || cfg->dev == NULL || cfg->ops == NULL) {
         errno = EINVAL;
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_eid_t eid;
@@ -80,7 +84,7 @@ int urma_cmd_create_context(urma_context_t *ctx, urma_context_cfg_t *cfg, urma_c
     ret = urma_ioctl_create_ctx(cfg->dev_fd, &arg);
     if (ret != 0) {
         (void)pthread_mutex_destroy(&ctx->mutex);
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
     ctx->async_fd = arg.out.async_fd;
@@ -90,7 +94,7 @@ int urma_cmd_create_context(urma_context_t *ctx, urma_context_cfg_t *cfg, urma_c
 int urma_cmd_delete_context(urma_context_t *ctx)
 {
     if (ctx == NULL || ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -116,7 +120,7 @@ static inline void wait_async_event_ack(pthread_mutex_t *mutex, pthread_cond_t *
 {
     (void)pthread_mutex_lock(mutex);
     while (*events_acked != events_reported) {
-        URMA_LOG_ERR("There is an event and it must be acked, acked:%u, reported:%u\n", *events_acked, events_reported);
+        URMA_LOG_ERR("There is an event and it must be acked, acked=%u, reported=%u\n", *events_acked, events_reported);
         (void)pthread_cond_wait(cond, mutex);
     }
     (void)pthread_mutex_unlock(mutex);
@@ -164,7 +168,7 @@ static void fill_registered_tseg(urma_target_seg_t *tseg, urma_context_t *ctx, u
 int urma_cmd_alloc_token_id(urma_context_t *ctx, urma_token_id_t *token_id, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || token_id == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -175,7 +179,7 @@ int urma_cmd_alloc_token_id(urma_context_t *ctx, urma_token_id_t *token_id, urma
 
     ret = urma_ioctl_alloc_token_id(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_token_id, ret:%d, errno: %d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_token_id, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
     token_id->token_id = arg.out.token_id;
@@ -189,7 +193,7 @@ int urma_cmd_alloc_token_id_ex(urma_context_t *ctx, urma_token_id_t *token_id, u
                                urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || token_id == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -201,7 +205,7 @@ int urma_cmd_alloc_token_id_ex(urma_context_t *ctx, urma_token_id_t *token_id, u
 
     ret = urma_ioctl_alloc_token_id(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_token_id, ret:%d, errno: %d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_token_id, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
     token_id->token_id = arg.out.token_id;
@@ -214,7 +218,7 @@ int urma_cmd_alloc_token_id_ex(urma_context_t *ctx, urma_token_id_t *token_id, u
 int urma_cmd_free_token_id(urma_token_id_t *token_id)
 {
     if (token_id == NULL || token_id->urma_ctx == NULL || token_id->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -226,7 +230,7 @@ int urma_cmd_free_token_id(urma_token_id_t *token_id)
     ret = urma_ioctl_free_token_id(token_id->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
@@ -234,10 +238,10 @@ int urma_cmd_free_token_id(urma_token_id_t *token_id)
 }
 
 int urma_cmd_register_seg(urma_context_t *ctx, urma_target_seg_t *tseg, urma_seg_cfg_t *cfg,
-                          urma_cmd_udrv_priv_t *udata)
+    urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || tseg == NULL || cfg == NULL || cfg->va == 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -256,7 +260,7 @@ int urma_cmd_register_seg(urma_context_t *ctx, urma_target_seg_t *tseg, urma_seg
 
     ret = urma_ioctl_register_seg(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_register_seg, ret:%d, errno:%u.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_register_seg, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
@@ -267,7 +271,7 @@ int urma_cmd_register_seg(urma_context_t *ctx, urma_target_seg_t *tseg, urma_seg
 int urma_cmd_unregister_seg(urma_target_seg_t *tseg)
 {
     if (tseg == NULL || tseg->urma_ctx == NULL || tseg->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -278,7 +282,7 @@ int urma_cmd_unregister_seg(urma_target_seg_t *tseg)
     ret = urma_ioctl_unregister_seg(tseg->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
@@ -286,7 +290,7 @@ int urma_cmd_unregister_seg(urma_target_seg_t *tseg)
 }
 
 static inline void fill_imported_tseg(urma_target_seg_t *tseg, urma_context_t *ctx, urma_import_tseg_cfg_t *cfg,
-                                      urma_cmd_import_seg_t *arg)
+    urma_cmd_import_seg_t *arg)
 {
     tseg->seg.attr = cfg->attr;
     tseg->seg.ubva = cfg->ubva;
@@ -298,10 +302,10 @@ static inline void fill_imported_tseg(urma_target_seg_t *tseg, urma_context_t *c
 }
 
 int urma_cmd_import_seg(urma_context_t *ctx, urma_target_seg_t *tseg, urma_import_tseg_cfg_t *cfg,
-                        urma_cmd_udrv_priv_t *udata)
+    urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || tseg == NULL || cfg == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -321,7 +325,6 @@ int urma_cmd_import_seg(urma_context_t *ctx, urma_target_seg_t *tseg, urma_impor
 
     ret = urma_ioctl_import_seg(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
         return ret;
     }
 
@@ -332,7 +335,7 @@ int urma_cmd_import_seg(urma_context_t *ctx, urma_target_seg_t *tseg, urma_impor
 int urma_cmd_unimport_seg(urma_target_seg_t *tseg)
 {
     if (tseg == NULL || tseg->urma_ctx == NULL || tseg->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -343,7 +346,6 @@ int urma_cmd_unimport_seg(urma_target_seg_t *tseg)
     ret = urma_ioctl_unimport_seg(tseg->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
         return ret;
     }
     return 0;
@@ -356,42 +358,116 @@ static inline void fill_jetty_id(urma_jetty_id_t *dst, urma_context_t *ctx, uint
     dst->id = id;
 }
 
-static inline void fill_jfs(urma_jfs_t *jfs, urma_context_t *ctx, urma_jfs_cfg_t *cfg, urma_cmd_create_jfs_t *arg)
+static inline void urma_fill_jfs(urma_jfs_t *jfs, urma_context_t *ctx, urma_jfs_cfg_t *cfg,
+    uint32_t id, uint64_t handle, struct urma_jfs_cfg *tmp_cfg)
 {
-    fill_jetty_id(&jfs->jfs_id, ctx, arg->out.id);
+    fill_jetty_id(&jfs->jfs_id, ctx, id);
     jfs->jfs_cfg = *cfg;
-    jfs->jfs_cfg.depth = arg->out.depth;
-    jfs->jfs_cfg.max_sge = arg->out.max_sge;
-    jfs->jfs_cfg.max_rsge = arg->out.max_rsge;
-    jfs->jfs_cfg.max_inline_data = arg->out.max_inline_data;
-    jfs->handle = arg->out.handle;
+    jfs->jfs_cfg.depth = tmp_cfg->depth;
+    jfs->jfs_cfg.max_sge = tmp_cfg->max_sge;
+    jfs->jfs_cfg.max_rsge = tmp_cfg->max_rsge;
+    jfs->jfs_cfg.max_inline_data = tmp_cfg->max_inline_data;
+    jfs->handle = handle;
     jfs->urma_ctx = ctx;
     ack_event_init(&jfs->event_mutex, &jfs->event_cond, &jfs->async_events_acked);
 }
 
-static inline void fill_jfr(urma_jfr_t *jfr, urma_context_t *ctx, urma_jfr_cfg_t *cfg, urma_cmd_create_jfr_t *arg)
+static inline void fill_jfs(urma_jfs_t *jfs, urma_context_t *ctx, urma_jfs_cfg_t *cfg, urma_cmd_create_jfs_t *arg)
 {
-    fill_jetty_id(&jfr->jfr_id, ctx, arg->out.id);
-    jfr->jfr_cfg.depth = arg->out.depth;
-    jfr->jfr_cfg.max_sge = arg->out.max_sge;
-    jfr->handle = arg->out.handle;
+    struct urma_jfs_cfg tmp_cfg;
+
+    tmp_cfg.depth = arg->out.depth;
+    tmp_cfg.max_sge = arg->out.max_sge;
+    tmp_cfg.max_rsge = arg->out.max_rsge;
+    tmp_cfg.max_sge = arg->out.max_sge;
+    tmp_cfg.max_inline_data = arg->out.max_inline_data;
+    urma_fill_jfs(jfs, ctx, cfg, arg->out.id, arg->out.handle, &tmp_cfg);
+}
+
+static inline void fill_alloc_jfs(urma_jfs_t *jfs, urma_context_t *ctx, urma_jfs_cfg_t *cfg, urma_cmd_alloc_jfs_t *arg)
+{
+    struct urma_jfs_cfg tmp_cfg;
+
+    tmp_cfg.depth = arg->out.depth;
+    tmp_cfg.max_sge = arg->out.max_sge;
+    tmp_cfg.max_rsge = arg->out.max_rsge;
+    tmp_cfg.max_sge = arg->out.max_sge;
+    tmp_cfg.max_inline_data = arg->out.max_inline_data;
+    urma_fill_jfs(jfs, ctx, cfg, arg->out.id, arg->out.handle, &tmp_cfg);
+}
+
+static inline void fill_active_jfs(urma_jfs_t *jfs, urma_context_t *ctx, urma_jfs_cfg_t *cfg,
+    urma_cmd_active_jfs_t *arg)
+{
+    struct urma_jfs_cfg tmp_cfg;
+
+    tmp_cfg.depth = arg->out.depth;
+    tmp_cfg.max_sge = arg->out.max_sge;
+    tmp_cfg.max_rsge = arg->out.max_rsge;
+    tmp_cfg.max_sge = arg->out.max_sge;
+    tmp_cfg.max_inline_data = arg->out.max_inline_data;
+    urma_fill_jfs(jfs, ctx, cfg, arg->out.id, arg->out.handle, &tmp_cfg);
+}
+
+static inline void urma_fill_jfr(urma_jfr_t *jfr, urma_context_t *ctx, urma_jfr_cfg_t *cfg,
+    uint32_t id, uint64_t handle, uint32_t depth, uint32_t max_sge)
+{
+    fill_jetty_id(&jfr->jfr_id, ctx, id);
+    jfr->jfr_cfg = *cfg;
+    jfr->jfr_cfg.depth = depth;
+    jfr->jfr_cfg.max_sge = max_sge;
+    jfr->handle = handle;
     jfr->urma_ctx = ctx;
     ack_event_init(&jfr->event_mutex, &jfr->event_cond, &jfr->async_events_acked);
 }
 
-static inline void fill_jfc(urma_jfc_t *jfc, urma_context_t *ctx, urma_jfc_cfg_t *cfg, urma_cmd_create_jfc_t *arg)
+static inline void fill_jfr(urma_jfr_t *jfr, urma_context_t *ctx, urma_jfr_cfg_t *cfg, urma_cmd_create_jfr_t *arg)
 {
-    fill_jetty_id(&jfc->jfc_id, ctx, arg->out.id);
-    jfc->handle = arg->out.handle;
+    urma_fill_jfr(jfr, ctx, cfg, arg->out.id, arg->out.handle, arg->out.depth, arg->out.max_sge);
+}
+
+static inline void fill_alloc_jfr(urma_jfr_t *jfr, urma_context_t *ctx, urma_jfr_cfg_t *cfg, urma_cmd_alloc_jfr_t *arg)
+{
+    urma_fill_jfr(jfr, ctx, cfg, arg->out.id, arg->out.handle, arg->out.depth, arg->out.max_sge);
+}
+
+static inline void fill_active_jfr(urma_jfr_t *jfr, urma_context_t *ctx, urma_jfr_cfg_t *cfg,
+    urma_cmd_active_jfr_t *arg)
+{
+    urma_fill_jfr(jfr, ctx, cfg, arg->out.id, arg->out.handle, arg->out.depth, arg->out.max_sge);
+}
+
+static inline void urma_fill_jfc(urma_jfc_t *jfc, urma_context_t *ctx, urma_jfc_cfg_t *cfg, uint32_t id,
+    uint64_t handle, uint32_t depth)
+{
+    fill_jetty_id(&jfc->jfc_id, ctx, id);
+    jfc->handle = handle;
     jfc->jfc_cfg = *cfg;
-    jfc->jfc_cfg.depth = arg->out.depth;
+    jfc->jfc_cfg.depth = depth;
+
     jfc->urma_ctx = ctx;
     jfc->comp_events_acked = 0;
     ack_event_init(&jfc->event_mutex, &jfc->event_cond, &jfc->async_events_acked);
 }
+static inline void fill_jfc(urma_jfc_t *jfc, urma_context_t *ctx, urma_jfc_cfg_t *cfg,
+    urma_cmd_create_jfc_t *arg)
+{
+    urma_fill_jfc(jfc, ctx, cfg, arg->out.id, arg->out.handle, arg->out.depth);
+}
+static inline void fill_alloc_jfc(urma_jfc_t *jfc, urma_context_t *ctx, urma_jfc_cfg_t *cfg,
+    urma_cmd_alloc_jfc_t *arg)
+{
+    urma_fill_jfc(jfc, ctx, cfg, arg->out.id, arg->out.handle, arg->out.depth);
+}
+
+static inline void fill_active_jfc(urma_jfc_t *jfc, urma_context_t *ctx, urma_jfc_cfg_t *cfg,
+    urma_cmd_active_jfc_t *arg)
+{
+    urma_fill_jfc(jfc, ctx, cfg, arg->out.id, arg->out.handle, arg->out.depth);
+}
 
 static inline void fill_jetty(urma_jetty_t *jetty, urma_context_t *ctx, urma_jetty_cfg_t *cfg,
-                              urma_cmd_create_jetty_t *arg)
+    urma_cmd_create_jetty_t *arg)
 {
     fill_jetty_id(&jetty->jetty_id, ctx, arg->out.id);
     jetty->jetty_cfg.jfs_cfg.depth = arg->out.jfs_depth;
@@ -408,7 +484,7 @@ static inline void fill_jetty(urma_jetty_t *jetty, urma_context_t *ctx, urma_jet
 }
 
 static inline void fill_tjetty(urma_target_jetty_t *tjetty, urma_context_t *ctx, urma_tjetty_cfg_t *cfg,
-                               urma_cmd_import_jetty_t *arg)
+    urma_cmd_import_jetty_t *arg)
 {
     tjetty->id = cfg->jetty_id;
     tjetty->trans_mode = cfg->trans_mode;
@@ -422,7 +498,7 @@ static inline void fill_tjetty(urma_target_jetty_t *tjetty, urma_context_t *ctx,
 }
 
 static inline void fill_tjetty_async(urma_target_jetty_t *tjetty, urma_context_t *ctx, urma_tjetty_cfg_t *cfg,
-                                     urma_cmd_import_jetty_async_t *arg)
+    urma_cmd_import_jetty_async_t *arg)
 {
     tjetty->id = cfg->jetty_id;
     tjetty->trans_mode = cfg->trans_mode;
@@ -437,7 +513,7 @@ static inline void fill_tjetty_async(urma_target_jetty_t *tjetty, urma_context_t
 int urma_cmd_create_jfs(urma_context_t *ctx, urma_jfs_t *jfs, urma_jfs_cfg_t *cfg, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || jfs == NULL || cfg == NULL || cfg->jfc == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -460,7 +536,7 @@ int urma_cmd_create_jfs(urma_context_t *ctx, urma_jfs_t *jfs, urma_jfs_cfg_t *cf
     urma_cmd_set_udrv_priv(&arg.udata, udata);
     ret = urma_ioctl_create_jfs(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
@@ -471,7 +547,7 @@ int urma_cmd_create_jfs(urma_context_t *ctx, urma_jfs_t *jfs, urma_jfs_cfg_t *cf
 int urma_cmd_modify_jfs(urma_jfs_t *jfs, urma_jfs_attr_t *attr, urma_cmd_udrv_priv_t *udata)
 {
     if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0 || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -486,7 +562,7 @@ int urma_cmd_modify_jfs(urma_jfs_t *jfs, urma_jfs_attr_t *attr, urma_cmd_udrv_pr
 
     ret = urma_ioctl_modify_jfs(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_modify_jfs, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_modify_jfs, ret=%d, errno=%d.\n", ret, errno);
     }
     return ret;
 }
@@ -494,7 +570,7 @@ int urma_cmd_modify_jfs(urma_jfs_t *jfs, urma_jfs_attr_t *attr, urma_cmd_udrv_pr
 int urma_cmd_query_jfs(urma_jfs_t *jfs, urma_jfs_cfg_t *cfg, urma_jfs_attr_t *attr)
 {
     if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0 || cfg == NULL || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -506,7 +582,7 @@ int urma_cmd_query_jfs(urma_jfs_t *jfs, urma_jfs_cfg_t *cfg, urma_jfs_attr_t *at
 
     ret = urma_ioctl_query_jfs(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
@@ -534,7 +610,7 @@ int urma_cmd_delete_jfs(urma_jfs_t *jfs)
     urma_cmd_delete_jfs_t arg = {0};
 
     if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     arg.in.handle = jfs->handle;
@@ -542,8 +618,19 @@ int urma_cmd_delete_jfs(urma_jfs_t *jfs)
     ret = urma_ioctl_delete_jfs(jfs->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
+    }
+
+    bool non_blocking = jfs->jfs_cfg.flag.bs.non_blocking;
+    if (non_blocking) {
+        (void)pthread_mutex_lock(&jfs->event_mutex);
+        if (jfs->async_events_acked != arg.out.async_events_reported) {
+            (void)pthread_mutex_unlock(&jfs->event_mutex);
+            return URMA_EAGAIN;
+        }
+        (void)pthread_mutex_unlock(&jfs->event_mutex);
+        return 0;
     }
 
     wait_async_event_ack(&jfs->event_mutex, &jfs->event_cond, &jfs->async_events_acked, arg.out.async_events_reported);
@@ -560,14 +647,14 @@ int urma_cmd_delete_jfs_batch(urma_jfs_t **jfs_arr, int jfs_num, urma_jfs_t **ba
     int ret;
 
     if (jfs_arr == NULL || jfs_num <= 0 || bad_jfs == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return URMA_EINVAL;
     }
 
     for (int i = 0; i < jfs_num; ++i) {
         jfs = jfs_arr[i];
         if (jfs == NULL || jfs->urma_ctx == NULL) {
-            URMA_LOG_ERR("Invalid parameter, index: %d.\n", i);
+            URMA_LOG_ERR("Invalid parameter, index=%d.\n", i);
             *bad_jfs = jfs_arr[0];
             return URMA_EINVAL;
         }
@@ -575,13 +662,13 @@ int urma_cmd_delete_jfs_batch(urma_jfs_t **jfs_arr, int jfs_num, urma_jfs_t **ba
 
     int dev_fd = jfs_arr[0]->urma_ctx->dev_fd;
     if (dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         *bad_jfs = jfs_arr[0];
         return URMA_EINVAL;
     }
     for (int i = 0; i < jfs_num; ++i) {
         if (jfs_arr[i]->urma_ctx->dev_fd != dev_fd) {
-            URMA_LOG_ERR("jfs not from the same dev, cannot delete in a batch, index: %d.\n", i);
+            URMA_LOG_ERR("jfs not from the same dev, cannot delete in a batch, index=%d.\n", i);
             *bad_jfs = jfs_arr[0];
             return URMA_EINVAL;
         }
@@ -589,7 +676,7 @@ int urma_cmd_delete_jfs_batch(urma_jfs_t **jfs_arr, int jfs_num, urma_jfs_t **ba
 
     handle_arr = malloc(jfs_num * sizeof(uint64_t));
     if (handle_arr == NULL) {
-        URMA_LOG_ERR("Failed to malloc buffer.");
+        URMA_LOG_ERR("Failed to malloc buffer.\n");
         *bad_jfs = jfs_arr[0];
         return URMA_ENOMEM;
     }
@@ -598,15 +685,15 @@ int urma_cmd_delete_jfs_batch(urma_jfs_t **jfs_arr, int jfs_num, urma_jfs_t **ba
 
     for (int i = 0; i < jfs_num; ++i) {
         handle_arr[i] = jfs_arr[i]->handle;
-        URMA_LOG_DEBUG("jfs_arr[%d]->handle is %lu.", i, handle_arr[i]);
+        URMA_LOG_DEBUG("jfs_arr[%d]->handle=%lu.\n", i, handle_arr[i]);
     }
 
     ret = urma_ioctl_delete_jfs_batch(dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfs_batch , ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfs_batch , ret=%d, errno=%d.\n", ret, errno);
         if (arg.out.bad_jfs_index >= jfs_num) {
-            URMA_LOG_ERR("bad jfs index exceed array length, bad_jfs_index: %u.\n", arg.out.bad_jfs_index);
+            URMA_LOG_ERR("bad jfs index exceeds array length, bad_jfs_index=%u.\n", arg.out.bad_jfs_index);
             arg.out.bad_jfs_index = 0;
         }
         *bad_jfs = jfs_arr[arg.out.bad_jfs_index];
@@ -615,6 +702,7 @@ int urma_cmd_delete_jfs_batch(urma_jfs_t **jfs_arr, int jfs_num, urma_jfs_t **ba
     }
 
     do {
+        async_events_acked = 0;
         for (int i = 0; i < jfs_num; ++i) {
             async_events_acked += jfs_arr[i]->async_events_acked;
         }
@@ -627,7 +715,7 @@ int urma_cmd_delete_jfs_batch(urma_jfs_t **jfs_arr, int jfs_num, urma_jfs_t **ba
 int urma_cmd_create_jfr(urma_context_t *ctx, urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || jfr == NULL || cfg == NULL || cfg->jfc == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -649,17 +737,216 @@ int urma_cmd_create_jfr(urma_context_t *ctx, urma_jfr_t *jfr, urma_jfr_cfg_t *cf
 
     ret = urma_ioctl_create_jfr(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_create_jfr, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_create_jfr, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
     fill_jfr(jfr, ctx, cfg, &arg);
     return 0;
 }
 
+int urma_cmd_alloc_jfs(urma_context_t *ctx, urma_jfs_cfg_t *cfg, urma_jfs_t *jfs,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (ctx == NULL || ctx->dev_fd < 0 || jfs == NULL || cfg == NULL) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    int ret;
+    urma_cmd_alloc_jfs_t arg = {0};
+
+    arg.in.depth = cfg->depth;
+    arg.in.flag = cfg->flag.value;
+    arg.in.trans_mode = (uint32_t)cfg->trans_mode;
+    arg.in.priority = cfg->priority;
+    arg.in.max_sge = cfg->max_sge;
+    arg.in.max_rsge = cfg->max_rsge;
+    arg.in.max_inline_data = cfg->max_inline_data;
+    arg.in.rnr_retry = cfg->rnr_retry;
+    arg.in.err_timeout = cfg->err_timeout;
+    arg.in.jfc_id = cfg->jfc->jfc_id.id;
+    arg.in.jfc_handle = cfg->jfc->handle;
+    arg.in.urma_jfs = (uint64_t)(void*)jfs;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    jfs->jfs_cfg = *cfg;
+
+    ret = urma_ioctl_alloc_jfs(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_jfr, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    fill_alloc_jfs(jfs, ctx, cfg, &arg);
+    return 0;
+}
+
+int urma_cmd_free_jfs(urma_jfs_t *jfs, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    int ret;
+    urma_cmd_free_jfs_t arg = {0};
+    arg.in.handle = jfs->handle;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_free_jfs(jfs->urma_ctx->dev_fd, &arg);
+    uburma_is_destroy_err(&ret);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_free_jfs , ret=%d, errno=%d.\n", ret, errno);
+    }
+
+    wait_async_event_ack(&jfs->event_mutex, &jfs->event_cond,
+        &jfs->async_events_acked, arg.out.async_events_reported);
+
+    return ret;
+}
+
+int urma_cmd_set_jfs_opt(urma_jfs_t *jfs, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jfs == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jfs->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_set_jfs_opt_t arg = {0};
+    arg.in.handle = jfs->handle;
+    arg.in.opt = opt;
+    arg.in.len = len;
+    arg.udata = *udata;
+    if (opt == URMA_JFS_BIND_JFC) {
+        if (jfs->jfs_cfg.jfc == NULL) {
+            URMA_LOG_ERR("jfc does not exist in jfs.\n");
+            return -1;
+        }
+        arg.in.buf = (uint64_t)(uintptr_t)&jfs->jfs_cfg.jfc->handle;
+    } else {
+        arg.in.buf = (uint64_t)(void *)buf;
+    }
+
+    ret = urma_ioctl_set_jfs_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_set_jfs_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    return ret;
+}
+
+int urma_cmd_get_jfs_opt(urma_jfs_t *jfs, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jfs == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jfs->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_get_jfs_opt_t arg = {0};
+    arg.in.handle = jfs->handle;
+    arg.in.opt = opt;
+    arg.in.buf = (uint64_t)(uintptr_t)buf;
+    arg.in.len = len;
+    arg.udata = *udata;
+
+    ret = urma_ioctl_get_jfs_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_get_jfs_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    if (arg.out.buf == 0 || arg.out.len == 0) {
+        URMA_LOG_ERR("Invalid out buffer from kernel.\n");
+        return -1;
+    }
+
+    if (arg.out.len > len) {
+        URMA_LOG_ERR("output length too large, out.len=%u, buf.len=%u\n",
+            arg.out.len, len);
+        return -1;
+    }
+
+    (void)memcpy(buf, (void *)(uintptr_t)arg.out.buf, arg.out.len);
+    return ret;
+}
+
+int urma_cmd_active_jfs(urma_jfs_t *jfs, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jfs->urma_ctx;
+
+    int ret;
+    urma_cmd_active_jfs_t arg = {0};
+
+    arg.in.handle = jfs->handle;
+    arg.in.depth = jfs->jfs_cfg.depth;
+    arg.in.flag = jfs->jfs_cfg.flag.value;
+    arg.in.trans_mode = (uint32_t)jfs->jfs_cfg.trans_mode;
+    arg.in.priority = jfs->jfs_cfg.priority;
+    arg.in.max_sge = jfs->jfs_cfg.max_sge;
+    arg.in.max_rsge = jfs->jfs_cfg.max_rsge;
+    arg.in.max_inline_data = jfs->jfs_cfg.max_inline_data;
+    arg.in.rnr_retry = jfs->jfs_cfg.rnr_retry;
+    arg.in.err_timeout = jfs->jfs_cfg.err_timeout;
+    arg.in.jfc_id = jfs->jfs_cfg.jfc->jfc_id.id;
+    arg.in.jfc_handle = jfs->jfs_cfg.jfc->handle;
+    arg.in.jfs_opt = (uint64_t)(void *)&jfs->urma_jfs_opt;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_active_jfs(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_active_jfs, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    jfs->urma_jfs_opt.is_actived = true;
+    fill_active_jfs(jfs, ctx, &jfs->jfs_cfg, &arg);
+
+    return 0;
+}
+
+int urma_cmd_deactive_jfs(urma_jfs_t *jfs, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jfs->urma_ctx;
+
+    int ret;
+    urma_cmd_deactive_jfs_t arg = {0};
+
+    arg.in.handle = jfs->handle;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_deactive_jfs(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_deactive_jfs, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    jfs->urma_jfs_opt.is_actived = false;
+    return 0;
+}
+
 int urma_cmd_modify_jfr(urma_jfr_t *jfr, urma_jfr_attr_t *attr, urma_cmd_udrv_priv_t *udata)
 {
     if (jfr == NULL || jfr->urma_ctx == NULL || jfr->urma_ctx->dev_fd < 0 || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -675,7 +962,7 @@ int urma_cmd_modify_jfr(urma_jfr_t *jfr, urma_jfr_attr_t *attr, urma_cmd_udrv_pr
 
     ret = urma_ioctl_modify_jfr(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_modify_jfr, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_modify_jfr, ret=%d, errno=%d.\n", ret, errno);
     }
     return ret;
 }
@@ -683,7 +970,7 @@ int urma_cmd_modify_jfr(urma_jfr_t *jfr, urma_jfr_attr_t *attr, urma_cmd_udrv_pr
 int urma_cmd_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_attr_t *attr)
 {
     if (jfr == NULL || jfr->urma_ctx == NULL || jfr->urma_ctx->dev_fd < 0 || cfg == NULL || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -695,7 +982,7 @@ int urma_cmd_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_attr_t *at
 
     ret = urma_ioctl_query_jfr(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
@@ -719,7 +1006,7 @@ int urma_cmd_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_attr_t *at
 int urma_cmd_delete_jfr(urma_jfr_t *jfr)
 {
     if (jfr == NULL || jfr->urma_ctx == NULL || jfr->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -730,7 +1017,7 @@ int urma_cmd_delete_jfr(urma_jfr_t *jfr)
     ret = urma_ioctl_delete_jfr(jfr->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfr, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfr, ret=%d, errno=%d.\n", ret, errno);
     }
 
     wait_async_event_ack(&jfr->event_mutex, &jfr->event_cond, &jfr->async_events_acked, arg.out.async_events_reported);
@@ -754,7 +1041,7 @@ int urma_cmd_delete_jfr_batch(urma_jfr_t **jfr_arr, int jfr_num, urma_jfr_t **ba
     for (int i = 0; i < jfr_num; ++i) {
         jfr = jfr_arr[i];
         if (jfr == NULL || jfr->urma_ctx == NULL) {
-            URMA_LOG_ERR("Invalid parameter, index: %d.\n", i);
+            URMA_LOG_ERR("Invalid parameter, index=%d.\n", i);
             *bad_jfr = jfr_arr[0];
             return URMA_EINVAL;
         }
@@ -768,7 +1055,7 @@ int urma_cmd_delete_jfr_batch(urma_jfr_t **jfr_arr, int jfr_num, urma_jfr_t **ba
     }
     for (int i = 0; i < jfr_num; ++i) {
         if (jfr_arr[i]->urma_ctx->dev_fd != dev_fd) {
-            URMA_LOG_ERR("jfr not from the same dev, cannot delete in a batch, index: %d.\n", i);
+            URMA_LOG_ERR("jfr not from the same dev, cannot delete in a batch, index=%d.\n", i);
             *bad_jfr = jfr_arr[0];
             return URMA_EINVAL;
         }
@@ -776,7 +1063,7 @@ int urma_cmd_delete_jfr_batch(urma_jfr_t **jfr_arr, int jfr_num, urma_jfr_t **ba
 
     handle_arr = malloc(jfr_num * sizeof(uint64_t));
     if (handle_arr == NULL) {
-        URMA_LOG_ERR("Failed to malloc buffer.");
+        URMA_LOG_ERR("Failed to malloc buffer.\n");
         *bad_jfr = jfr_arr[0];
         return URMA_ENOMEM;
     }
@@ -785,15 +1072,15 @@ int urma_cmd_delete_jfr_batch(urma_jfr_t **jfr_arr, int jfr_num, urma_jfr_t **ba
 
     for (int i = 0; i < jfr_num; ++i) {
         handle_arr[i] = jfr_arr[i]->handle;
-        URMA_LOG_DEBUG("jfr_arr[%d]->handle is %lu.", i, handle_arr[i]);
+        URMA_LOG_DEBUG("jfr_arr[%d]->handle=%lu.\n", i, handle_arr[i]);
     }
 
     ret = urma_ioctl_delete_jfr_batch(dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfr_batch , ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfr_batch , ret=%d, errno=%d.\n", ret, errno);
         if (arg.out.bad_jfr_index >= jfr_num) {
-            URMA_LOG_ERR("bad jfr index exceed array length, bad_jfr_index: %u.", arg.out.bad_jfr_index);
+            URMA_LOG_ERR("bad jfr index exceeds array length, bad_jfr_index=%u.\n", arg.out.bad_jfr_index);
             arg.out.bad_jfr_index = 0;
         }
         *bad_jfr = jfr_arr[arg.out.bad_jfr_index];
@@ -802,6 +1089,7 @@ int urma_cmd_delete_jfr_batch(urma_jfr_t **jfr_arr, int jfr_num, urma_jfr_t **ba
     }
 
     do {
+        async_events_acked = 0;
         for (int i = 0; i < jfr_num; ++i) {
             async_events_acked += jfr_arr[i]->async_events_acked;
         }
@@ -814,7 +1102,7 @@ int urma_cmd_delete_jfr_batch(urma_jfr_t **jfr_arr, int jfr_num, urma_jfr_t **ba
 int urma_cmd_create_jfc(urma_context_t *ctx, urma_jfc_t *jfc, urma_jfc_cfg_t *cfg, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || jfc == NULL || cfg == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -832,7 +1120,7 @@ int urma_cmd_create_jfc(urma_context_t *ctx, urma_jfc_t *jfc, urma_jfc_cfg_t *cf
     urma_cmd_set_udrv_priv(&arg.udata, udata);
     ret = urma_ioctl_create_jfc(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_create_jfc, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_create_jfc, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
     fill_jfc(jfc, ctx, cfg, &arg);
@@ -842,7 +1130,7 @@ int urma_cmd_create_jfc(urma_context_t *ctx, urma_jfc_t *jfc, urma_jfc_cfg_t *cf
 int urma_cmd_modify_jfc(urma_jfc_t *jfc, urma_jfc_attr_t *attr, urma_cmd_udrv_priv_t *udata)
 {
     if (jfc == NULL || jfc->urma_ctx == NULL || jfc->urma_ctx->dev_fd < 0 || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -859,7 +1147,7 @@ int urma_cmd_modify_jfc(urma_jfc_t *jfc, urma_jfc_attr_t *attr, urma_cmd_udrv_pr
     urma_cmd_set_udrv_priv(&arg.udata, udata);
     ret = urma_ioctl_modify_jfc(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_modify_jfc, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_modify_jfc, ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
     return 0;
@@ -868,7 +1156,7 @@ int urma_cmd_modify_jfc(urma_jfc_t *jfc, urma_jfc_attr_t *attr, urma_cmd_udrv_pr
 int urma_cmd_delete_jfc(urma_jfc_t *jfc)
 {
     if (jfc == NULL || jfc->urma_ctx == NULL || jfc->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -879,16 +1167,23 @@ int urma_cmd_delete_jfc(urma_jfc_t *jfc)
     ret = urma_ioctl_delete_jfc(jfc->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfc , ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfc , ret=%d, errno=%d.\n", ret, errno);
         return ret;
     }
 
+    if (jfc->jfc_cfg.flag.bs.non_blocking == 1) {
+        (void)pthread_mutex_lock(&jfc->event_mutex);
+        bool need_acked = jfc->comp_events_acked != arg.out.comp_events_reported ||
+            jfc->async_events_acked != arg.out.async_events_reported;
+        (void)pthread_mutex_unlock(&jfc->event_mutex);
+        return need_acked ? URMA_EAGAIN : URMA_SUCCESS;
+    }
     (void)pthread_mutex_lock(&jfc->event_mutex);
     while (jfc->comp_events_acked != arg.out.comp_events_reported ||
            jfc->async_events_acked != arg.out.async_events_reported) {
-        URMA_LOG_ERR("There is jfc event and it must be acked, jfc_comp:%u, comp:%u, jfc_async:%u, async:%u\n",
-                     jfc->comp_events_acked, arg.out.comp_events_reported, jfc->async_events_acked,
-                     arg.out.async_events_reported);
+        URMA_LOG_ERR("There is jfc event and it must be acked, jfc_comp=%u, comp=%u, jfc_async=%u, async=%u.\n",
+            jfc->comp_events_acked, arg.out.comp_events_reported, jfc->async_events_acked,
+            arg.out.async_events_reported);
         (void)pthread_cond_wait(&jfc->event_cond, &jfc->event_mutex);
     }
     (void)pthread_mutex_unlock(&jfc->event_mutex);
@@ -906,14 +1201,14 @@ int urma_cmd_delete_jfc_batch(urma_jfc_t **jfc_arr, int jfc_num, urma_jfc_t **ba
     int ret;
 
     if (jfc_arr == NULL || jfc_num <= 0 || bad_jfc == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return URMA_EINVAL;
     }
 
     for (int i = 0; i < jfc_num; ++i) {
         jfc = jfc_arr[i];
         if (jfc == NULL || jfc->urma_ctx == NULL) {
-            URMA_LOG_ERR("Invalid parameter, index: %d.\n", i);
+            URMA_LOG_ERR("Invalid parameter, index=%d.\n", i);
             *bad_jfc = jfc_arr[0];
             return URMA_EINVAL;
         }
@@ -921,13 +1216,13 @@ int urma_cmd_delete_jfc_batch(urma_jfc_t **jfc_arr, int jfc_num, urma_jfc_t **ba
 
     int dev_fd = jfc_arr[0]->urma_ctx->dev_fd;
     if (dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         *bad_jfc = jfc_arr[0];
         return URMA_EINVAL;
     }
     for (int i = 0; i < jfc_num; ++i) {
         if (jfc_arr[i]->urma_ctx->dev_fd != dev_fd) {
-            URMA_LOG_ERR("jfc not from the same dev, cannot delete in a batch, index: %d.\n", i);
+            URMA_LOG_ERR("jfc not from the same dev, cannot delete in a batch, index=%d.\n", i);
             *bad_jfc = jfc_arr[0];
             return URMA_EINVAL;
         }
@@ -935,7 +1230,7 @@ int urma_cmd_delete_jfc_batch(urma_jfc_t **jfc_arr, int jfc_num, urma_jfc_t **ba
 
     handle_arr = malloc(jfc_num * sizeof(uint64_t));
     if (handle_arr == NULL) {
-        URMA_LOG_ERR("Failed to malloc buffer.");
+        URMA_LOG_ERR("Failed to malloc buffer.\n");
         *bad_jfc = jfc_arr[0];
         return URMA_ENOMEM;
     }
@@ -944,15 +1239,15 @@ int urma_cmd_delete_jfc_batch(urma_jfc_t **jfc_arr, int jfc_num, urma_jfc_t **ba
 
     for (int i = 0; i < jfc_num; ++i) {
         handle_arr[i] = jfc_arr[i]->handle;
-        URMA_LOG_DEBUG("jfc_arr[%d]->handle is %lu.", i, handle_arr[i]);
+        URMA_LOG_DEBUG("jfc_arr[%d]->handle=%lu.\n", i, handle_arr[i]);
     }
 
     ret = urma_ioctl_delete_jfc_batch(dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfc_batch , ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfc_batch , ret=%d, errno=%d.\n", ret, errno);
         if (arg.out.bad_jfc_index >= jfc_num) {
-            URMA_LOG_ERR("bad jfc index exceed array length, bad_jfc_index: %u.", arg.out.bad_jfc_index);
+            URMA_LOG_ERR("bad jfc index exceeds array length, bad_jfc_index=%u.\n", arg.out.bad_jfc_index);
             arg.out.bad_jfc_index = 0;
         }
         *bad_jfc = jfc_arr[arg.out.bad_jfc_index];
@@ -961,6 +1256,8 @@ int urma_cmd_delete_jfc_batch(urma_jfc_t **jfc_arr, int jfc_num, urma_jfc_t **ba
     }
 
     do {
+        async_events_acked = 0;
+        comp_events_acked = 0;
         for (int i = 0; i < jfc_num; ++i) {
             comp_events_acked += jfc_arr[i]->comp_events_acked;
             async_events_acked += jfc_arr[i]->async_events_acked;
@@ -971,10 +1268,189 @@ int urma_cmd_delete_jfc_batch(urma_jfc_t **jfc_arr, int jfc_num, urma_jfc_t **ba
     return 0;
 }
 
+int urma_cmd_alloc_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg, urma_jfc_t *jfc,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (ctx == NULL || ctx->dev_fd < 0 || jfc == NULL || cfg == NULL) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    int ret;
+    urma_cmd_alloc_jfc_t arg = {0};
+
+    arg.in.depth = cfg->depth;
+    arg.in.flag = cfg->flag.value;
+    arg.in.jfce_fd = (cfg->jfce == NULL ? -1 : cfg->jfce->fd);
+    /* UBcore gets userspace jfc for a completion event */
+    arg.in.urma_jfc = (uint64_t)(void*)jfc;
+    arg.in.ceqn = cfg->ceqn;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_alloc_jfc(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_jfc, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    fill_alloc_jfc(jfc, ctx, cfg, &arg);
+    return 0;
+}
+
+int urma_cmd_free_jfc(urma_jfc_t *jfc, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfc == NULL || jfc->urma_ctx == NULL || jfc->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    int ret;
+    urma_cmd_free_jfc_t arg = {0};
+    arg.in.handle = jfc->handle;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_free_jfc(jfc->urma_ctx->dev_fd, &arg);
+    uburma_is_destroy_err(&ret);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfc , ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+
+    (void)pthread_mutex_lock(&jfc->event_mutex);
+    while (jfc->comp_events_acked != arg.out.comp_events_reported ||
+           jfc->async_events_acked != arg.out.async_events_reported) {
+        URMA_LOG_ERR("There is jfc event and it must be acked, jfc_comp=%u, comp=%u, jfc_async=%u, async=%u\n",
+            jfc->comp_events_acked, arg.out.comp_events_reported,
+            jfc->async_events_acked, arg.out.async_events_reported);
+        (void)pthread_cond_wait(&jfc->event_cond, &jfc->event_mutex);
+    }
+    (void)pthread_mutex_unlock(&jfc->event_mutex);
+
+    return 0;
+}
+
+int urma_cmd_set_jfc_opt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jfc == NULL || buf == NULL || opt == 0 || len == 0 || buf == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jfc->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_set_jfc_opt_t arg = {0};
+    arg.in.handle = jfc->handle;
+    arg.in.opt = opt;
+    arg.in.len = len;
+    arg.in.buf = (uint64_t)(void *)buf;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_set_jfc_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_set_jfc_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    return ret;
+}
+
+int urma_cmd_get_jfc_opt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jfc == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jfc->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_get_jfc_opt_t arg = {0};
+    arg.in.handle = jfc->handle;
+    arg.in.opt = opt;
+    arg.in.buf = (uint64_t)(uintptr_t)buf;
+    arg.in.len = len;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_get_jfc_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_get_jfc_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    if (arg.out.buf == 0 || arg.out.len == 0) {
+        URMA_LOG_ERR("Invalid out buffer from kernel.\n");
+        return -1;
+    }
+
+    if (arg.out.len > len) {
+        URMA_LOG_ERR("output length too large, out.len=%u, buf.len=%u\n",
+            arg.out.len, len);
+        return -1;
+    }
+
+    (void)memcpy(buf, (void *)(uintptr_t)arg.out.buf, arg.out.len);
+    return ret;
+}
+
+int urma_cmd_active_jfc(urma_jfc_t *jfc, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfc == NULL || jfc->urma_ctx == NULL || jfc->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jfc->urma_ctx;
+
+    int ret;
+    urma_cmd_active_jfc_t arg = {0};
+
+    arg.in.handle = jfc->handle;
+    arg.in.depth = jfc->jfc_cfg.depth;
+    arg.in.flag = jfc->jfc_cfg.flag.value;
+    arg.in.ceqn = jfc->jfc_cfg.ceqn;
+    arg.in.urma_jfc_opt = (uint64_t)(void *)&jfc->urma_jfc_opt;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_active_jfc(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_active_jfc, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    fill_active_jfc(jfc, ctx, &jfc->jfc_cfg, &arg);
+    return 0;
+}
+
+int urma_cmd_deactive_jfc(urma_jfc_t *jfc, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfc == NULL || jfc->urma_ctx == NULL || jfc->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jfc->urma_ctx;
+
+    int ret;
+    urma_cmd_deactive_jfc_t arg = {0};
+
+    arg.in.handle = jfc->handle;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_deactive_jfc(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_active_jfc, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    return 0;
+}
+
 int urma_cmd_create_jfce(urma_context_t *ctx)
 {
     if (ctx == NULL || ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -984,14 +1460,14 @@ int urma_cmd_create_jfce(urma_context_t *ctx)
 
     ret = urma_ioctl_create_jfce(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_create_jfce, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_create_jfce, ret=%d, errno=%d.\n", ret, errno);
         return -1;
     }
     return arg.out.fd;
 }
 
 static inline void fill_tjfr(urma_target_jetty_t *tjfr, urma_context_t *ctx, urma_tjfr_cfg_t *cfg,
-                             urma_cmd_import_jfr_t *arg)
+    urma_cmd_import_jfr_t *arg)
 {
     tjfr->id = cfg->jfr_id;
     tjfr->trans_mode = cfg->trans_mode;
@@ -1003,10 +1479,10 @@ static inline void fill_tjfr(urma_target_jetty_t *tjfr, urma_context_t *ctx, urm
 }
 
 int urma_cmd_import_jfr(urma_context_t *ctx, urma_target_jetty_t *tjfr, urma_tjfr_cfg_t *cfg,
-                        urma_cmd_udrv_priv_t *udata)
+    urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || tjfr == NULL || cfg == NULL || cfg->token == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -1024,7 +1500,6 @@ int urma_cmd_import_jfr(urma_context_t *ctx, urma_target_jetty_t *tjfr, urma_tjf
 
     ret = urma_ioctl_import_jfr(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
         return ret;
     }
 
@@ -1033,7 +1508,7 @@ int urma_cmd_import_jfr(urma_context_t *ctx, urma_target_jetty_t *tjfr, urma_tjf
 }
 
 static inline void fill_tjfr_ex(urma_target_jetty_t *tjfr, urma_context_t *ctx, urma_tjfr_cfg_t *cfg,
-                                urma_cmd_import_jfr_ex_t *arg)
+    urma_cmd_import_jfr_ex_t *arg)
 {
     tjfr->urma_ctx = ctx;
     tjfr->id = cfg->jfr_id;
@@ -1045,13 +1520,13 @@ static inline void fill_tjfr_ex(urma_target_jetty_t *tjfr, urma_context_t *ctx, 
 }
 
 int urma_cmd_import_jfr_ex(urma_context_t *ctx, urma_target_jetty_t *tjfr, urma_tjfr_cfg_t *cfg,
-                           urma_import_jfr_ex_cfg_t *ex_cfg, urma_cmd_udrv_priv_t *udata)
+    urma_import_jfr_ex_cfg_t *ex_cfg, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || tjfr == NULL || cfg == NULL || cfg->token == NULL || ex_cfg == NULL) {
         URMA_LOG_ERR("Invalid parameter.\n");
         errno = EINVAL;
         return -1;
-    }
+        }
 
     int ret;
     urma_cmd_import_jfr_ex_t arg = {0};
@@ -1067,11 +1542,12 @@ int urma_cmd_import_jfr_ex(urma_context_t *ctx, urma_target_jetty_t *tjfr, urma_
     arg.in.tag = ex_cfg->tag;
     arg.in.tx_psn = ex_cfg->tp_attr.tx_psn;
     arg.in.rx_psn = ex_cfg->tp_attr.rx_psn;
+    arg.in.stag = 0UL;
+    arg.in.dtag = 0UL;
     urma_cmd_set_udrv_priv(&arg.udata, udata);
 
     ret = urma_ioctl_import_jfr_ex(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
         return ret;
     }
 
@@ -1082,7 +1558,7 @@ int urma_cmd_import_jfr_ex(urma_context_t *ctx, urma_target_jetty_t *tjfr, urma_
 int urma_cmd_unimport_jfr(urma_target_jetty_t *tjfr)
 {
     if (tjfr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unimport_jfr_t arg = {
@@ -1092,7 +1568,6 @@ int urma_cmd_unimport_jfr(urma_target_jetty_t *tjfr)
     int ret = urma_ioctl_unimport_jfr(tjfr->urma_ctx->dev_fd, &arg);
     uburma_is_destroy_err(&ret);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed, ret:%d, errno:%d.\n", ret, errno);
         return ret;
     }
 
@@ -1102,7 +1577,7 @@ int urma_cmd_unimport_jfr(urma_target_jetty_t *tjfr)
 int urma_cmd_advise_jfr(urma_jfs_t *jfs, urma_target_jetty_t *tjfr, urma_cmd_udrv_priv_t *udata)
 {
     if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0 || tjfr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_advise_jetty_t arg = {
@@ -1116,7 +1591,7 @@ int urma_cmd_advise_jfr(urma_jfs_t *jfs, urma_target_jetty_t *tjfr, urma_cmd_udr
 int urma_cmd_unadvise_jfr(urma_jfs_t *jfs, urma_target_jetty_t *tjfr)
 {
     if (jfs == NULL || jfs->urma_ctx == NULL || jfs->urma_ctx->dev_fd < 0 || tjfr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unadvise_jetty_t arg = {
@@ -1129,7 +1604,7 @@ int urma_cmd_unadvise_jfr(urma_jfs_t *jfs, urma_target_jetty_t *tjfr)
 int urma_cmd_advise_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urma_cmd_udrv_priv_t *udata)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || tjetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_advise_jetty_t arg = {
@@ -1140,10 +1615,202 @@ int urma_cmd_advise_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urma
     return urma_ioctl_advise_jetty(jetty->urma_ctx->dev_fd, &arg);
 }
 
+int urma_cmd_alloc_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg, urma_jfr_t *jfr,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (ctx == NULL || ctx->dev_fd < 0 || jfr == NULL || cfg == NULL) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        errno = EINVAL;
+        return -1;
+    }
+
+    int ret;
+    urma_cmd_alloc_jfr_t arg = {0};
+
+    arg.in.depth = cfg->depth;
+    arg.in.flag = cfg->flag.value;
+    arg.in.trans_mode = (uint32_t)cfg->trans_mode;
+    arg.in.max_sge = cfg->max_sge;
+    arg.in.min_rnr_timer = cfg->min_rnr_timer;
+    arg.in.jfc_id = cfg->jfc->jfc_id.id;
+    arg.in.jfc_handle = cfg->jfc->handle;
+    arg.in.token = cfg->token_value.token;
+    arg.in.id = cfg->id;
+    arg.in.urma_jfr = (uint64_t)(void*)jfr; /* for async event */
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    jfr->jfr_cfg = *cfg;
+
+    ret = urma_ioctl_alloc_jfr(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_alloc_jfr, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    fill_alloc_jfr(jfr, ctx, cfg, &arg);
+    return 0;
+}
+
+int urma_cmd_free_jfr(urma_jfr_t *jfr, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfr == NULL || jfr->urma_ctx == NULL || jfr->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    int ret;
+    urma_cmd_free_jfr_t arg = {0};
+    arg.in.handle = jfr->handle;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_free_jfr(jfr->urma_ctx->dev_fd, &arg);
+    uburma_is_destroy_err(&ret);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jfr , ret=%d, errno=%d.\n", ret, errno);
+    }
+
+    wait_async_event_ack(&jfr->event_mutex, &jfr->event_cond,
+        &jfr->async_events_acked, arg.out.async_events_reported);
+
+    return ret;
+}
+
+int urma_cmd_set_jfr_opt(urma_jfr_t *jfr, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jfr == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jfr->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_set_jfr_opt_t arg = {0};
+    arg.in.handle = jfr->handle;
+    arg.in.opt = opt;
+    arg.in.len = len;
+    if (opt == URMA_JFR_BIND_JFC) {
+        if (jfr->jfr_cfg.jfc == NULL) {
+            URMA_LOG_ERR("jfc does not exist in jfr.\n");
+            return -1;
+        }
+        arg.in.buf = (uint64_t)(uintptr_t)&jfr->jfr_cfg.jfc->handle;
+    } else {
+        arg.in.buf = (uint64_t)(void *)buf;
+    }
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_set_jfr_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_set_jfr_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    return ret;
+}
+
+int urma_cmd_get_jfr_opt(urma_jfr_t *jfr, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jfr == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jfr->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_get_jfr_opt_t arg = {0};
+    arg.in.handle = jfr->handle;
+    arg.in.opt = opt;
+    arg.in.buf = (uint64_t)(uintptr_t)buf;
+    arg.in.len = len;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_get_jfr_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_get_jfr_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    if (arg.out.buf == 0 || arg.out.len == 0) {
+        URMA_LOG_ERR("Invalid out buffer from kernel.\n");
+        return -1;
+    }
+
+    if (arg.out.len > len) {
+        URMA_LOG_ERR("output length too large, out.len=%u, buf.len=%u\n",
+            arg.out.len, len);
+        return -1;
+    }
+
+    (void)memcpy(buf, (void *)(uintptr_t)arg.out.buf, arg.out.len);
+    return ret;
+}
+
+int urma_cmd_active_jfr(urma_jfr_t *jfr, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfr == NULL || jfr->urma_ctx == NULL || jfr->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jfr->urma_ctx;
+
+    int ret;
+    urma_cmd_active_jfr_t arg = {0};
+
+    arg.in.handle = jfr->handle;
+    arg.in.depth = jfr->jfr_cfg.depth;
+    arg.in.flag = jfr->jfr_cfg.flag.value;
+    arg.in.trans_mode = (uint32_t)jfr->jfr_cfg.trans_mode;
+    arg.in.max_sge = jfr->jfr_cfg.max_sge;
+    arg.in.min_rnr_timer = jfr->jfr_cfg.min_rnr_timer;
+    arg.in.jfc_id = jfr->jfr_cfg.jfc->jfc_id.id;
+    arg.in.jfc_handle = jfr->jfr_cfg.jfc->handle;
+    arg.in.token_value = jfr->jfr_cfg.token_value.token;
+    arg.in.jfr_opt = (uint64_t)(void *)&jfr->urma_jfr_opt;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_active_jfr(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_active_jfr, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    jfr->urma_jfr_opt.is_actived = true;
+    fill_active_jfr(jfr, ctx, &jfr->jfr_cfg, &arg);
+    return 0;
+}
+
+int urma_cmd_deactive_jfr(urma_jfr_t *jfr, urma_cmd_udrv_priv_t *udata)
+{
+    if (jfr == NULL || jfr->urma_ctx == NULL || jfr->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jfr->urma_ctx;
+
+    int ret;
+    urma_cmd_deactive_jfr_t arg = {0};
+
+    arg.in.handle = jfr->handle;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_deactive_jfr(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_deactive_jfr, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    jfr->urma_jfr_opt.is_actived = false;
+    return 0;
+}
+
 int urma_cmd_unadvise_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || tjetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unadvise_jetty_t arg = {
@@ -1156,7 +1823,7 @@ int urma_cmd_unadvise_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty)
 int urma_cmd_bind_jetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urma_cmd_udrv_priv_t *udata)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || tjetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return EINVAL;
     }
     urma_cmd_bind_jetty_t arg = {
@@ -1204,7 +1871,7 @@ int urma_cmd_bind_jetty_ex(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urm
 int urma_cmd_unbind_jetty(urma_jetty_t *jetty)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || jetty->remote_jetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unadvise_jetty_t arg = {
@@ -1220,7 +1887,7 @@ int urma_cmd_unbind_jetty(urma_jetty_t *jetty)
 }
 
 static int init_create_jetty_cmd(urma_cmd_create_jetty_t *arg, urma_jetty_t *jetty, urma_jetty_cfg_t *cfg,
-                                 urma_cmd_udrv_priv_t *udata)
+    urma_cmd_udrv_priv_t *udata)
 {
     arg->in.id = cfg->id;
     arg->in.jetty_flag = cfg->flag.value;
@@ -1236,7 +1903,7 @@ static int init_create_jetty_cmd(urma_cmd_create_jetty_t *arg, urma_jetty_t *jet
     arg->in.err_timeout = cfg->jfs_cfg.err_timeout;
 
     if (cfg->jfs_cfg.jfc == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     arg->in.send_jfc_id = cfg->jfs_cfg.jfc->jfc_id.id;
@@ -1263,7 +1930,7 @@ static int init_create_jetty_cmd(urma_cmd_create_jetty_t *arg, urma_jetty_t *jet
             arg->in.recv_jfc_handle = cfg->shared.jfr->jfr_cfg.jfc->handle;
         }
     } else {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -1281,21 +1948,21 @@ static int init_create_jetty_cmd(urma_cmd_create_jetty_t *arg, urma_jetty_t *jet
 int urma_cmd_create_jetty(urma_context_t *ctx, urma_jetty_t *jetty, urma_jetty_cfg_t *cfg, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || jetty == NULL || cfg == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
 
     urma_cmd_create_jetty_t arg = {0};
     if (init_create_jetty_cmd(&arg, jetty, cfg, udata) != 0) {
-        URMA_LOG_ERR("failed to init create jetty cmd");
+        URMA_LOG_ERR("failed to init create jetty cmd\n");
         errno = EINVAL;
         return -1;
     }
 
     /* allocate jfs cfg and jfr cfg just before ioctl to reduce rollback overhead */
     if (urma_init_jetty_cfg(&jetty->jetty_cfg, cfg) != 0) {
-        URMA_LOG_ERR("failed to fill jetty cfg");
+        URMA_LOG_ERR("failed to fill jetty cfg\n");
         errno = ENOMEM;
         return -1;
     }
@@ -1312,7 +1979,7 @@ int urma_cmd_create_jetty(urma_context_t *ctx, urma_jetty_t *jetty, urma_jetty_c
 int urma_cmd_modify_jetty(urma_jetty_t *jetty, urma_jetty_attr_t *attr, urma_cmd_udrv_priv_t *udata)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -1329,9 +1996,9 @@ int urma_cmd_modify_jetty(urma_jetty_t *jetty, urma_jetty_attr_t *attr, urma_cmd
 int urma_cmd_query_jetty(urma_jetty_t *jetty, urma_jetty_cfg_t *cfg, urma_jetty_attr_t *attr)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || cfg == NULL || attr == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
-    }
+        }
 
     urma_cmd_query_jetty_t arg = {0};
     arg.in.handle = jetty->handle;
@@ -1358,7 +2025,7 @@ int urma_cmd_query_jetty(urma_jetty_t *jetty, urma_jetty_cfg_t *cfg, urma_jetty_
 
     if (cfg->flag.bs.share_jfr == URMA_NO_SHARE_JFR) {
         if (cfg->jfr_cfg == NULL) {
-            URMA_LOG_ERR("Invalid parameter");
+            URMA_LOG_ERR("Invalid parameter\n");
             return -1;
         }
         cfg->jfr_cfg->depth = arg.out.jfr_depth;
@@ -1387,20 +2054,35 @@ int urma_cmd_query_jetty(urma_jetty_t *jetty, urma_jetty_cfg_t *cfg, urma_jetty_
 int urma_cmd_delete_jetty(urma_jetty_t *jetty)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_delete_jetty_t arg = {
         .in.handle = jetty->handle,
     };
     int ret = urma_ioctl_delete_jetty(jetty->urma_ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
 
     urma_uninit_jetty_cfg(&jetty->jetty_cfg);
+
+    bool non_blocking = jetty->jetty_cfg.flag.bs.non_blocking;
+    if (non_blocking) {
+        (void)pthread_mutex_lock(&jetty->event_mutex);
+        if (jetty->async_events_acked != arg.out.async_events_reported) {
+            (void)pthread_mutex_unlock(&jetty->event_mutex);
+            return URMA_EAGAIN;
+        }
+        (void)pthread_mutex_unlock(&jetty->event_mutex);
+        return 0;
+    }
 
     wait_async_event_ack(&jetty->event_mutex, &jetty->event_cond, &jetty->async_events_acked,
                          arg.out.async_events_reported);
 
-    return ret;
+    return 0;
 }
 
 int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_jetty_t **bad_jetty)
@@ -1412,14 +2094,14 @@ int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_je
     int ret;
 
     if (jetty_arr == NULL || jetty_num <= 0 || bad_jetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return URMA_EINVAL;
     }
 
     for (int i = 0; i < jetty_num; ++i) {
         jetty = jetty_arr[i];
         if (jetty == NULL || jetty->urma_ctx == NULL) {
-            URMA_LOG_ERR("Invalid parameter, index: %d.\n", i);
+            URMA_LOG_ERR("Invalid parameter, index=%d.\n", i);
             *bad_jetty = jetty_arr[0];
             return URMA_EINVAL;
         }
@@ -1427,13 +2109,13 @@ int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_je
 
     int dev_fd = jetty_arr[0]->urma_ctx->dev_fd;
     if (dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         *bad_jetty = jetty_arr[0];
         return URMA_EINVAL;
     }
     for (int i = 0; i < jetty_num; ++i) {
         if (jetty_arr[i]->urma_ctx->dev_fd != dev_fd) {
-            URMA_LOG_ERR("jetty not from the same dev, cannot delete in a batch, index: %d.\n", i);
+            URMA_LOG_ERR("jetty not from the same dev, cannot delete in a batch, index=%d.\n", i);
             *bad_jetty = jetty_arr[0];
             return URMA_EINVAL;
         }
@@ -1441,7 +2123,7 @@ int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_je
 
     handle_arr = malloc(jetty_num * sizeof(uint64_t));
     if (handle_arr == NULL) {
-        URMA_LOG_ERR("Failed to malloc buffer.");
+        URMA_LOG_ERR("Failed to malloc buffer.\n");
         *bad_jetty = jetty_arr[0];
         return URMA_ENOMEM;
     }
@@ -1450,18 +2132,14 @@ int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_je
 
     for (int i = 0; i < jetty_num; ++i) {
         handle_arr[i] = jetty_arr[i]->handle;
-        URMA_LOG_DEBUG("jetty_arr[%d]->handle is %lu.", i, handle_arr[i]);
+        URMA_LOG_DEBUG("jetty_arr[%d]->handle=%lu.\n", i, handle_arr[i]);
     }
 
     ret = urma_ioctl_delete_jetty_batch(dev_fd, &arg);
-    for (int i = 0; i < jetty_num; ++i) {
-        jetty = jetty_arr[i];
-        urma_uninit_jetty_cfg(&jetty->jetty_cfg);
-    }
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jetty_batch , ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_delete_jetty_batch , ret=%d, errno=%d.\n", ret, errno);
         if (arg.out.bad_jetty_index >= jetty_num) {
-            URMA_LOG_ERR("bad jetty index exceed array length, bad_jetty_index: %u.", arg.out.bad_jetty_index);
+            URMA_LOG_ERR("bad jetty index exceeds array length, bad_jetty_index=%u.\n", arg.out.bad_jetty_index);
             arg.out.bad_jetty_index = 0;
         }
         *bad_jetty = jetty_arr[arg.out.bad_jetty_index];
@@ -1469,7 +2147,12 @@ int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_je
         return ret;
     }
 
+    for (int i = 0; i < jetty_num; ++i) {
+        urma_uninit_jetty_cfg(&jetty_arr[i]->jetty_cfg);
+    }
+
     do {
+        async_events_acked = 0;
         for (int i = 0; i < jetty_num; ++i) {
             async_events_acked += jetty_arr[i]->async_events_acked;
         }
@@ -1480,10 +2163,10 @@ int urma_cmd_delete_jetty_batch(urma_jetty_t **jetty_arr, int jetty_num, urma_je
 }
 
 int urma_cmd_import_jetty(urma_context_t *ctx, urma_target_jetty_t *tjetty, urma_tjetty_cfg_t *cfg,
-                          urma_cmd_udrv_priv_t *udata)
+    urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || tjetty == NULL || cfg == NULL || cfg->token == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -1508,7 +2191,7 @@ int urma_cmd_import_jetty(urma_context_t *ctx, urma_target_jetty_t *tjetty, urma
 }
 
 static inline void fill_tjetty_ex(urma_target_jetty_t *tjetty, urma_context_t *ctx, urma_tjetty_cfg_t *cfg,
-                                  urma_cmd_import_jetty_ex_t *arg)
+    urma_cmd_import_jetty_ex_t *arg)
 {
     tjetty->urma_ctx = ctx;
     tjetty->id = cfg->jetty_id;
@@ -1522,10 +2205,10 @@ static inline void fill_tjetty_ex(urma_target_jetty_t *tjetty, urma_context_t *c
 }
 
 int urma_cmd_import_jetty_ex(urma_context_t *ctx, urma_target_jetty_t *tjetty, urma_tjetty_cfg_t *cfg,
-                             urma_import_jetty_ex_cfg_t *ex_cfg, urma_cmd_udrv_priv_t *udata)
+    urma_import_jetty_ex_cfg_t *ex_cfg, urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || tjetty == NULL || cfg == NULL || cfg->token == NULL || ex_cfg == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -1544,6 +2227,8 @@ int urma_cmd_import_jetty_ex(urma_context_t *ctx, urma_target_jetty_t *tjetty, u
     arg.in.tag = ex_cfg->tag;
     arg.in.tx_psn = ex_cfg->tp_attr.tx_psn;
     arg.in.rx_psn = ex_cfg->tp_attr.rx_psn;
+    arg.in.stag = 0UL;
+    arg.in.dtag = 0UL;
 
     urma_cmd_set_udrv_priv(&arg.udata, udata);
     int ret = urma_ioctl_import_jetty_ex(ctx->dev_fd, &arg);
@@ -1556,7 +2241,7 @@ int urma_cmd_import_jetty_ex(urma_context_t *ctx, urma_target_jetty_t *tjetty, u
 int urma_cmd_unimport_jetty(urma_target_jetty_t *tjetty)
 {
     if (tjetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unimport_jetty_t arg = {
@@ -1567,10 +2252,10 @@ int urma_cmd_unimport_jetty(urma_target_jetty_t *tjetty)
 }
 
 int urma_cmd_create_jetty_grp(urma_context_t *ctx, urma_jetty_grp_t *jetty_grp, urma_jetty_grp_cfg_t *cfg,
-                              urma_cmd_udrv_priv_t *udata)
+    urma_cmd_udrv_priv_t *udata)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || jetty_grp == NULL || cfg == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -1602,7 +2287,7 @@ int urma_cmd_create_jetty_grp(urma_context_t *ctx, urma_jetty_grp_t *jetty_grp, 
 int urma_cmd_delete_jetty_grp(urma_jetty_grp_t *jetty_grp)
 {
     if (jetty_grp == NULL || jetty_grp->urma_ctx == NULL || jetty_grp->urma_ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -1649,12 +2334,226 @@ int urma_cmd_get_eid_list(int dev_fd, uint32_t max_eid_cnt, urma_eid_info_t *eid
     return 0;
 }
 
+int urma_cmd_alloc_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg, urma_jetty_t *jetty,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (ctx == NULL || ctx->dev_fd < 0 || jetty == NULL || cfg == NULL) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_cmd_alloc_jetty_t arg = {0};
+
+    if (init_create_jetty_cmd(&arg, jetty, cfg, udata) != 0) {
+        URMA_LOG_ERR("failed to init alloc jetty cmd\n");
+        return -1;
+    }
+
+    /* allocate jfs cfg and jfr cfg just before ioctl to reduce rollback overhead */
+    if (urma_init_jetty_cfg(&jetty->jetty_cfg, cfg) != 0) {
+        URMA_LOG_ERR("failed to fill jetty cfg\n");
+        return -1;
+    }
+
+    int ret = urma_ioctl_alloc_jetty(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        urma_uninit_jetty_cfg(&jetty->jetty_cfg);
+        return ret;
+    }
+    fill_jetty(jetty, ctx, cfg, &arg);
+    return 0;
+}
+
+int urma_cmd_free_jetty(urma_jetty_t *jetty, urma_cmd_udrv_priv_t *udata)
+{
+    if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+    urma_cmd_free_jetty_t arg = {
+        .in.handle = jetty->handle,
+    };
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    int ret = urma_ioctl_free_jetty(jetty->urma_ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+
+    urma_uninit_jetty_cfg(&jetty->jetty_cfg);
+
+    wait_async_event_ack(&jetty->event_mutex, &jetty->event_cond,
+        &jetty->async_events_acked, arg.out.async_events_reported);
+
+    return ret;
+}
+
+int urma_cmd_set_jetty_opt(urma_jetty_t *jetty, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jetty == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jetty->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_set_jetty_opt_t arg = {0};
+    arg.in.handle = jetty->handle;
+    arg.in.opt = opt;
+    arg.in.len = len;
+
+    switch (opt) {
+        case URMA_JETTY_BIND_RX_JFC:
+            if (jetty->jetty_cfg.shared.jfc == NULL) {
+                URMA_LOG_ERR("jetty->jetty_cfg.shared.jfc does not exist\n");
+                return -1;
+            }
+            arg.in.buf = (uint64_t)(uintptr_t)&jetty->jetty_cfg.shared.jfc->handle;
+            break;
+        case URMA_JETTY_BIND_JFR:
+            if (jetty->jetty_cfg.shared.jfr == NULL) {
+                URMA_LOG_ERR("jetty->jetty_cfg.shared.jfr does not exist\n");
+                return -1;
+            }
+            arg.in.buf = (uint64_t)(uintptr_t)&jetty->jetty_cfg.shared.jfr->handle;
+            break;
+        case URMA_JETTY_BIND_JTG:
+            if (jetty->jetty_cfg.jetty_grp == NULL) {
+                URMA_LOG_ERR("jetty->jetty_cfg.jetty_grp does not exist\n");
+                return -1;
+            }
+            arg.in.buf = (uint64_t)(uintptr_t)&jetty->jetty_cfg.jetty_grp->handle;
+            break;
+        case URMA_JFS_BIND_JFC:
+            if (jetty->jetty_cfg.jfs_cfg.jfc == NULL) {
+                URMA_LOG_ERR("jetty->jetty_cfg.jfs_cfg.jfc does not exist\n");
+                return -1;
+            }
+            arg.in.buf = (uint64_t)(uintptr_t)&jetty->jetty_cfg.jfs_cfg.jfc->handle;
+            break;
+        default:
+            arg.in.buf = (uint64_t)(void *)buf;
+            break;
+    }
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_set_jetty_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_set_jetty_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    return ret;
+}
+
+int urma_cmd_get_jetty_opt(urma_jetty_t *jetty, uint64_t opt, void *buf, uint32_t len,
+    urma_cmd_udrv_priv_t *udata)
+{
+    if (jetty == NULL || buf == NULL || opt == 0 || len == 0) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    urma_context_t *ctx = jetty->urma_ctx;
+    if (ctx == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return -1;
+    }
+    int ret;
+    urma_cmd_get_jetty_opt_t arg = {0};
+    arg.in.handle = jetty->handle;
+    arg.in.opt = opt;
+    arg.in.buf = (uint64_t)(uintptr_t)buf;
+    arg.in.len = len;
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_get_jetty_opt(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_get_jetty_opt, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    if (arg.out.buf == 0 || arg.out.len == 0 || arg.out.len > len) {
+        URMA_LOG_ERR("Invalid out buffer from kernel.\n");
+        return -1;
+    }
+
+    (void)memcpy(buf, (void *)(uintptr_t)arg.out.buf, arg.out.len);
+    return ret;
+}
+
+int urma_cmd_active_jetty(urma_jetty_t *jetty, urma_cmd_udrv_priv_t *udata)
+{
+    if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jetty->urma_ctx;
+    urma_jetty_cfg_t *cfg = &jetty->jetty_cfg;
+
+    int ret;
+    urma_cmd_active_jetty_t arg = {0};
+
+    arg.in.handle = jetty->handle;
+    arg.in.send_jfc_handle = cfg->jfs_cfg.jfc->handle;
+    if (cfg->flag.bs.share_jfr == URMA_NO_SHARE_JFR && cfg->jfr_cfg != NULL && cfg->jfr_cfg->jfc != NULL) {
+        arg.in.recv_jfc_handle = cfg->jfr_cfg->jfc->handle;
+    } else if (cfg->flag.bs.share_jfr == URMA_SHARE_JFR && cfg->shared.jfr != NULL) {
+        if (cfg->shared.jfc != NULL) {
+            arg.in.recv_jfc_handle = cfg->shared.jfc->handle;
+        } else {
+            arg.in.recv_jfc_handle = cfg->shared.jfr->jfr_cfg.jfc->handle;
+        }
+    } else {
+        URMA_LOG_ERR("Invalid flag.\n");
+        return -1;
+    }
+    arg.in.flag = cfg->jfs_cfg.flag.value;
+    arg.in.jetty_opt = (uint64_t)(void *)&jetty->urma_jetty_opt;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+
+    ret = urma_ioctl_active_jetty(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_active_jetty, ret=%d.\n", ret);
+        return ret;
+    }
+    jetty->jetty_id.id = arg.out.jetty_id;
+
+    return 0;
+}
+
+int urma_cmd_deactive_jetty(urma_jetty_t *jetty, urma_cmd_udrv_priv_t *udata)
+{
+    if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0) {
+        URMA_LOG_ERR("Invalid parameter\n");
+        return -1;
+    }
+
+    urma_context_t *ctx = jetty->urma_ctx;
+
+    int ret;
+    urma_cmd_deactive_jetty_t arg = {0};
+
+    arg.in.handle = jetty->handle;
+
+    urma_cmd_set_udrv_priv(&arg.udata, udata);
+    ret = urma_ioctl_deactive_jetty(ctx->dev_fd, &arg);
+    if (ret != 0) {
+        URMA_LOG_ERR("ioctl failed in urma_cmd_deactive_jetty, ret=%d, errno=%d.\n", ret, errno);
+        return ret;
+    }
+    return 0;
+}
+
 int urma_cmd_wait_jfc(int jfce_fd, uint32_t jfc_cnt, int time_out, urma_jfc_t *jfc[])
 {
     urma_cmd_jfce_wait_t arg = {0};
 
     if (jfce_fd < 0 || jfc == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     arg.in.max_event_cnt = jfc_cnt;
@@ -1668,7 +2567,7 @@ int urma_cmd_wait_jfc(int jfce_fd, uint32_t jfc_cnt, int time_out, urma_jfc_t *j
             return 0;
         }
         if (time_out == 0 && errno != EAGAIN) {
-            URMA_LOG_ERR("Faile to wait jfc non-block, ret: %d, errno: %d.\n", ret, errno);
+            URMA_LOG_ERR("Failed to wait jfc non-block, ret=%d, errno=%d.\n", ret, errno);
         }
         return -1;
     }
@@ -1681,7 +2580,7 @@ int urma_cmd_wait_jfc(int jfce_fd, uint32_t jfc_cnt, int time_out, urma_jfc_t *j
 void urma_cmd_ack_jfc(urma_jfc_t *jfc[], uint32_t nevents[], uint32_t jfc_cnt)
 {
     if (jfc == NULL || nevents == NULL || jfc_cnt == 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return;
     }
 
@@ -1696,7 +2595,7 @@ void urma_cmd_ack_jfc(urma_jfc_t *jfc[], uint32_t nevents[], uint32_t jfc_cnt)
 urma_status_t urma_cmd_get_async_event(urma_context_t *ctx, urma_async_event_t *event)
 {
     if (ctx == NULL || ctx->async_fd < 0 || event == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return URMA_EINVAL;
     }
 
@@ -1750,7 +2649,7 @@ void urma_cmd_ack_async_event(urma_async_event_t *event)
     urma_jetty_grp_t *jetty_grp;
 
     if (event == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return;
     }
 
@@ -1785,7 +2684,7 @@ void urma_cmd_ack_async_event(urma_async_event_t *event)
 int urma_cmd_user_ctl(urma_context_t *ctx, urma_user_ctl_in_t *in, urma_user_ctl_out_t *out, urma_udrv_t *udrv_data)
 {
     if (ctx == NULL || in == NULL || out == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -EINVAL;
     }
     urma_cmd_user_ctl_t arg = {
@@ -1846,7 +2745,7 @@ int urma_cmd_get_net_addr_list(urma_context_t *ctx, uint32_t max_netaddr_cnt, ur
 }
 
 int urma_cmd_modify_tp(urma_context_t *ctx, uint32_t tpn, urma_tp_cfg_t *cfg, urma_tp_attr_t *attr,
-                       urma_tp_attr_mask_t mask)
+    urma_tp_attr_mask_t mask)
 {
     if (ctx == NULL || ctx->dev_fd < 0 || cfg == NULL || attr == NULL) {
         URMA_LOG_ERR("Invalid parameter.\n");
@@ -1887,7 +2786,7 @@ int urma_cmd_import_jetty_async(urma_notifier_t *notifier, urma_target_jetty_t *
 {
     if (notifier == NULL || notifier->urma_ctx == NULL || notifier->urma_ctx->dev_fd < 0 || tjetty == NULL ||
         cfg == NULL || cfg->token == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -1918,7 +2817,7 @@ int urma_cmd_import_jetty_async(urma_notifier_t *notifier, urma_target_jetty_t *
 int urma_cmd_unimport_jetty_async(urma_target_jetty_t *tjetty)
 {
     if (tjetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unimport_jetty_async_t arg = {
@@ -1932,9 +2831,9 @@ int urma_cmd_bind_jetty_async(urma_notifier_t *notifier, urma_jetty_t *jetty, ur
                               uint64_t user_ctx, int timeout, urma_cmd_udrv_priv_t *udata)
 {
     if (notifier == NULL || jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || tjetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return EINVAL;
-    }
+        }
     urma_cmd_bind_jetty_async_t arg = {
         .in.jetty_handle = jetty->handle,
         .in.tjetty_handle = tjetty->handle,
@@ -1958,7 +2857,7 @@ int urma_cmd_bind_jetty_async(urma_notifier_t *notifier, urma_jetty_t *jetty, ur
 int urma_cmd_unbind_jetty_async(urma_jetty_t *jetty)
 {
     if (jetty == NULL || jetty->urma_ctx == NULL || jetty->urma_ctx->dev_fd < 0 || jetty->remote_jetty == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
     urma_cmd_unbind_jetty_async_t arg = {
@@ -1976,7 +2875,7 @@ int urma_cmd_unbind_jetty_async(urma_jetty_t *jetty)
 int urma_cmd_create_notifier(urma_context_t *ctx)
 {
     if (ctx == NULL || ctx->dev_fd < 0) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         errno = EINVAL;
         return -1;
     }
@@ -1986,7 +2885,7 @@ int urma_cmd_create_notifier(urma_context_t *ctx)
 
     ret = urma_ioctl_create_notifier(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("ioctl failed in urma_cmd_create_notifier, ret:%d, errno:%d.\n", ret, errno);
+        URMA_LOG_ERR("ioctl failed in urma_cmd_create_notifier, ret=%d, errno=%d.\n", ret, errno);
         return -1;
     }
     return arg.out.fd;
@@ -1995,7 +2894,7 @@ int urma_cmd_create_notifier(urma_context_t *ctx)
 int urma_cmd_wait_notify(urma_notifier_t *notifier, uint32_t cnt, urma_notify_t *notify, int timeout)
 {
     if (notifier == NULL || notifier->fd < 0 || notify == NULL) {
-        URMA_LOG_ERR("Invalid parameter");
+        URMA_LOG_ERR("Invalid parameter\n");
         return -1;
     }
 
@@ -2030,7 +2929,7 @@ int urma_cmd_get_tp_list(urma_context_t *ctx, urma_get_tp_cfg_t *cfg, uint32_t *
         tp_list == NULL || *tp_cnt == 0) {
         URMA_LOG_ERR("Invalid parameter.\n");
         return URMA_EINVAL;
-    }
+        }
 
     urma_cmd_get_tp_list_t arg = {0};
     arg.in.flag = cfg->flag.value;
@@ -2073,7 +2972,7 @@ int urma_cmd_set_tp_attr(const urma_context_t *ctx, const uint64_t tp_handle, co
 
     int ret = urma_ioctl_set_tp_attr(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("Failed in ioctl set_tp_attr, ret: %d.\n", ret);
+        URMA_LOG_ERR("Failed in ioctl set_tp_attr, ret=%d.\n", ret);
     }
 
     return ret;
@@ -2097,7 +2996,7 @@ int urma_cmd_get_tp_attr(const urma_context_t *ctx, const uint64_t tp_handle, ui
 
     int ret = urma_ioctl_get_tp_attr(ctx->dev_fd, &arg);
     if (ret != 0) {
-        URMA_LOG_ERR("Failed in ioctl get_tp_attr, ret: %d.\n", ret);
+        URMA_LOG_ERR("Failed in ioctl get_tp_attr, ret=%d.\n", ret);
         return ret;
     }
     *tp_attr_cnt = arg.out.tp_attr_cnt;
@@ -2127,5 +3026,80 @@ int urma_cmd_exchange_tp_info(urma_context_t *ctx, urma_get_tp_cfg_t *cfg, uint6
 
     *peer_tp_handle = arg.out.peer_tp_handle;
     *rx_psn = arg.out.rx_psn;
+    return 0;
+}
+
+int urma_cmd_get_eid_by_ip(const urma_context_t *ctx, const urma_net_addr_t *net_addr, urma_eid_t *eid)
+{
+    if (ctx == NULL || net_addr == NULL || eid == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return URMA_EINVAL;
+    }
+
+    urma_cmd_get_eid_by_ip_t arg = {0};
+    arg.in.net_addr = *net_addr;
+
+    int ret = urma_ioctl_get_eid_by_ip(ctx->dev_fd, &arg);
+    if (ret != URMA_SUCCESS) {
+        return ret;
+    }
+
+    *eid = arg.out.eid;
+    return 0;
+}
+
+int urma_cmd_get_ip_by_eid(const urma_context_t *ctx, const urma_eid_t *eid, urma_net_addr_t *net_addr)
+{
+    if (ctx == NULL || eid == NULL || net_addr == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return URMA_EINVAL;
+    }
+
+    urma_cmd_get_ip_by_eid_t arg = {0};
+    arg.in.eid = *eid;
+
+    int ret = urma_ioctl_get_ip_by_eid(ctx->dev_fd, &arg);
+    if (ret != URMA_SUCCESS) {
+        return ret;
+    }
+
+    *net_addr = arg.out.net_addr;
+    return 0;
+}
+
+int urma_cmd_get_smac(const urma_context_t *ctx, uint8_t *mac)
+{
+    if (ctx == NULL || mac == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return URMA_EINVAL;
+    }
+
+    urma_cmd_get_smac_t arg = {0};
+
+    int ret = urma_ioctl_get_smac(ctx->dev_fd, &arg);
+    if (ret != URMA_SUCCESS) {
+        return ret;
+    }
+
+    (void)memcpy(mac, arg.out.mac, URMA_MAC_BYTES);
+    return 0;
+}
+
+int urma_cmd_get_dmac(const urma_context_t *ctx, const urma_net_addr_t *net_addr, uint8_t *mac)
+{
+    if (ctx == NULL || net_addr == NULL || mac == NULL) {
+        URMA_LOG_ERR("Invalid parameter.\n");
+        return URMA_EINVAL;
+    }
+
+    urma_cmd_get_dmac_t arg = {0};
+    arg.in.net_addr = *net_addr;
+
+    int ret = urma_ioctl_get_dmac(ctx->dev_fd, &arg);
+    if (ret != URMA_SUCCESS) {
+        return ret;
+    }
+
+    (void)memcpy(mac, arg.out.mac, URMA_MAC_BYTES);
     return 0;
 }

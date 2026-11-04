@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+
+[Unit]
+Description=Security Agent for kernel UMS module
+After=network.target
+Documentation=man:ums_agent(8)
+
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=notify
+User=ums
+Group=ums
+KeyringMode=shared
+
+ExecStartPre=+/bin/sh -c 'id -u ums > /sys/module/ums/parameters/ums_agent_uid'
+ExecStartPre=+/bin/sh -c 'id -g ums > /sys/module/ums/parameters/ums_agent_gid'
+ExecStart=/usr/sbin/ums_agent --config /etc/ums_agent/ums_agent.conf
+ExecStopPost=+/bin/sh -c 'echo 0 > /sys/module/ums/parameters/ums_agent_uid'
+ExecStopPost=+/bin/sh -c 'echo 0 > /sys/module/ums/parameters/ums_agent_gid'
+
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+NoNewPrivileges=yes
+
+Restart=on-failure
+RestartSec=3s
+
+KillSignal=SIGTERM
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=multi-user.target

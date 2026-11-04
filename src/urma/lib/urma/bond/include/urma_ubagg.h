@@ -10,58 +10,353 @@
 #ifndef URMA_UBAGG_H
 #define URMA_UBAGG_H
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "urma_types.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define URMA_UBAGG_DEV_MAX_NUM (20)
-#define URMA_UBAGG_WR_BUF_SIZE (3)
-#define URMA_UBAGG_HDR_BUF_SIZE (0x1000) // 4K
-#define URMA_UBAGG_MAX_CR_CNT_PER_DEV (16)
+#define BOND_CR_FLOW_CONTROL_NOTIFY 99
 
-typedef enum urma_bond_user_ctl_opcode {
-    URMA_USER_CTL_BOND_GET_ID_INFO = 0,
-    URMA_USER_CTL_BOND_ADD_RJFR_ID_INFO,
-    URMA_USER_CTL_BOND_ADD_RJETTY_ID_INFO,
-    URMA_USER_CTL_BOND_GET_SEG_INFO,
-    URMA_USER_CTL_BOND_ADD_REMOTE_SEG_INFO,
-    URMA_USER_CTL_BOND_SET_AGGR_MODE,
-} urma_bond_user_ctl_opcode_t;
+/* For version compatibility */
+#define BONDP_USER_CTL_BONDING BONDP_USER_CTL_BONDING
+#define BONDP_USER_CTL_SET_CTX_CFG BONDP_USER_CTL_SET_CTX_CFG
+#define BONDP_HAS_DATAPATH_QUERY BONDP_HAS_DATAPATH_QUERY
 
-typedef struct urma_bond_id_info_in {
+#define URMA_UBAGG_DEV_MAX_NUM        (20)
+#define URMA_UBAGG_MAX_CONNECTION     (URMA_UBAGG_DEV_MAX_NUM * URMA_UBAGG_DEV_MAX_NUM)
+#define URMA_UBAGG_WR_BUF_SIZE        (3)
+#define URMA_UBAGG_MAX_CR_CNT_PER_DEV (32)
+#define URMA_UBAGG_CHIP_LINK_NUM      (4)
+#define URMA_ACTIVE_PORT_PER_DIE      (2)
+#define URMA_ACTIVE_PORT_MIN          (4)
+#define URMA_ACTIVE_PORT_MAX          (5)
+
+#define URMA_FAILOVER_LINK_NUM        (IODIE_NUM * URMA_ACTIVE_PORT_PER_DIE)
+
+typedef enum bondp_user_ctl_opcode {
+    BONDP_USER_CTL_SET_BONDING_MODE_LEGACY = 4,
+    BONDP_USER_CTL_ENABLE_SEG_CACHE,
+    BONDP_USER_CTL_QUERY_PORT,
+    BONDP_USER_CTL_SET_BONDING_MODE,
+    BONDP_USER_CTL_GET_JFCE_FD_LIST,
+    BONDP_USER_CTL_OPCODE_GET_RJETTY,
+    BONDP_USER_CTL_OPCODE_GET_SEG_CTX,
+    BONDP_USER_CTL_DISABLE_MSN,
+    /* port_ids config for this opcode should be the same as the port_ids
+       config when creating jetty */
+    BONDP_USER_CTL_SET_BONDING_PORT,
+    BONDP_USER_CTL_SET_CTX_CFG,
+    /* Export import-free user_tseg context (with per-slave token id ext).
+     * Semantically grouped with GET_SEG_CTX; appended at the tail to keep the
+     * numbering of the existing opcodes stable. */
+    BONDP_USER_CTL_OPCODE_GET_USER_TSEG,
+    /* Query per-port health status (GOOD/BAD). in: addr=0, len=0;
+     * out: bondp_query_port_status_out_t. Only enabled ports are filled. */
+    BONDP_USER_CTL_QUERY_PORT_STATUS,
+    /* Fill the import-free user_tseg context (with per-slave token id ext)
+     * into the caller-provided buffer, no allocation inside the provider:
+     * in: addr = urma_target_seg_t*, len = sizeof(urma_target_seg_t);
+     * out: addr = buffer, len = buffer capacity in / blob size out.
+     * Returns -ENOSPC and out->len = required size when the capacity is too
+     * small (a capacity of 0 is allowed for size probing). Appended at the
+     * tail to keep the numbering of the existing opcodes stable. */
+    BONDP_USER_CTL_OPCODE_FILL_USER_TSEG,
+} bondp_user_ctl_opcode_t;
+
+typedef enum bondp_port_status_state {
+    BONDP_PORT_STATUS_GOOD = 0,
+    BONDP_PORT_STATUS_BAD  = 1,
+} bondp_port_status_state_t;
+
+typedef struct bondp_port_status {
+    uint32_t chip_id;   /* [1, CHIP_NUM] */
+    uint32_t die_id;    /* always 1 while IODIE_NUM_PER_CHIP == 1 */
+    uint32_t port_idx;  /* [0, PORT_NUM], or UINT8_MAX for primary EID */
+    uint32_t status;    /* bondp_port_status_state_t */
+    uint64_t reserved;  /* always 0 */
+} bondp_port_status_t;
+
+typedef struct bondp_query_port_status_out {
+    uint32_t port_count;
+    bondp_port_status_t port_status[URMA_UBAGG_DEV_MAX_NUM];
+} bondp_query_port_status_out_t;
+
+typedef enum bondp_ctx_cfg_mask {
+    BONDP_CTX_CFG_ENABLE_FAILOVER        = 1ULL << 0,
+    BONDP_CTX_CFG_ENABLE_FAILBACK        = 1ULL << 1,
+    BONDP_CTX_CFG_ENABLE_HEALTH_CHECK    = 1ULL << 2,
+    BONDP_CTX_CFG_HEALTH_CHECK_INTERVAL  = 1ULL << 3,
+    BONDP_CTX_CFG_HEALTH_CHECK_BATCH_NUM = 1ULL << 4,
+    BONDP_CTX_CFG_ENABLE_RNR_RETRY       = 1ULL << 5,
+    BONDP_CTX_CFG_RNR_SLEEP              = 1ULL << 6,
+    BONDP_CTX_CFG_RNR_MAX                = 1ULL << 7,
+    BONDP_CTX_CFG_RNR_JITTER_RATIO       = 1ULL << 8,
+} bondp_ctx_cfg_mask_t;
+
+#define BONDP_CTX_CFG_MASK_ALL ((1ULL << 9) - 1)
+
+typedef struct bondp_set_ctx_cfg_in {
+    uint64_t mask;
+    bool enable_failover;
+    bool enable_failback;
+    bool enable_health_check;
+    uint64_t health_check_interval_ms;
+    uint32_t health_check_batch_node_num;
+    bool enable_rnr_retry;
+    uint64_t rnr_retry_sleep_ms;
+    uint64_t rnr_retry_max;
+    uint32_t rnr_retry_jitter_ratio;
+} bondp_set_ctx_cfg_in_t;
+
+// URMA_USER_CTL_BOND_SET_BONDING_MODE,
+typedef enum bondp_bonding_mode {
+    BONDP_BONDING_MODE_STANDALONE,
+    BONDP_BONDING_MODE_ACTIVE_BACKUP,
+    BONDP_BONDING_MODE_BALANCE,
+    BONDP_BONDING_MODE_MAX,
+} bondp_bonding_mode_t;
+
+typedef enum bondp_bonding_level {
+    BONDP_BONDING_LEVEL_IODIE,
+    BONDP_BONDING_LEVEL_PORT,
+    BONDP_BONDING_LEVEL_MAX,
+} bondp_bonding_level_t;
+
+/*
+ * Base segment info without the user-space-only ext field.
+ * Layout-compatible with kernel struct ubagg_seg_info.
+ */
+typedef struct urma_seg_base {
+    urma_ubva_t ubva;
+    uint64_t len;
+    urma_seg_attr_t attr;
+    uint32_t token_id;
+} urma_seg_base_t;
+
+typedef struct bondp_set_bonding_mode_in {
+    bondp_bonding_mode_t bonding_mode;
+    bondp_bonding_level_t bonding_level;
+} bondp_set_bonding_mode_in_t;
+
+// URMA_USER_CTL_BOND_QUERY_PORT
+typedef struct bondp_query_port_in {
     union {
         urma_jfr_t *jfr;
         urma_jetty_t *jetty;
     };
-    urma_target_type_t type;
-} urma_bond_id_info_in_t;
+} bondp_query_port_in_t;
 
-typedef struct urma_bond_id_info_out {
-    urma_jetty_id_t base_id;
+typedef struct bondp_query_port_out {
+    uint32_t enabled_indices[URMA_UBAGG_DEV_MAX_NUM];
+    uint32_t enabled_count;
+    uint32_t active_indices[URMA_UBAGG_DEV_MAX_NUM];
+    uint32_t active_count;
+} bondp_query_port_out_t;
+
+typedef struct bondp_get_jfce_fd_list_in {
+    urma_jfce_t *jfce;
+} bondp_get_jfce_fd_list_in_t;
+
+typedef struct bondp_get_jfce_fd_list_out {
+    int fd_list[URMA_UBAGG_DEV_MAX_NUM];
+    uint32_t count;
+} bondp_get_jfce_fd_list_out_t;
+
+typedef union bondp_port_id {
+    struct {
+        uint16_t chip_id  : 4;
+        uint16_t die_id   : 4;
+        uint16_t port_idx : 8; /* portEID: 0~8; primaryEID: UINT8_MAX. */
+    } bs;
+    uint16_t value;
+} bondp_port_id_t;
+
+// BONDP_USER_CTL_SET_BONDING_PORT
+// The port_ids config for this opcode should be the same as the port_ids
+// config when creating jetty. liburma copies the port_ids array internally,
+// so the caller's buffer may be released after the call returns.
+typedef struct bondp_set_bonding_port_in {
+    const bondp_port_id_t *port_ids;
+    uint32_t port_count;
+} bondp_set_bonding_port_in_t;
+
+typedef struct bondp_jfs_cfg {
+    urma_jfs_cfg_t base;
+    const bondp_port_id_t *port_ids;
+    uint32_t port_count;
+} bondp_jfs_cfg_t;
+
+typedef struct bondp_jfc_cfg {
+    urma_jfc_cfg_t base;
+    const bondp_port_id_t *port_ids;
+    uint32_t port_count;
+} bondp_jfc_cfg_t;
+
+typedef struct bondp_jfr_cfg {
+    urma_jfr_cfg_t base;
+    const bondp_port_id_t *port_ids;
+    uint32_t port_count;
+} bondp_jfr_cfg_t;
+
+typedef struct bondp_jetty_cfg {
+    urma_jetty_cfg_t base;
+    const bondp_port_id_t *port_ids;
+    uint32_t port_count;
+} bondp_jetty_cfg_t;
+
+typedef struct urma_bond_jetty_ext {
+    uint8_t version;
+    uint64_t mask;
     urma_jetty_id_t slave_id[URMA_UBAGG_DEV_MAX_NUM];
-    int dev_num;
-    bool is_in_matrix_server;
     bool is_multipath;
-} urma_bond_id_info_out_t;
+    uint8_t enable_indices[URMA_UBAGG_DEV_MAX_NUM];
+    uint32_t enable_count;
+    bool is_health_check_enable;
+    struct {
+        urma_seg_base_t slaves[URMA_UBAGG_DEV_MAX_NUM];
+    } health_check_seg;
+} urma_bond_jetty_ext_t;
 
-typedef struct urma_bond_id_info_out urma_bond_add_rjfr_id_info_in_t;
-typedef struct urma_bond_id_info_out urma_bond_add_rjetty_id_info_in_t;
+typedef enum bondp_rjetty_ext_version {
+    BONDP_RJETTY_EXT_VERSION_V0 = 0,
+} bondp_rjetty_ext_version_t;
 
-typedef struct urma_bond_seg_info_in {
-    urma_target_seg_t *tseg;
-} urma_bond_seg_info_in_t;
+typedef enum bondp_rjetty_ext_mask {
+    BONDP_RJETTY_EXT_MASK_MULTI_PATH = 1ULL << 0,
+    BONDP_RJETTY_EXT_MASK_HEALTH_CHECK = 1ULL << 1,
+    BONDP_RJETTY_EXT_MASK_LOCAL_CTX = 1ULL << 2,
+    BONDP_RJETTY_EXT_MASK_TARGET_CTX = 1ULL << 3,
+} bondp_rjetty_ext_mask_t;
 
-typedef struct urma_bond_seg_info_out {
-    urma_seg_t base;
-    urma_seg_t slaves[URMA_UBAGG_DEV_MAX_NUM];
-    int dev_num;
-} urma_bond_seg_info_out_t;
+/*
+ * Compact packed target ctx:
+ * - slave jetty: eid + id (uasid omitted, reuse outer rjetty->jetty_id.uasid)
+ * - health probe: eid + va + token_id (uasid/len/attr omitted;
+ *   len/attr shared in urma_bond_jetty_ext_v0 when HEALTH_CHECK is set)
+ */
+#pragma pack(push, 1)
+typedef struct bondp_rjetty_target_ctx {
+    uint8_t target_idx;
+    urma_eid_t eid;
+    uint32_t jetty_id;
+    urma_eid_t health_eid;
+    uint64_t health_va;
+    uint32_t health_token_id;
+} __attribute__((packed)) bondp_rjetty_target_ctx_t;
 
-typedef urma_bond_seg_info_out_t urma_bond_add_remote_seg_info_in_t;
+/*
+ * Compact variable-length rjetty ext layout (version 0):
+ *   data:
+ *     uint8_t local_indices[local_ctx_cnt]
+ *     bondp_rjetty_target_ctx_t target_ctx[target_ctx_cnt]
+ */
+typedef struct urma_bond_jetty_ext_v0 {
+    uint8_t version;
+    uint64_t mask;
+    bool is_multipath;
+    bool is_health_check_enable;
+    /* Number of uint8_t local indices stored in the first variable-length region. */
+    uint32_t local_ctx_cnt;
+    /* Number of bondp_rjetty_target_ctx_t entries stored after local indices. */
+    uint32_t target_ctx_cnt;
+    /* Shared health seg fields (valid when HEALTH_CHECK mask is set). */
+    uint64_t health_len;
+    urma_seg_attr_t health_attr;
+    char data[0];
+} __attribute__((packed)) urma_bond_jetty_ext_v0_t;
+#pragma pack(pop)
+
+/*
+ * Compact variable-length seg ext layout (version 0):
+ *   data: bondp_seg_peer_ctx_t entries[peer_cnt]
+ * Peer entries omit va/len/attr/uasid (reused from outer vseg); only eid+token_id differ.
+ * Packed to drop alignment padding in the on-wire / user_info buffer.
+ */
+#pragma pack(push, 1)
+typedef struct bondp_seg_peer_ctx {
+    uint8_t peer_idx; /* absolute device index; import writes back to peer_p_seg[peer_idx] */
+    urma_eid_t eid;
+    uint32_t token_id;
+} __attribute__((packed)) bondp_seg_peer_ctx_t;
+
+typedef struct urma_bond_seg_ext_v0 {
+    uint8_t version;
+    uint64_t mask;
+    uint32_t peer_cnt;
+    char data[0];
+} __attribute__((packed)) urma_bond_seg_ext_v0_t;
+#pragma pack(pop)
+
+/*
+ * Compact variable-length user_tseg ext layout (version 0), appended after
+ * urma_user_tseg_t + urma_user_info_ext_hdr_t on bonding devices:
+ *   data: bondp_user_tseg_peer_ctx_t entries[peer_cnt]
+ * Used by import-free (user_tseg) remote SGEs. The outer urma_user_tseg_t
+ * only carries the shared attr/token_value plus a virtual token id (never
+ * used for bare SQE); the per-slave token ids live only in the peer entries.
+ * peer_idx shares the same absolute device index space as the schedule
+ * target_idx / bondp_seg_peer_ctx_t.peer_idx.
+ */
+#pragma pack(push, 1)
+typedef struct bondp_user_tseg_peer_ctx {
+    uint8_t peer_idx; /* absolute device index; must match schedule target_idx */
+    uint32_t token_id; /* token_id of this slave device's p_tseg */
+} __attribute__((packed)) bondp_user_tseg_peer_ctx_t;
+
+typedef struct urma_bond_user_tseg_ext_v0 {
+    uint8_t version;
+    uint64_t mask;
+    uint32_t peer_cnt;
+    char data[0];
+} __attribute__((packed)) urma_bond_user_tseg_ext_v0_t;
+#pragma pack(pop)
+
+typedef struct bondp_rjetty {
+    urma_rjetty_t base;
+    urma_bond_jetty_ext_t ext;
+    union {
+        urma_jfs_t *jfs;
+        urma_jetty_t *jetty;
+    };
+} bondp_rjetty_t;
+
+typedef struct bondp_rjfr {
+    urma_rjfr_t base;
+    union {
+        urma_jfs_t *jfs;
+        urma_jetty_t *jetty;
+    };
+} bondp_rjfr_t;
+
+typedef struct bondp_jfs_wr {
+    urma_jfs_wr_t base;
+    uint32_t src_chip_id;
+    uint32_t dst_chip_id;
+} bondp_jfs_wr_t;
+
+typedef struct bondp_path {
+    uint32_t local_idx;
+    uint32_t target_idx;
+    uint32_t least_load;
+} bondp_path_t;
+
+/* Return true when a bonding jetty has at least one valid physical jetty. */
+bool bondp_jetty_is_available(const urma_jetty_t *jetty);
+
+/* Get the local bond port ID for a TX or RX completion returned by polling a
+ * bonding JFC or flushing a bonding jetty. Only pass CRs from bonding devices.
+ * Return an ID with value UINT16_MAX if cr is NULL or its port ID is invalid. */
+bondp_port_id_t bondp_get_cr_local_port_id(const urma_cr_t *cr);
+
+urma_status_t urma_write_affinity(urma_jfs_t *jfs, urma_target_jetty_t *target_jfr,
+                                  urma_target_seg_t *dst_tseg, urma_target_seg_t *src_tseg,
+                                  uint64_t dst, uint64_t src, uint32_t len,
+                                  urma_jfs_wr_flag_t flag, uint64_t user_ctx,
+                                  uint32_t src_chip_id, uint32_t dst_chip_id);
+
 #ifdef __cplusplus
 }
 #endif

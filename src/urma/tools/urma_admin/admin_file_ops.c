@@ -8,19 +8,28 @@
  * History: 2023-01-04   create file
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <limits.h>
-#include <fcntl.h>
 #include <errno.h>
-#include <unistd.h>
+#include <fcntl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#include "ub_util.h"
 
 #include "admin_parameters.h"
+
 #include "admin_file_ops.h"
 
 #define ADMIN_RESERVED_JETTY_PARAM_NUM 2
+
+static inline bool is_empty_eid(const urma_eid_t *eid)
+{
+    urma_eid_t empty = {0};
+    return memcmp(eid, &empty, sizeof(urma_eid_t)) == 0;
+}
 
 static int open_file(const char *dir, const char *file, int flag)
 {
@@ -39,7 +48,7 @@ static int open_file(const char *dir, const char *file, int flag)
 
     real_path = realpath(path, NULL);
     if (real_path == NULL) {
-        (void)printf("file_path:%s is not standardize, errno: %d.\n", path, errno);
+        (void)printf("file_path=%s is not standardized, errno=%d.\n", path, errno);
         free(path);
         return -1;
     }
@@ -181,7 +190,7 @@ uint32_t admin_read_dev_file_value_u32(const char *dev_name, const char *file)
     }
 
     free(sysfs_path);
-    ret = admin_str_to_u32(tmp_value, &value);
+    ret = ub_str_to_u32(tmp_value, &value);
     if (ret != 0) {
         (void)printf("file %s: str %s to u64 failed, ret:%d.\n", file, tmp_value, ret);
         return 0;
@@ -228,9 +237,9 @@ int admin_parse_file_value_u8(const char *file_path, char *file, uint8_t *u8)
     char tmp_value[VALUE_LEN_MAX];
     if (read_file(file_path, file, tmp_value, VALUE_LEN_MAX) <= 0) {
         (void)printf("read file %s/%s failed.\n", file_path, file);
-         return -1;
+        return -1;
     }
-    return admin_str_to_u8(tmp_value, u8);
+    return ub_str_to_u8(tmp_value, u8);
 }
 
 int admin_parse_file_value_u16(const char *file_path, char *file, uint16_t *u16)
@@ -238,9 +247,9 @@ int admin_parse_file_value_u16(const char *file_path, char *file, uint16_t *u16)
     char tmp_value[VALUE_LEN_MAX];
     if (read_file(file_path, file, tmp_value, VALUE_LEN_MAX) <= 0) {
         (void)printf("read file %s/%s failed.\n", file_path, file);
-         return -1;
+        return -1;
     }
-    return admin_str_to_u16(tmp_value, u16);
+    return ub_str_to_u16(tmp_value, u16);
 }
 
 int admin_parse_file_value_u32(const char *file_path, char *file, uint32_t *u32)
@@ -248,9 +257,9 @@ int admin_parse_file_value_u32(const char *file_path, char *file, uint32_t *u32)
     char tmp_value[VALUE_LEN_MAX];
     if (read_file(file_path, file, tmp_value, VALUE_LEN_MAX) <= 0) {
         (void)printf("read file %s/%s failed.\n", file_path, file);
-         return -1;
+        return -1;
     }
-    return admin_str_to_u32(tmp_value, u32);
+    return ub_str_to_u32(tmp_value, u32);
 }
 
 int admin_parse_file_value_u64(const char *file_path, char *file, uint64_t *u64)
@@ -258,9 +267,9 @@ int admin_parse_file_value_u64(const char *file_path, char *file, uint64_t *u64)
     char tmp_value[VALUE_LEN_MAX];
     if (read_file(file_path, file, tmp_value, VALUE_LEN_MAX) <= 0) {
         (void)printf("read file %s/%s failed.\n", file_path, file);
-         return -1;
+        return -1;
     }
-    return admin_str_to_u64(tmp_value, u64);
+    return ub_str_to_u64(tmp_value, u64);
 }
 
 void admin_parse_reserved_jetty(const char *file_path, char *file, uint32_t *min, uint32_t *max)
@@ -270,7 +279,7 @@ void admin_parse_reserved_jetty(const char *file_path, char *file, uint32_t *min
         *min = UINT32_MAX;
         *max = UINT32_MAX;
         (void)printf("read file %s/%s failed.\n", file_path, file);
-         return;
+        return;
     }
 
     if (sscanf(tmp_value, "%u-%u", min, max) != ADMIN_RESERVED_JETTY_PARAM_NUM) {
@@ -293,8 +302,39 @@ void admin_read_eid_list(const char *sysfs_path, urma_eid_info_t *eid_list, uint
         }
         eid_list[i].eid_index = i;
         if (admin_parse_file_str(sysfs_path, tmp_eid, tmp_value, VALUE_LEN_MAX) <= 0 ||
-            admin_str_to_eid(tmp_value, &eid_list[i].eid) != 0) {
-            eid_list[i].eid.in4.prefix = 0;  // invalid
+            urma_str_to_eid(tmp_value, &eid_list[i].eid) != 0) {
+            memset(&eid_list[i].eid, 0, sizeof(urma_eid_t));
         }
     }
+}
+
+bool admin_is_eid_idx_valid(const char *dev_name, uint32_t eid_index)
+{
+    char tmp_eid[VALUE_LEN_MAX] = {0};
+    char tmp_value[VALUE_LEN_MAX] = {0};
+    char *sysfs_path = NULL;
+    urma_eid_info_t eid_info = {0};
+    
+    if (snprintf(tmp_eid, VALUE_LEN_MAX, "eids/eid%u", eid_index) <= 0) {
+        (void)printf("snprintf failed, eid idx: %u.\n", eid_index);
+        return false;
+    }
+
+    sysfs_path = calloc(1, DEV_PATH_MAX);
+    if (sysfs_path == NULL) {
+        return false;
+    }
+    if (admin_merge_sysfs_path(sysfs_path, SYS_CLASS_PATH, dev_name) != 0 ||
+        admin_parse_file_str(sysfs_path, tmp_eid, tmp_value, VALUE_LEN_MAX) <= 0 ||
+        urma_str_to_eid(tmp_value, &eid_info.eid) != 0 ||
+        is_empty_eid(&eid_info.eid)) {
+        goto free_sysfs_path;
+    }
+
+    free(sysfs_path);
+    return true;
+
+free_sysfs_path:
+    free(sysfs_path);
+    return false;
 }

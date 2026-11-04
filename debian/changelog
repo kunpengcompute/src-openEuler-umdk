@@ -1,4 +1,4 @@
-umdk (25.12.0-1) unstable; urgency=medium
+umdk (25.12.0-B138) unstable; urgency=medium
 
   * 930 snapshot (openEuler-24.03-LTS-SP3-release) packaged as deb.
   * Version aligned with 930 spec.

@@ -53,7 +53,7 @@ int umq_destroy(uint64_t umqh);
  * @param[in] umqh: umq handle
  * @param[out] bind_info: buf of bind info
  * @param[in] bind_info_size: buf size of bind info
- * Return buf size of bind info get
+ * Return buf size of bind info on success, 0 on failure (get error code from errno)
  */
 uint32_t umq_bind_info_get(uint64_t umqh, uint8_t *bind_info, uint32_t bind_info_size);
 
@@ -78,6 +78,15 @@ int umq_bind(uint64_t umqh, uint8_t *bind_info, uint32_t bind_info_size);
  * In condition of pro api, user responsible flush rx and tx after unbind
  */
 int umq_unbind(uint64_t umqh);
+
+/**
+ * User should ensure thread safety if io_lock_free is true
+ * Set umq state
+ * @param[in] umqh: umq handle
+ * @param[in] state: umq state want to set (Only Support Set ERR STATE)
+ * Return 0 on success, error code on failure
+ */
+int umq_state_set(uint64_t umqh, umq_state_t state);
 
 /**
  * User should ensure thread safety if io_lock_free is true
@@ -146,8 +155,8 @@ umq_buf_t *umq_data_to_head(void *data);
  * User should ensure thread safety if io_lock_free is true
  * Enqueue umq buf
  * @param[in] umqh: umq handle
- * @param[in] qbuf: qbuf need to enqueue. no more than UMQ_BATCH_SIZE work requeses once
- * @param[out] bad_qbuf: qbuf list faild to enqueue. user should free these buf
+ * @param[in] qbuf: qbuf need to enqueue. no more than UMQ_BATCH_SIZE work requests once
+ * @param[out] bad_qbuf: qbuf list failed to enqueue. user should free these buf
  * Return 0 on success, error code on failure
  */
 int umq_enqueue(uint64_t umqh, umq_buf_t *qbuf, umq_buf_t **bad_qbuf);
@@ -171,16 +180,16 @@ void umq_notify(uint64_t umqh);
  * User should ensure thread safety if io_lock_free is true
  * Arm interrupt of umq
  * @param[in] umqh: umq handle
- * @param[in] solicated: solicated flag
+ * @param[in] solicited: solicited flag
  * @param[in] option: option param. user should specify UMQ_IO_TX or UMQ_IO_RX, or UMQ_FAIL will be returned
  * Return 0 on success, error code on failure
  */
-int umq_rearm_interrupt(uint64_t umqh, bool solicated, umq_interrupt_option_t *option);
+int umq_rearm_interrupt(uint64_t umqh, bool solicited, umq_interrupt_option_t *option);
 
 /**
  * User should ensure thread safety if io_lock_free is true
  * Sleep and wait for interrupt
- * @param[in] wait_umqh: umq handle which is waitting for interrupt
+ * @param[in] wait_umqh: umq handle which is waiting for interrupt
  * @param[in] time_out: max time to wait (milliseconds),
  *            timeout = 0: return immediately event if no events are ready,
  *            timeout = -1: an infinite timeout
@@ -199,14 +208,6 @@ int32_t umq_wait_interrupt(uint64_t wait_umqh, int time_out, umq_interrupt_optio
 void umq_ack_interrupt(uint64_t umqh, uint32_t nevents, umq_interrupt_option_t *option);
 
 /**
- * User should ensure thread safety if io_lock_free is true
- * Execute dfx command
- * @param[in] cmd: dfx command, user should set perf or stats
- * @param[out] result_ctl: command result
- */
-void umq_dfx_cmd_process(umq_dfx_cmd_t *cmd, umq_dfx_result_t *result_ctl);
-
-/**
  * Split the head linked list at the node
  * The new list starts from node and continues to the end of the original list
  * @param[in] head: head pointer of the original buf list.
@@ -223,7 +224,7 @@ int umq_buf_split(umq_buf_t *head, umq_buf_t *node);
 int umq_async_event_fd_get(umq_trans_info_t *trans_info);
 
 /**
- *  Get asyn event.
+ *  Get async event.
  * @param[in] trans_info: transport info, consistent with the trans_info carried in the umq_init interface parameters
  * @param[out] event: the address to put event
  * Return: 0 on success, other value on error
@@ -231,16 +232,18 @@ int umq_async_event_fd_get(umq_trans_info_t *trans_info);
 int umq_get_async_event(umq_trans_info_t *trans_info, umq_async_event_t *event);
 
 /**
- *  Ack asyn event.
+ *  Ack async event.
  * @param[in] event: the address to ack event;
  * Return: void
  */
 void umq_ack_async_event(umq_async_event_t *event);
+
 /**
  * Set configuration for UMQ log.
  * @param[in] config: Configuration, if 'func' is set to NULL, the default log output function is used
  * Return UMQ_SUCCESS on success, error code on failure, the specific error code is as follows
  * -UMQ_ERR_EINVAL: Invalid parameter
+ * Notice: Cannot configure umq_log_func_t and umq_log_ext_func_t at the same time
  */
 int umq_log_config_set(umq_log_config_t *config);
 
@@ -253,6 +256,22 @@ int umq_log_config_set(umq_log_config_t *config);
 int umq_log_config_get(umq_log_config_t *config);
 
 /**
+ * Thread safety function
+ * Set the process exiting flag. Dispatched to every enabled transport backend
+ * via the umq_tp_exiting_set callback; UB backend post/poll entries then skip
+ * resources that may already be released during teardown, avoiding exit-time UAF.
+ * @param[in] exiting: true means the process is exiting
+ */
+void umq_exiting_set(bool exiting);
+
+/**
+ * Thread safety function
+ * Query the process exiting flag from enabled transport backends.
+ * Return true if any backend reports the process is exiting
+ */
+bool umq_exiting_get(void);
+
+/**
  * Add dev for umq, only support ub
  * @param[in] trans_info: transport info;
  * Return: 0 on success, other value on error
@@ -261,19 +280,19 @@ int umq_dev_add(umq_trans_info_t *trans_info);
 
 /**
  * Get primary and port eid from topo info.
- * @param[in] route: parameter that contains src_v_eid and dst_v_eid, refers to umq_route_t
- * @param[in] umq_trans_mode: umq trans mdoe
+ * @param[in] route_key: parameter that contains tp_type, src_v_eid and dst_v_eid
+ * @param[in] umq_trans_mode: umq trans mode
  * @param[out] route_list: a list buffer, containing all routes returned
  * Return: 0 on success, other value on error
  */
-int umq_get_route_list(const umq_route_t *route, umq_trans_mode_t umq_trans_mode, umq_route_list_t *route_list);
+int umq_get_route_list(const umq_route_key_t *route_key, umq_trans_mode_t umq_trans_mode, umq_route_list_t *route_list);
 
 /**
  * Thread safety function
  * User defined control of the context.
  * @param[in] umqh: umq handle
  * @param[in] in: user ctl cmd
- * @param[out] out: result of excution
+ * @param[out] out: result of execution
  * Return 0 on success, error code on failure
  */
 int umq_user_ctl(uint64_t umqh, umq_user_ctl_in_t *in, umq_user_ctl_out_t *out);
@@ -294,6 +313,165 @@ int umq_mempool_state_get(uint64_t umqh, uint32_t mempool_id, umq_mempool_state_
  * Return: 0 on success, other value on error
  */
 int umq_mempool_state_refresh(uint64_t umqh, uint32_t mempool_id);
+
+/**
+ * Get mempool info: serialize the local mempool import descriptor into an opaque
+ * blob so it can be sent to the peer and imported there (used by the UBSocket
+ * bigdata READ path).
+ * @param[in]  umqh: umq handle
+ * @param[in]  mempool_id: mempool id, the ID of the memory pool from which the buffer was obtained
+ * @param[out] mempool_info: caller-allocated buffer (>= UMQ_MEMPOOL_INFO_MAX_SIZE)
+ * @param[in]  mempool_info_size: buffer capacity
+ * @param[out] mempool_info_len: actual byte length written (set on success)
+ * Return: 0 on success, other value on error
+ */
+int umq_mempool_info_get(uint64_t umqh, uint32_t mempool_id, uint8_t *mempool_info, uint32_t mempool_info_size,
+                         uint32_t *mempool_info_len);
+
+/**
+ * Set mempool info: import a peer mempool from the opaque blob received in a
+ * control message (used by the UBSocket bigdata READ path). umq parses
+ * mempool_id/version/seg internally; the caller does not inspect fields. The
+ * carried version is recorded on the imported entry so the next state_check can
+ * decide reuse vs unimport+reimport (design §3.5).
+ * @param[in] umqh: umq handle
+ * @param[in] mempool_info: opaque blob received over the wire (umq parses it internally)
+ * @param[in] mempool_info_len: byte length of the blob
+ * Return: 0 on success, other value on error
+ */
+int umq_mempool_info_set(uint64_t umqh, const uint8_t *mempool_info, uint32_t mempool_info_len);
+
+/*
+ * Return values of umq_remote_mempool_state_check. Exposed here (next to the
+ * function) so callers match against umq's own constants rather than
+ * re-defining a parallel set. A version change — whether the peer's mempool
+ * grew (re-registered) or rolled back (rewind) — is treated uniformly as
+ * NEED_REIMPORT: umq unimports the stale entry and re-imports. Rollback is
+ * NOT a protocol error and never returns a distinct value.
+ */
+#define UMQ_REMOTE_MEMPOOL_STATE_ERR          (-1)
+#define UMQ_REMOTE_MEMPOOL_STATE_REUSE        0
+#define UMQ_REMOTE_MEMPOOL_STATE_NEED_IMPORT  1
+#define UMQ_REMOTE_MEMPOOL_STATE_NEED_REIMPORT 2
+
+/**
+ * Check remote mempool import state vs the version carried in the opaque blob.
+ * umq parses mempool_id/version from the blob internally; the caller does not
+ * inspect fields.
+ * @param[in] umqh: umq handle
+ * @param[in] mempool_info: opaque blob received over the wire (umq parses it internally)
+ * @param[in] mempool_info_len: byte length of the blob
+ * Return: UMQ_REMOTE_MEMPOOL_STATE_REUSE (0) cached version matches, no import;
+ *         UMQ_REMOTE_MEMPOOL_STATE_NEED_IMPORT (1) not imported, first import;
+ *         UMQ_REMOTE_MEMPOOL_STATE_NEED_REIMPORT (2) imported but version changed
+ *         (grew or rolled back) — unimport & re-import;
+ *         UMQ_REMOTE_MEMPOOL_STATE_ERR (-1) error
+ */
+int umq_remote_mempool_state_check(uint64_t umqh, const uint8_t *mempool_info, uint32_t mempool_info_len);
+
+/**
+ * Extract the remote mempool addressing fields from the opaque blob, so the
+ * caller can build a READ/WRITE work-request's remote_sge. umq parses the blob
+ * internally; the caller never inspects the struct layout. addr/length of the
+ * remote sge are the caller's own concern (they come from the offer's UbsSeg,
+ * not from this blob), so only the three blob-borne fields are returned here.
+ * @param[in]  umqh: umq handle (selects the transport; the parse itself is stateless)
+ * @param[in]  mempool_info: opaque blob received over the wire
+ * @param[in]  mempool_info_len: byte length of the blob
+ * @param[out] out_mempool_id: set to the blob's mempool_id (NULL allowed to skip)
+ * @param[out] out_token_id: set to the blob's token_id (NULL allowed to skip)
+ * @param[out] out_token_value: set to the blob's token_value (NULL allowed to skip)
+ * Return: 0 on success, other value on error
+ */
+int umq_mempool_info_get_remote_fields(uint64_t umqh, const uint8_t *mempool_info,
+                                       uint32_t mempool_info_len, uint32_t *out_mempool_id,
+                                       uint32_t *out_token_id, uint32_t *out_token_value);
+
+/**
+ * Get device information.
+ * @param[in] dev_name: device name
+ * @param[in] umq_trans_mode: umq trans mode
+ * @param[out] umq_dev_info: device information
+ * Return: 0 on success, other value on error
+ */
+int umq_dev_info_get(char *dev_name, umq_trans_mode_t umq_trans_mode, umq_dev_info_t *umq_dev_info);
+
+/**
+ * Get all devices information, umq_dev_info_list_free needs to be called to free memory.
+ * @param[in] umq_trans_mode: umq trans mode
+ * @param[out] dev_num: device information array size
+ * Return: devices information, NULL on failure (get error code from errno)
+ */
+umq_dev_info_t *umq_dev_info_list_get(umq_trans_mode_t umq_trans_mode, int *dev_num);
+
+/**
+ * Free devices information allocated by umq_dev_info_list_get.
+ * @param[in] umq_trans_mode: umq trans mode
+ * @param[in] umq_dev_info: device information to free
+ * Return: void
+ */
+void umq_dev_info_list_free(umq_trans_mode_t umq_trans_mode, umq_dev_info_t *umq_dev_info);
+
+/**
+ * Query umq configuration
+ * @param[in] umqh: Queue handle
+ * @param[out] cfg: Configuration information for umq
+ * Return 0 on success, error code on failure, other value on error
+ */
+int umq_cfg_get(uint64_t umqh, umq_cfg_get_t *cfg);
+
+/**
+ * Register umq mutex lock ops. Notice: Lock register API MUST be called before all other APIs are executed.
+ * @param[in] ops: Mutex lock ops
+ * Return 0 on success, error code on failure
+ */
+int umq_external_mutex_lock_ops_register(umq_external_mutex_lock_ops_t *ops);
+
+/**
+ * Register umq rwlock ops. Notice: Lock register API MUST be called before all other APIs are executed.
+ * @param[in] ops: rw_lock ops
+ * Return 0 on success, error code on failure
+ */
+int umq_external_rwlock_ops_register(umq_external_rwlock_ops_t *ops);
+
+/**
+ * Register umq thread_key ops. Notice: Thread_key register API MUST be called before all other APIs are executed.
+ * @param[in] ops: thread_key ops
+ * Return 0 on success, error code on failure
+ */
+int umq_external_thread_key_ops_register(umq_external_thread_key_ops_t *ops);
+
+/**
+ * Get eventfd for the global transport pool. Caller can epoll on this fd to be notified.
+ * @param[in] umqh: umq handle; used to locate the matching transport framework ops
+ * Return fd >= 0 on success, < 0 on failure
+ */
+int umq_transport_pool_eventfd_get(uint64_t umqh);
+
+/**
+ * Modify share transport node state to err.
+ * @param[in] umqh: umq handle
+ * @param[in] tp_handle_idx: tp_handle_index
+ * Return 0 on success, error code on failure
+ */
+int umq_transport_pool_resource_modify(uint64_t umqh, uint32_t tp_handle_idx);
+
+/**
+ * create transport resources (jetty pairs) for SHARE_TRANSPORT mode
+ * Only valid on a Main UMQ created with SHARE_TRANSPORT flag.
+ * @param[in] umqh: umq handle
+ * @param[in] option: Configuration information for tp handle
+ * Return tp handle index on success, UINT32_MAX on failure
+ */
+uint32_t umq_transport_pool_resource_create(uint64_t umqh, umq_tp_resource_create_option_t *option);
+
+/**
+ * Destroy transport resource.
+ * @param[in] umqh: umq handle
+ * @param[in] tp_handle_index: tp_handle_index
+ * Return 0 on success, error code on failure
+ */
+int umq_transport_pool_resource_destroy(uint64_t umqh, uint32_t tp_handle_idx);
 
 #ifdef __cplusplus
 }

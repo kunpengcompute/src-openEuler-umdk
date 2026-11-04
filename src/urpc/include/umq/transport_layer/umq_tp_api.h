@@ -28,6 +28,13 @@ typedef struct umq_ops {
     uint8_t* (*umq_tp_init)(umq_init_cfg_t *cfg);
 
     /**
+    * Load dynamic symbols for transport mode.
+    * This must be called before umq_tp_log_config_set if log config requires external library functions.
+    * Return 0 on success, error code on failure
+    */
+    int (*umq_tp_load_symbol)(void);
+
+    /**
     * Thread safety function
     * Uninit umq
     */
@@ -36,12 +43,11 @@ typedef struct umq_ops {
     /**
     * Thread safety function
     * Create umq
-    * @param[in] umqh: umq handle
     * @param[in] ctx: UMQ context
     * @param[in] option: Configuration information for umq
     * Return umq handle (umqh_tp) on success, 0 on failure (get error code from errno)
     */
-    uint64_t (*umq_tp_create)(uint64_t umqh, uint8_t *ctx, umq_create_option_t *option);
+    uint64_t (*umq_tp_create)(uint8_t *ctx, umq_create_option_t *option);
 
     /**
     * Thread safety function
@@ -78,6 +84,15 @@ typedef struct umq_ops {
     * Return 0 on success, error code on failure
     */
     int (*umq_tp_unbind)(uint64_t umqh_tp);
+
+    /**
+    * User should ensure thread safety if io_lock_free is true
+    * Set umq state
+    * @param[in] umqh_tp: umq handle
+    * @param[in] state: umq state want to set(Only Support Set ERR STATE)
+    * Return 0 on success, error code on failure
+    */
+    int (*umq_tp_state_set)(uint64_t umqh_tp, umq_state_t state);
 
     /**
     * User should ensure thread safety if io_lock_free is true
@@ -135,8 +150,8 @@ typedef struct umq_ops {
     * User should ensure thread safety if io_lock_free is true
     * Enqueue umq buf
     * @param[in] umqh_tp: umq handle
-    * @param[in] qbuf: qbuf need to enqueue. no more than UMQ_BATCH_SIZE work requeses once
-    * @param[out] bad_qbuf: qbuf list faild to enqueue. user should free these buf
+    * @param[in] qbuf: qbuf need to enqueue. no more than UMQ_BATCH_SIZE work requests once
+    * @param[out] bad_qbuf: qbuf list failed to enqueue. user should free these buf
     * Return 0 on success, error code on failure
     */
     int (*umq_tp_enqueue)(uint64_t umqh_tp, umq_buf_t *qbuf, umq_buf_t **bad_qbuf);
@@ -160,16 +175,16 @@ typedef struct umq_ops {
     * User should ensure thread safety if io_lock_free is true
     * Arm interrupt of umq
     * @param[in] umqh_tp: umq handle
-    * @param[in] solicated: solicated flag
+    * @param[in] solicited: solicited flag
     * @param[in] option: option param. user should specify UMQ_IO_TX or UMQ_IO_RX, or UMQ_FAIL will be returned
     * Return 0 on success, error code on failure
     */
-    int (*umq_tp_rearm_interrupt)(uint64_t umqh_tp, bool solicated, umq_interrupt_option_t *option);
+    int (*umq_tp_rearm_interrupt)(uint64_t umqh_tp, bool solicited, umq_interrupt_option_t *option);
 
     /**
     * User should ensure thread safety if io_lock_free is true
     * Sleep and wait for interrupt
-    * @param[in] wait_umqh_tp: umq handle which is waitting for interrupt
+    * @param[in] wait_umqh_tp: umq handle which is waiting for interrupt
     * @param[in] time_out: max time to wait (milliseconds),
     *            timeout = 0: return immediately event if no events are ready,
     *            timeout = -1: an infinite timeout
@@ -196,7 +211,7 @@ typedef struct umq_ops {
     int (*umq_tp_async_event_fd_get)(umq_trans_info_t *trans_info);
 
     /**
-     *  Get asyn event.
+     *  Get async event.
      * @param[in] dev_info: device info;
      * @param[out] event: the address to put event
      * Return: 0 on success, other value on error
@@ -204,7 +219,7 @@ typedef struct umq_ops {
     int (*umq_tp_async_event_get)(umq_trans_info_t *trans_info, umq_async_event_t *event);
 
     /**
-     *  Ack asyn event.
+     *  Ack async event.
      * @param[in] event: the address to ack event;
      * Return: void
      */
@@ -220,18 +235,18 @@ typedef struct umq_ops {
 
     /**
      * Get primary and port eid from topo info.
-     * @param[in] route: parameter that contains src_v_eid and dst_v_eid, refers to umq_route_t;
+     * @param[in] route_key: parameter that contains tp_type, src_v_eid and dst_v_eid;
      * @param[out] route_list: a list buffer, containing all routes returned;
      * Return: 0 on success, other value on error
      */
-    int (*umq_tp_get_topo)(const umq_route_t *route, umq_route_list_t *route_list);
+    int (*umq_tp_get_topo)(const umq_route_key_t *route_key, umq_route_list_t *route_list);
 
     /**
      * Thread safety function
      * User defined control of the context.
      * @param[in] umqh_tp: umq tp handle
      * @param[in] in: user ctl cmd
-     * @param[out] out: result of excution
+     * @param[out] out: result of execution
      * Return 0 on success, error code on failure
      */
     int (*umq_tp_user_ctl)(uint64_t umqh_tp, umq_user_ctl_in_t *in, umq_user_ctl_out_t *out);
@@ -252,6 +267,130 @@ typedef struct umq_ops {
      * Return: 0 on success, other value on error
      */
     int (*umq_tp_mempool_state_refresh)(uint64_t umqh_tp, uint32_t mempool_id);
+
+    /**
+     * Get mempool info: serialize the local mempool import descriptor into an
+     * opaque blob for the peer.
+     * @param[in] umqh_tp: umq tp handle
+     * @param[in] mempool_id: mempool id, the ID of the memory pool from which the buffer was obtained
+     * @param[in] mempool_info_size: capacity of mempool_info buffer
+     * @param[out] mempool_info: caller-allocated buffer (>= UMQ_MEMPOOL_INFO_MAX_SIZE)
+     * @param[out] mempool_info_len: actual byte length written (set on success)
+     * Return: 0 on success, other value on error
+     */
+    int (*umq_tp_mempool_info_get)(uint64_t umqh_tp, uint32_t mempool_id, uint8_t *mempool_info,
+        uint32_t mempool_info_size, uint32_t *mempool_info_len);
+
+    /**
+     * Set mempool info: import a peer mempool from the opaque blob received in
+     * a control message. umq parses mempool_id/version internally.
+     * @param[in] umqh_tp: umq tp handle
+     * @param[in] mempool_info: opaque blob received over the wire
+     * @param[in] mempool_info_len: byte length of the blob
+     * Return: 0 on success, other value on error
+     */
+    int (*umq_tp_mempool_info_set)(uint64_t umqh_tp, const uint8_t *mempool_info, uint32_t mempool_info_len);
+
+    /**
+     * Check remote mempool import state vs the version carried in the opaque
+     * blob. umq parses mempool_id/version internally.
+     * @param[in] umqh_tp: umq tp handle
+     * @param[in] mempool_info: opaque blob received over the wire
+     * @param[in] mempool_info_len: byte length of the blob
+     * Return: 0 no import needed; 1 need import; 2 need unimport & re-import (version grew);
+     *         3 protocol error (version rollback), caller sends READ_ABORT; -1 error
+     */
+    int (*umq_tp_remote_mempool_state_check)(uint64_t umqh_tp, const uint8_t *mempool_info,
+        uint32_t mempool_info_len);
+
+    /**
+     * Extract the remote mempool addressing fields (mempool_id, token_id,
+     * token_value) from the opaque blob. Pure parse, no umq state needed.
+     * @param[in] mempool_info: opaque blob received over the wire
+     * @param[in] mempool_info_len: byte length of the blob
+     * @param[out] out_mempool_id: blob's mempool_id (NULL to skip)
+     * @param[out] out_token_id: blob's token_id (NULL to skip)
+     * @param[out] out_token_value: blob's token_value (NULL to skip)
+     * Return: 0 on success, other value on error
+     */
+    int (*umq_tp_mempool_info_get_remote_fields)(const uint8_t *mempool_info, uint32_t mempool_info_len,
+        uint32_t *out_mempool_id, uint32_t *out_token_id, uint32_t *out_token_value);
+
+    /**
+     * Get device information.
+     * @param[in] dev_name: device name
+     * @param[in] umq_trans_mode: umq trans mode
+     * @param[out] umq_dev_info: device information
+     * Return: 0 on success, other value on error
+     */
+    int (*umq_tp_dev_info_get)(char *dev_name, umq_trans_mode_t umq_trans_mode, umq_dev_info_t *umq_dev_info);
+
+    /**
+     * Get all devices information, umq_tp_dev_info_list_free needs to be called to free memory.
+     * @param[in] umq_trans_mode: umq trans mode
+     * @param[out] dev_num: device information array size
+     * Return: devices information, NULL on failure (get error code from errno)
+     */
+    umq_dev_info_t *(*umq_tp_dev_info_list_get)(umq_trans_mode_t umq_trans_mode, int *dev_num);
+
+    /**
+     * Free devices information allocated by umq_tp_dev_info_list_get.
+     * @param[in] umq_trans_mode: umq trans mode
+     * @param[in] umq_dev_info: device information to free
+     * Return: void
+     */
+    void (*umq_tp_dev_info_list_free)(umq_trans_mode_t umq_trans_mode, umq_dev_info_t *umq_dev_info);
+
+    /**
+     * Get umq cfg.
+     * @param[in] umqh_tp: umq tp handle
+     * @param[out] cfg: umq cfg
+     * Return: 0 on success, other value on error
+     */
+    int (*umq_tp_cfg_get)(uint64_t umqh_tp, umq_cfg_get_t *cfg);
+
+    /**
+     * Get eventfd for the global transport pool. Caller can epoll on this fd to be notified.
+     * Return fd >= 0 on success, < 0 on failure
+     */
+    int (*umq_tp_transport_pool_eventfd_get)(void);
+
+    /**
+     * Modify share transport node state to err.
+     * @param[in] umqh_tp: umq tp handle
+     * @param[in] tp_handle_idx: tp_handle_idx
+     * Return 0 on success, error code on failure
+     */
+    int (*umq_tp_transport_pool_resource_modify)(uint64_t umqh_tp, uint32_t tp_handle_idx);
+
+    /**
+     * Expand create resources (jetty pairs) for SHARE_TRANSPORT mode.
+     * @param[in] umqh_tp: Main UMQ tp handle
+     * @param[in] option: Configuration information for tp handle
+     * Return tp handle index on success, UINT32_MAX on failure
+     */
+    uint32_t (*umq_tp_transport_pool_resource_create)(uint64_t umqh_tp, umq_tp_resource_create_option_t *option);
+
+    /**
+     * Destroy transport resource.
+     * @param[in] umqh_tp: Main UMQ tp handle
+     * @param[in] tp_handle_idx: transport handle index
+     * Return 0 on success, error code on failure
+     */
+    int (*umq_tp_transport_pool_resource_destroy)(uint64_t umqh_tp, uint32_t tp_handle_idx);
+
+    /**
+     * Set the process exiting flag. Once true, backend post/poll paths skip
+     * resources that may already be released during teardown (exit-time UAF guard).
+     * @param[in] exiting: true means the process is exiting
+     */
+    void (*umq_tp_exiting_set)(bool exiting);
+
+    /**
+     * Query the process exiting flag.
+     * Return true if the process is exiting
+     */
+    bool (*umq_tp_exiting_get)(void);
 } umq_ops_t;
 
 typedef umq_ops_t* (*umq_ops_get_t)(void);
