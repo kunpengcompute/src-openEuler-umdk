@@ -1,3 +1,12 @@
+umdk (25.12.0-2) UNRELEASED; urgency=medium
+
+  * debian: fix postinst to restart services with deb-systemd-invoke
+    and correct libtpsa.so installation paths
+  * debian: install shared libraries to aarch64 multiarch paths
+  * debian: add forward compatibility patch for urma_perftest
+
+ -- luyizhou <luyizhou1@huawei.com>  Thu, 05 Nov 2026 00:00:00 +0800
+
 umdk (25.12.0-1) UNRELEASED; urgency=medium
 
   * umq: update add a thread name
