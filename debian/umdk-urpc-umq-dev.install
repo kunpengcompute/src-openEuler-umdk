@@ -4,8 +4,8 @@ usr/include/ub/umdk/urpc/umq/umq_errno.h
 usr/include/ub/umdk/urpc/umq/umq_pro_api.h
 usr/include/ub/umdk/urpc/umq/umq_pro_types.h
 usr/include/ub/umdk/urpc/umq/umq_types.h
+usr/include/ub/umdk/urpc/umq/umq_dfx_api.h
+usr/include/ub/umdk/urpc/umq/umq_dfx_types.h
 usr/lib64/libumq.so usr/lib/aarch64-linux-gnu
 usr/lib64/libumq_buf.so usr/lib/aarch64-linux-gnu
 usr/lib64/libumq_ub.so usr/lib/aarch64-linux-gnu
-usr/include/ub/umdk/urpc/umq/umq_dfx_api.h
-usr/include/ub/umdk/urpc/umq/umq_dfx_types.h
