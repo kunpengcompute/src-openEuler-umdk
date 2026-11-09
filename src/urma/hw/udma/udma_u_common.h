@@ -81,8 +81,9 @@ struct udma_u_hugepage {
 	struct udma_u_hugepage_priv *priv;
 };
 
-typedef int (*dtu_u_mmap_func)(uint64_t va_base, uint64_t va_size, void **dtu_va);
-typedef void (*dtu_u_munmap_func)(void **g_dtu_va, uint64_t va_size);
+typedef int (*dtu_u_mmap_func)(uint64_t va_base, uint64_t va_size, void **dtu_va,
+		uint32_t *dtu_va_refcount);
+typedef void (*dtu_u_munmap_func)(void **g_dtu_va, uint64_t va_size, uint32_t *dtu_va_refcount);
 
 /* 32 */
 #define UDMA_JETTY_TABLE_NUM 1 << 5
@@ -178,12 +179,20 @@ struct udma_wqe_sge {
 	uint64_t va;
 };
 
+struct udma_u_idx_ring {
+	uint32_t *idx;
+	uint32_t front;
+	uint32_t rear;
+	uint32_t capacity;
+};
+
 struct udma_u_jfr_idx_que {
 	struct udma_u_buf buf;
 	uint32_t entry_shift;
 	uint64_t *bitmap;
 	uint32_t bitmap_cnt;
 	bool cstm;
+	struct udma_u_idx_ring *ring;
 };
 
 struct udma_u_jfr {

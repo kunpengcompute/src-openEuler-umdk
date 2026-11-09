@@ -300,21 +300,34 @@ static int udma_u_set_jfc_flag(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_
 {
 	urma_jfc_flag_t *flag = (urma_jfc_flag_t *)buf;
 	urma_cmd_udrv_priv_t udata = {};
+	int ret;
+
+	ret = urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
+	if (ret) {
+		UDMA_LOG_ERR("failed to set jfc flag, len = %u, ret = %d.\n", len, ret);
+		return ret;
+	}
 
 	jfc->jfc_cfg.flag = *flag;
 
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
+	return URMA_SUCCESS;
 }
 
 static int udma_u_set_jfc_cqe_base_addr(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
 {
 	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
 	urma_cmd_udrv_priv_t udata = {};
+	int ret;
 
+	ret = urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
+	if (ret) {
+		UDMA_LOG_ERR("failed to set jfc cqe base addr, ret = %d.\n", ret);
+		return ret;
+	}
 	ujfc->cq.qbuf = (void*)*(uint64_t *)buf;
 	ujfc->cq.cstm = true;
 
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
+	return URMA_SUCCESS;
 }
 
 static int udma_u_set_jfc_id(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
@@ -336,13 +349,19 @@ static int udma_u_set_jfc_db_addr(urma_jfc_t *jfc, uint64_t opt, void *buf, uint
 	struct udma_u_jfc *ujfc = to_udma_u_jfc(jfc);
 	urma_cmd_udrv_priv_t udata = {};
 	uint64_t addr = 0;
+	int ret;
 
+	ret = urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
+	if (ret) {
+        UDMA_LOG_ERR("failed to set jfc db addr, ret = %d.\n", ret);
+        return ret;
+	}
 	memcpy(&addr, buf, sizeof(addr));
 
 	ujfc->sw_db = (uint32_t *)(uintptr_t)addr;
 	ujfc->db_cstm = true;
 
-	return urma_cmd_set_jfc_opt(jfc, opt, buf, len, &udata);
+	return ret;
 }
 
 static int udma_u_get_jfc_opt_from_kernel(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len)
@@ -625,6 +644,14 @@ static void udma_u_parse_opcode_for_res(struct udma_u_jfc_cqe *cqe, urma_cr_t *c
 	}
 }
 
+static void udma_ring_free_idx(struct udma_u_idx_ring *ring, uint32_t idx)
+{
+	ring->rear++;
+	if (ring->rear >= ring->capacity)
+		ring->rear = 0;
+	ring->idx[ring->rear] = idx;
+}
+
 static bool udma_u_update_jfr_idx(struct udma_u_context *udma_ctx,
 				  struct udma_u_jfc_cqe *cqe, urma_cr_t *cr,
 				  bool is_clean)
@@ -647,25 +674,25 @@ static bool udma_u_update_jfr_idx(struct udma_u_context *udma_ctx,
 		if (udma_ctx->jetty_table[table_id].refcnt) {
 			jetty = (struct udma_u_jetty *)udma_ctx->jetty_table[table_id].jetty_array[jetty_id & mask];
 			if (!jetty) {
-				UDMA_LOG_INFO("JETTY not found, JETTY 0x%x has been destroyed.\n", jetty_id);
+				UDMA_LOG_WARN("JETTY not found, JETTY 0x%x has been destroyed.\n", jetty_id);
 				return true;
 			}
 			cr->user_data = (uintptr_t)&jetty->base;
 			jfr = jetty->jfr;
 		} else {
-			UDMA_LOG_INFO("JFC not polled, JETTY 0x%x has been destroyed.\n", jetty_id);
+			UDMA_LOG_WARN("JFC not polled, JETTY 0x%x has been destroyed.\n", jetty_id);
 			return true;
 		}
 	} else {
 		if (udma_ctx->jfr_table[table_id].refcnt) {
 			jfr = (struct udma_u_jfr *)udma_ctx->jfr_table[table_id].jfr_array[jetty_id & mask];
 			if (!jfr) {
-				UDMA_LOG_INFO("JETTY not found, JETTY 0x%x has been destroyed.\n", jetty_id);
+				UDMA_LOG_WARN("JETTY not found, JETTY 0x%x has been destroyed.\n", jetty_id);
 				return true;
 			}
 			cr->user_data = (uintptr_t)&jfr->base;
 		} else {
-			UDMA_LOG_INFO("JFC not polled, JFR 0x%x has been destroyed.\n", jetty_id);
+			UDMA_LOG_WARN("JFC not polled, JFR 0x%x has been destroyed.\n", jetty_id);
 			return true;
 		}
 	}
@@ -677,13 +704,14 @@ static bool udma_u_update_jfr_idx(struct udma_u_context *udma_ctx,
 	if (!is_clean && cqe->inline_en != 0)
 		handle_recv_inl_cqe(cqe, opcode, jfr, cr);
 
-	if (!jfr->lock_free)
+	udma_ring_free_idx(jfr->idx_que.ring, entry_idx);
+
+	if (is_jetty && (!jfr->lock_free))
 		(void)pthread_spin_lock(&jfr->lock);
 
-	udma_bitmap_free_idx(jfr->idx_que.bitmap, jfr->idx_que.bitmap_cnt, entry_idx);
 	queue->ci++;
 
-	if (!jfr->lock_free)
+	if (is_jetty && (!jfr->lock_free))
 		(void)pthread_spin_unlock(&jfr->lock);
 
 	return false;

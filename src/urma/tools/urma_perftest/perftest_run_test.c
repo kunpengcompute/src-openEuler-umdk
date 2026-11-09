@@ -230,10 +230,18 @@ static inline void update_duration_state(perftest_context_t *ctx, perftest_confi
 
 static inline uint64_t get_remote_seg_va(const perftest_context_t *ctx, const perftest_config_t *cfg, uint32_t i)
 {
-    if (cfg->jetty_mode == PERFTEST_JETTY_DUPLEX) {
+    if (ctx->remote_seg_duplex != NULL) {
         return ctx->remote_seg_duplex[i]->ubva.va;
     }
     return ctx->remote_seg[i].ubva.va;
+}
+
+static inline uint64_t get_remote_credit_seg_va(const perftest_context_t *ctx, uint32_t i)
+{
+    if (ctx->remote_credit_seg_duplex != NULL) {
+        return ctx->remote_credit_seg_duplex[i]->ubva.va;
+    }
+    return ctx->remote_credit_seg[i].ubva.va;
 }
 
 static int poll_jfc_until_expected_cqe(perftest_context_t *ctx, perftest_config_t *cfg, uint32_t id, urma_cr_t *cr)
@@ -1096,7 +1104,7 @@ static void init_credit_wr(perftest_context_t *ctx, perftest_config_t *cfg)
         run_ctx->credit_sge[i].len = sizeof(uint64_t);
         run_ctx->credit_sge[i].tseg = ctx->credit_seg[i];
 
-        run_ctx->remote_credit_sge[i].addr = (uint64_t)(ctx->remote_credit_seg[i].ubva.va + sizeof(uint64_t));
+        run_ctx->remote_credit_sge[i].addr = get_remote_credit_seg_va(ctx, i) + sizeof(uint64_t);
         run_ctx->remote_credit_sge[i].len = sizeof(uint64_t);
         run_ctx->remote_credit_sge[i].tseg = ctx->import_credit_seg[i];
 

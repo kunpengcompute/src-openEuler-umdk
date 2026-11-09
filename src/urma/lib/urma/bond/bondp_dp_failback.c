@@ -51,6 +51,36 @@ struct bondp_fb_ctx {
 #endif
 };
 
+bool bondp_fb_need_switch_path(bondp_comp_t *bdp_comp)
+{
+    if (!bdp_comp->bondp_ctx->enable_failback) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
+        if (atomic_load(&bdp_comp->hc_valid[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint32_t bondp_fb_switch_path(bondp_comp_t *bdp_comp)
+{
+    uint32_t recovered_cnt = 0;
+
+    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
+        if (!atomic_exchange(&bdp_comp->hc_valid[i], false)) {
+            continue;
+        }
+        recovered_cnt++;
+        atomic_store(&bdp_comp->valid[i], true);
+        URMA_LOG_WARN("Path restored: local jetty recovered, vjetty_id=%u, local_idx=%u\n",
+                      bdp_comp->v_jetty.jetty_id.id, i);
+    }
+    return recovered_cnt;
+}
+
 #define BONDP_FB_TASK_HASH_BASIS    0x9d4f21U
 #define BONDP_FB_TASK_TABLE_SIZE    1024U
 /* Delay (ms) before rebuilding a failed-back pjetty on the bond worker. */
@@ -287,7 +317,7 @@ static int bondp_rebuild_pjetty(bondp_comp_t *bdp_jetty, uint32_t local_idx)
         URMA_LOG_WARN("Failed to delete old pjetty at idx=%d\n", local_idx);
     }
 
-    URMA_LOG_INFO("Failback pjetty rebuilt, idx=%d old=" URMA_JETTY_ID_FMT " new=" URMA_JETTY_ID_FMT "\n",
+    URMA_LOG_WARN("Failback pjetty rebuilt, idx=%d old=" URMA_JETTY_ID_FMT " new=" URMA_JETTY_ID_FMT "\n",
                   local_idx, URMA_JETTY_ID_ARGS(&old_id), URMA_JETTY_ID_ARGS(&new_jetty->jetty_id));
     return 0;
 }
@@ -536,10 +566,16 @@ int bondp_fb_init(bondp_context_t *bond_ctx)
 
 void bondp_fb_uninit(bondp_context_t *bond_ctx)
 {
-    if (bond_ctx == NULL || bond_ctx->fb_ctx == NULL) {
+    if (bond_ctx == NULL) {
         return;
     }
 
-    fb_task_table_destroy(bond_ctx->fb_ctx);
-    bond_ctx->fb_ctx = NULL;
+    /* Atomically detach fb_ctx so a concurrent or duplicate uninit cannot
+     * destroy the same task table twice. */
+    bondp_fb_ctx_t *fb_ctx = atomic_exchange(&bond_ctx->fb_ctx, NULL);
+    if (fb_ctx == NULL) {
+        return;
+    }
+
+    fb_task_table_destroy(fb_ctx);
 }

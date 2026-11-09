@@ -18,7 +18,6 @@
 #endif
 #include <stdbool.h>
 
-#include "bondp_env.h"
 #include "bondp_hash_table.h"
 #include "bondp_wr_buf.h"
 #include "bondp_topo_info.h"
@@ -29,7 +28,7 @@
 
 #define BONDP_MAX_NUM_JETTYS          (10240)
 #define BONDP_MAX_NUM_RSEGS           (10240)
-#define BONDP_MAX_WR_LIST_NUM         (300)
+#define BONDP_MAX_WR_LIST_NUM         (256)
 #define PRIMARY_EID_NUM               (2)
 #define PORT_EID_MAX_NUM_PER_DEV      (9)
 #define PORT_EID_MAX_NUM              (PORT_EID_MAX_NUM_PER_DEV * PRIMARY_EID_NUM)
@@ -43,6 +42,11 @@
                                                            (jetty_id)->uasid, (jetty_id)->id)
 typedef urma_user_info_ext_hdr_t bondp_seg_ext_priv_t;
 typedef urma_user_info_ext_hdr_t bondp_rjetty_ext_priv_t;
+
+typedef struct bondp_rnr_retry_task {
+    uint64_t task_id;
+    bool task_pending;
+} bondp_rnr_retry_task_t;
 
 static inline bool bondp_seg_has_user_info(const urma_seg_t *seg)
 {
@@ -96,6 +100,15 @@ typedef struct bondp_device {
     int dev_num;
 } bondp_device_t;
 
+typedef struct bondp_port_cfg {
+    uint32_t enabled_indices[URMA_UBAGG_DEV_MAX_NUM];
+    uint32_t enabled_count;
+    /* chip_id shall not be used for p-connection, only for chip_id check
+       when creating jfc/jfs/jfr/jetty */
+    uint8_t chip_id[URMA_UBAGG_DEV_MAX_NUM];
+    uint32_t chip_id_count;
+} bondp_port_cfg_t;
+
 /**
  *  The first field is exposed to user.
  *  p_ctxs and p_devs stores neccesary parameters of slave devices.
@@ -103,6 +116,17 @@ typedef struct bondp_device {
 typedef struct bondp_context {
     urma_context_t v_ctx;
     urma_context_t *p_ctxs[URMA_UBAGG_DEV_MAX_NUM]; /* every unit is symmetrical. */
+
+    bool enable_failover;
+    bool enable_failback;
+    bool enable_health_check;
+    uint64_t health_check_interval_ms;
+    uint32_t health_check_batch_node_num;
+    bool enable_rnr_retry;
+    uint64_t rnr_retry_sleep_ms;
+    uint64_t rnr_retry_max;
+    uint32_t rnr_retry_jitter_ratio;
+
     /* This variable represents the maximum number of times all available devices need to be traversed. */
     /* In general mode, dev_num is the same as the number of non-empty devices in the first few positions. */
     /* In matrix server mode, dev_num is always PRIMARY_EID_NUM + PROT_EID_MAX_NUM, */
@@ -114,8 +138,16 @@ typedef struct bondp_context {
     /* used to restore the local_id in CR. */
     bondp_hash_table_t p_vjetty_id_table;
     int real_async_fd; /* vcontex async_fd */
-    bondp_hc_ctx_t *hc_ctx;
-    bondp_fb_ctx_t *fb_ctx;
+    /* Atomic so uninit can atomically detach them (atomic_exchange): exactly
+     * one uninit caller wins the exchange and owns the teardown, making
+     * bondp_hc_uninit/bondp_fb_uninit idempotent even if invoked twice. */
+#ifndef __cplusplus
+    _Atomic(bondp_hc_ctx_t *) hc_ctx;
+    _Atomic(bondp_fb_ctx_t *) fb_ctx;
+#else
+    std::atomic<bondp_hc_ctx_t *> hc_ctx;
+    std::atomic<bondp_fb_ctx_t *> fb_ctx;
+#endif
     pthread_rwlock_t seg_cache_lock;
     struct ub_hmap seg_cache_map;
     unsigned long seg_cache_insert_cnt;
@@ -123,6 +155,14 @@ typedef struct bondp_context {
     bool seg_cache_enable;
     uint32_t enabled_indices[URMA_UBAGG_DEV_MAX_NUM];
     uint32_t enabled_count;
+    bool port_cfg_enable;
+    bondp_port_cfg_t port_cfg;
+    /* Per-send_idx port health: true=BAD, false=GOOD. Atomic for poll_jfc / hc concurrency. */
+#ifndef __cplusplus
+    atomic_bool port_status_bad[URMA_UBAGG_DEV_MAX_NUM];
+#else
+    std::atomic_bool port_status_bad[URMA_UBAGG_DEV_MAX_NUM];
+#endif
 } bondp_context_t;
 
 typedef struct bondp_jfc {
@@ -215,14 +255,19 @@ typedef struct bondp_comp {
     // send
     bool modify_to_error;
     pthread_spinlock_t send_lock;
+    uint32_t max_send_sge;
+    uint32_t max_send_rsge;
     wr_buf_t send_wr_buf;
+    bondp_rnr_retry_task_t rnr_retry_tasks[URMA_UBAGG_DEV_MAX_NUM]; /* protected by send_lock */
 #ifndef __cplusplus
     atomic_bool valid[URMA_UBAGG_DEV_MAX_NUM];
     atomic_bool rebuild_done[URMA_UBAGG_DEV_MAX_NUM];
+    atomic_bool hc_valid[URMA_UBAGG_DEV_MAX_NUM];
     atomic_uint msn;
 #else
     std::atomic_bool valid[URMA_UBAGG_DEV_MAX_NUM];
     std::atomic_bool rebuild_done[URMA_UBAGG_DEV_MAX_NUM];
+    std::atomic_bool hc_valid[URMA_UBAGG_DEV_MAX_NUM];
     std::atomic_uint msn;
 #endif
 #ifndef __cplusplus
@@ -231,34 +276,38 @@ typedef struct bondp_comp {
     std::atomic_uint sqe_cnt[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
 #endif
     // recv
+    uint32_t max_recv_sge;
     wr_buf_t recv_wr_buf;
     uint32_t rqe_cnt[URMA_UBAGG_DEV_MAX_NUM];
 } bondp_comp_t;
 
 typedef struct bondp_p_target_jetty {
     urma_target_jetty_t *p_tjetty;
-    urma_target_seg_t *p_check_tseg;
+    uint64_t hc_va;
+    uint32_t hc_token_id;
+    uint8_t local_indice;
+    uint8_t remote_indice;
 #ifndef __cplusplus
     atomic_bool valid;
 #else
     std::atomic_bool valid;
 #endif
-    uint8_t local_indice;
-    uint8_t remote_indice;
 } bondp_p_target_jetty_t;
+
+typedef enum bondp_tjetty_flag_mask {
+    BONDP_TJETTY_FLAG_SKIP_IMPORT_VJETTY = 0x1,
+    BONDP_TJETTY_FLAG_MSN_ENABLED        = 0x1 << 1,
+    BONDP_TJETTY_FLAG_HC_REGISTERED      = 0x1 << 2
+} bondp_tjetty_flag_mask_t;
 
 typedef struct bondp_target_jetty {
     urma_target_jetty_t v_tjetty;
-    urma_token_t import_token_value;
-    bool import_token_valid;
-    bool skip_import_vjetty;
-    uint32_t p_tjetty_count;
-    uint32_t active_count;
     urma_ref_t use_cnt;
-    bool is_msn_enabled;
-    bool hc_registered;
-    uint32_t hc_node_idx;
     struct ub_list hc_entry;
+    uint16_t p_tjetty_count; /* narrowed from uint32_t, <= URMA_UBAGG_DEV_MAX_NUM^2 */
+    uint16_t hc_node_idx;    /* narrowed from uint32_t, < MAX_NODE_NUM */
+    uint8_t active_count;    /* narrowed from uint32_t, <= URMA_UBAGG_DEV_MAX_NUM */
+    uint8_t mask; // mask value refer to bondp_tjetty_flag_mask_t
     bondp_p_target_jetty_t p_tjettys[];
 } bondp_target_jetty_t;
 

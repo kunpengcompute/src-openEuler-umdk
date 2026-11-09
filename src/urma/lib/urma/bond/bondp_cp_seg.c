@@ -206,8 +206,8 @@ static int bondp_delete_pseg(bondp_tseg_t *bdp_seg)
         if (bdp_seg->p_tseg[i] == NULL) {
             continue;
         }
-        URMA_LOG_DEBUG("bondp delete_pseg token_id is %u.\n",
-                       bdp_seg->p_tseg[i]->seg.token_id);
+        URMA_LOG_DEBUG("Unregistering pseg, idx=%d, token_id=%u.\n",
+                       i, bdp_seg->p_tseg[i]->seg.token_id);
         bdp_seg->p_tseg[i]->handle = bdp_seg->p_orig_handle[i];
         if (urma_unregister_seg(bdp_seg->p_tseg[i]) != URMA_SUCCESS) {
             URMA_LOG_ERR("Failed to unregister pseg %d\n", i);
@@ -267,8 +267,8 @@ static int bondp_delete_vseg(bondp_tseg_t *bdp_seg)
     ref_cnt = atomic_load(&(bdp_seg->use_cnt.atomic_cnt));
     urma_target_seg_t *target_seg = &bdp_seg->v_tseg;
     target_seg->handle = bdp_seg->v_orig_handle;
-    URMA_LOG_INFO("bondp delete_vseg, token_id is %u, handle is %lu, bdp_seg use_cnt is %lu.\n",
-                  bdp_seg->v_tseg.seg.token_id, target_seg->handle, ref_cnt);
+    URMA_LOG_DEBUG("Unregistering vseg, token_id=%u, handle=%lu, use_cnt=%lu.\n",
+                   bdp_seg->v_tseg.seg.token_id, target_seg->handle, ref_cnt);
 
     if (urma_cmd_unregister_seg(target_seg) != 0) {
         URMA_LOG_ERR("Failed to unregister segment, token_id=%u, handle=%lu.\n",
@@ -391,8 +391,11 @@ urma_status_t bondp_unregister_seg(urma_target_seg_t *target_seg)
 {
     int ret = URMA_SUCCESS;
     bondp_tseg_t *bdp_seg = CONTAINER_OF_FIELD(target_seg, bondp_tseg_t, v_tseg);
+    bool expected = false;
 
-    atomic_store(&bdp_seg->deleting, true);
+    if (!atomic_compare_exchange_strong(&bdp_seg->deleting, &expected, true)) {
+        return URMA_EAGAIN;
+    }
     unsigned long use_cnt = atomic_load(&bdp_seg->use_cnt.atomic_cnt);
     if (use_cnt > 1) {
         /* In-flight WRs still reference this seg; caller must stop posting and retry. */
@@ -537,7 +540,7 @@ static int bondp_unimport_vseg(bondp_import_tseg_t *bdp_tseg)
         return ret;
     }
 
-    URMA_LOG_INFO("Unimported vseg successfully, token_id=%u\n", bdp_tseg->v_tseg.seg.token_id);
+    URMA_LOG_DEBUG("Unimported vseg successfully, token_id=%u\n", bdp_tseg->v_tseg.seg.token_id);
     return URMA_SUCCESS;
 }
 
@@ -611,13 +614,45 @@ static int bondp_import_seg_from_user_ext(bondp_context_t *bdp_ctx, urma_context
     const bondp_seg_ext_priv_t *seg_ext = bondp_seg_get_priv_ext_const(seg);
 
     bdp_tseg->skip_import_vseg = true;
-    if (seg_ext->len < sizeof(urma_bond_seg_ext_t)) {
+    if (seg_ext->len < sizeof(urma_bond_seg_ext_v0_t)) {
         URMA_LOG_ERR("Invalid seg ext length=%u.\n", seg_ext->len);
         return -1;
     }
 
-    const urma_bond_seg_ext_t *bond_ext = (const urma_bond_seg_ext_t *)seg_ext->data;
-    (void)memcpy(&udata_out->peer_p_seg, bond_ext->peer_p_seg, sizeof(udata_out->peer_p_seg));
+    const urma_bond_seg_ext_v0_t *bond_ext = (const urma_bond_seg_ext_v0_t *)seg_ext->data;
+    size_t required = sizeof(urma_bond_seg_ext_v0_t) +
+                      sizeof(bondp_seg_peer_ctx_t) * bond_ext->peer_cnt;
+    if (seg_ext->len < required) {
+        URMA_LOG_ERR("Invalid seg ext len=%u, required=%zu, peer_cnt=%u.\n",
+                     seg_ext->len, required, bond_ext->peer_cnt);
+        return -1;
+    }
+
+    (void)memset(udata_out->peer_p_seg, 0, sizeof(udata_out->peer_p_seg));
+    bool seen[URMA_UBAGG_DEV_MAX_NUM] = {0};
+    for (uint32_t i = 0; i < bond_ext->peer_cnt; ++i) {
+        bondp_seg_peer_ctx_t entry = {0};
+        size_t off = sizeof(bondp_seg_peer_ctx_t) * i;
+        /* Use sizeof(*bond_ext) instead of bond_ext->data: avoid -Wstringop-overflow on data[0]. */
+        (void)memcpy(&entry, (const uint8_t *)bond_ext + sizeof(*bond_ext) + off, sizeof(entry));
+        if (entry.peer_idx >= URMA_UBAGG_DEV_MAX_NUM || seen[entry.peer_idx]) {
+            URMA_LOG_ERR("Invalid seg ext peer_idx=%u at %u.\n", entry.peer_idx, i);
+            return -1;
+        }
+        seen[entry.peer_idx] = true;
+
+        /* Reuse va/len/uasid/attr from outer vseg; adapt attr to match pseg register. */
+        urma_seg_base_t *peer = &udata_out->peer_p_seg[entry.peer_idx];
+        peer->ubva.eid = entry.eid;
+        peer->ubva.uasid = seg->ubva.uasid;
+        peer->ubva.va = seg->ubva.va;
+        peer->len = seg->len;
+        peer->attr = seg->attr;
+        peer->attr.bs.has_user_info = 0;
+        peer->attr.bs.user_token_id = URMA_TOKEN_ID_INVALID;
+        peer->token_id = entry.token_id;
+    }
+
     bondp_fill_v_tseg(&bdp_tseg->v_tseg, seg, addr, 0, ctx);
 
     urma_eid_t dst_eid = seg->ubva.eid;

@@ -134,7 +134,7 @@ static void usage(const char *argv0)
         "  -Q, --cq_mod <num>          Generate Cqe only after <--cq_mod> completion.\n"
         "  -r, --jfr_post_list <size>  Post list of receive WQEs of <list size> size.\n"
         "  -R, --jfr_depth <dep>       Size of jfr depth (default 512 for BW, 1 for LAT).\n"
-        "  -s, --size <size>           Size of message to exchange (default 2).\n"
+        "  -s, --size <size>           Size of message to exchange (default 2 for lat, 65536 for bw).\n"
         "  -S, --server <addr>         TCP mode: server ip for bind or connect, default: 127.0.0.1.\n"
         "                              UB mode: server mgmt eid (required for client).\n"
         "  -T, --jfs_depth <dep>       Size of jfs depth (default 128 for BW, 1 for LAT).\n"
@@ -338,7 +338,7 @@ static void init_cfg(perftest_config_t *cfg)
     cfg->uboe = false;
     cfg->uboe_vlan = false;
     cfg->uboe_dscp = false;
-    cfg->uboe_sl = false;
+    cfg->enable_sl = false;
     cfg->uboe_dip = false;
     cfg->uboe_sip = false;
 
@@ -1057,8 +1057,11 @@ int perftest_parse_args(int argc, char *argv[], perftest_config_t *cfg)
                 (void)ub_str_to_u16(optarg, &cfg->vlan_id);
                 break;
             case PERFTEST_OPT_SL:
-                cfg->uboe_sl = true;
-                (void)ub_str_to_u8(optarg, &cfg->sl);
+                if (ub_str_to_u8(optarg, &cfg->sl) != 0 || cfg->sl > 0x0f) {
+                    LOG_ERROR("SL should be between 0 and 15.\n");
+                    return -1;
+                }
+                cfg->enable_sl = true;
                 break;
             case PERFTEST_OPT_BIND_IP:
                 cfg->bind_ip = strdup(optarg);
@@ -1526,6 +1529,11 @@ int check_local_cfg(perftest_config_t *cfg)
         if (cfg->trans_mode == URMA_TM_UM) {
             LOG_ERROR("Credit DOES NOT take effect in UM trans_mode.\n");
             exit(1);
+        }
+        if (cfg->enable_bond_mode && cfg->bond_mode != BONDP_BONDING_MODE_STANDALONE) {
+            LOG_ERROR("Warning: SEND with enable_credit on a bonding device in active-backup or "
+                      "load-balancing mode (current mode: %s) may exhaust credits and stall traffic.\n",
+                      g_bond_mode_str[cfg->bond_mode]);
         }
     }
 

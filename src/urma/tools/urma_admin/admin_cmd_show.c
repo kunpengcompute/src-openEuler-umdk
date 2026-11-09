@@ -184,18 +184,6 @@ static void admin_parse_priority_attr(const char *sysfs_path, admin_show_ubep_t 
     free(priority_path);
 }
 
-static bool has_bonding_dev_prefix(const char *dev_name)
-{
-    const char *prefix = "bonding_dev";
-
-    for (int i = 0; prefix[i] != '\0'; i++) {
-        if (dev_name[i] != prefix[i] || dev_name[i] == '\0') {
-            return false;
-        }
-    }
-    return true;
-}
-
 static int admin_parse_device_attr(const char *sysfs_path, admin_show_ubep_t *ubep)
 {
     char tmp_value[VALUE_LEN_MAX];
@@ -705,17 +693,30 @@ static bool is_eid_idx_related_to_bonding(const admin_show_ubep_t *bonding_ubep,
 
 static void print_ubep_prioritys(const admin_show_ubep_t *ubep)
 {
+    static const struct {
+        const char *name;
+        uint32_t mask;
+    } tp_rows[] = {
+        { "RTP", 0x1 },
+        { "CTP", 0x2 },
+        { "UTP", 0x4 },
+    };
+
     printf("priority  :    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15\n");
     printf("      sl  :");
     for (int i = 0; i < URMA_MAX_PRIORITY_CNT; ++i) {
         printf("%5d", ubep->dev_attr.dev_cap.priority_info[i].SL);
     }
     printf("\n");
-    printf(" tp_type  :");
-    for (int i = 0; i < URMA_MAX_PRIORITY_CNT; ++i) {
-        printf("  %s", urma_tp_type_en_to_string(ubep->dev_attr.dev_cap.priority_info[i].tp_type));
+
+    for (int row = 0; row < (int)(sizeof(tp_rows) / sizeof(tp_rows[0])); ++row) {
+        printf(row == 0 ? " tp_type  :" : "           ");
+        for (int i = 0; i < URMA_MAX_PRIORITY_CNT; ++i) {
+            printf("%5s", (ubep->dev_attr.dev_cap.priority_info[i].tp_type.value & tp_rows[row].mask)
+                          ? tp_rows[row].name : "");
+        }
+        printf("\n");
     }
-    printf("\n");
 }
 
 static void print_ubep_whole_info(admin_show_ubep_t *ubep, int *index, const admin_config_t *cfg)

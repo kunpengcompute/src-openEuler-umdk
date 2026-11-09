@@ -13,7 +13,6 @@ Build-Depends:
     libglib2.0-dev,
     libnl-3-dev,
     libnl-genl-3-dev,
-    linux-headers-generic,
     systemd
 Standards-Version: 4.6.2
 Homepage: https://atomgit.com/openeuler/umdk

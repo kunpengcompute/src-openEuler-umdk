@@ -24,11 +24,12 @@
 #include "bondp_context_table.h"
 #include "bondp_dp_failback.h"
 #include "bondp_dp_health.h"
+#include "bondp_dp_rnr_retry.h"
 #include "bondp_hash_table.h"
 #include "bondp_types.h"
 #include "urma_ubagg.h"
 
-#include "bondp_api.h"
+#include "bondp_cp_jetty.h"
 
 typedef struct bondp_create_vjetty_udata {
     urma_jetty_id_t slave_id[URMA_UBAGG_DEV_MAX_NUM];
@@ -76,23 +77,46 @@ static void bondp_uninit_connection_table(bondp_comp_t *bdp_comp)
     bondp_hash_table_destroy(&bdp_comp->v_conn_table);
 }
 
-static int bondp_init_wr_buf(const bondp_comp_t *bdp_comp, wr_buf_t *wr_buf, uint32_t depth,
-                             uint32_t max_sge, uint32_t max_rsge, bool is_send)
+static int bondp_init_wr_buf(bondp_comp_t *bdp_comp, wr_buf_t *wr_buf, uint32_t depth, bool is_send)
 {
     if (bdp_comp->bondp_ctx->bonding_mode == BONDP_BONDING_MODE_STANDALONE) {
         return 0;
     }
 
-    // Send: 1 wr_buf entry per WR regardless of port count; recv: all ports need entries for failover
-    uint32_t port_cnt = is_send
-                            ? 1
-                            : bdp_comp->enabled_count;
-    return wr_buf_init(wr_buf, depth * port_cnt, max_sge, max_rsge, is_send);
+    if (!is_send && !bdp_comp->bondp_ctx->msn_enable) {
+        return 0;
+    }
+
+    if (is_send) {
+        return jfs_wr_buf_init(wr_buf, depth, bdp_comp->max_send_sge, bdp_comp->max_send_rsge);
+    }
+    return jfr_wr_buf_init(wr_buf, depth * bdp_comp->enabled_count, bdp_comp->max_recv_sge);
 }
 
 static void bondp_uninit_wr_buf(wr_buf_t *wr_buf)
 {
     wr_buf_uninit(wr_buf);
+}
+
+static uint32_t bondp_get_jfs_max_sge(const bondp_context_t *bdp_ctx, const urma_jfs_cfg_t *cfg)
+{
+    uint32_t max_sge = bdp_ctx->v_ctx.dev->sysfs_dev->dev_attr.dev_cap.max_jfs_sge;
+    max_sge = cfg->max_sge != 0 ? cfg->max_sge : max_sge;
+    return max_sge > BONDP_MAX_SGE_NUM ? BONDP_MAX_SGE_NUM : max_sge;
+}
+
+static uint32_t bondp_get_jfs_max_rsge(const bondp_context_t *bdp_ctx, const urma_jfs_cfg_t *cfg)
+{
+    uint32_t max_sge = bdp_ctx->v_ctx.dev->sysfs_dev->dev_attr.dev_cap.max_jfs_rsge;
+    max_sge = cfg->max_rsge != 0 ? cfg->max_rsge : max_sge;
+    return max_sge > BONDP_MAX_SGE_NUM ? BONDP_MAX_SGE_NUM : max_sge;
+}
+
+static uint32_t bondp_get_jfr_max_sge(const bondp_context_t *bdp_ctx, const urma_jfr_cfg_t *cfg)
+{
+    uint32_t max_sge = bdp_ctx->v_ctx.dev->sysfs_dev->dev_attr.dev_cap.max_jfr_sge;
+    max_sge = cfg->max_sge != 0 ? cfg->max_sge : max_sge;
+    return max_sge > BONDP_MAX_SGE_NUM ? BONDP_MAX_SGE_NUM : max_sge;
 }
 
 static urma_jfc_t *bondp_get_effective_shared_jfc(const urma_jetty_cfg_t *jetty_cfg)
@@ -334,6 +358,60 @@ static int init_active_indices_ex(bondp_context_t *bdp_ctx,
                                   uint32_t active_indices[], uint32_t *active_count,
                                   const bondp_port_id_t *port_ids, uint32_t port_count);
 
+static int bondp_check_port_cfg_match(const bondp_context_t *bdp_ctx,
+                                      const uint32_t enabled_indices[], uint32_t enabled_count)
+{
+    if (!bdp_ctx->port_cfg_enable) {
+        /* No user_ctl config set; the caller's config is the source of truth. */
+        return 0;
+    }
+
+    if (enabled_count != bdp_ctx->port_cfg.enabled_count) {
+        URMA_LOG_ERR("Active port count=%u mismatches user_ctl enabled_count=%u.\n",
+                     enabled_count, bdp_ctx->port_cfg.enabled_count);
+        return -1;
+    }
+
+    for (uint32_t i = 0; i < enabled_count; ++i) {
+        bool found = false;
+        for (uint32_t j = 0; j < bdp_ctx->port_cfg.enabled_count; ++j) {
+            if (bdp_ctx->port_cfg.enabled_indices[j] == enabled_indices[i]) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            URMA_LOG_ERR("Active port index=%u not in user_ctl bonding port config.\n",
+                         enabled_indices[i]);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int bondp_check_port_chip_id_order(const bondp_context_t *bdp_ctx,
+                                          const bondp_port_id_t *port_ids, uint32_t port_count)
+{
+    if (!bdp_ctx->port_cfg_enable) {
+        return 0;
+    }
+
+    if (port_count != bdp_ctx->port_cfg.chip_id_count) {
+        URMA_LOG_ERR("Active port count=%u mismatches user_ctl chip_id_count=%u.\n",
+                     port_count, bdp_ctx->port_cfg.chip_id_count);
+        return -1;
+    }
+
+    for (uint32_t i = 0; i < port_count; ++i) {
+        if (port_ids[i].bs.chip_id != bdp_ctx->port_cfg.chip_id[i]) {
+            URMA_LOG_ERR("chip_id mismatch at index=%u, caller=%u, user_ctl=%u.\n",
+                         i, port_ids[i].bs.chip_id, bdp_ctx->port_cfg.chip_id[i]);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 urma_jfc_t *bondp_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
 {
     bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(ctx, bondp_context_t, v_ctx);
@@ -355,6 +433,10 @@ urma_jfc_t *bondp_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
             URMA_LOG_ERR("Invalid active port config, port_ids is NULL or port_count is 0.\n");
             goto FREE_JFC;
         }
+        if (bondp_check_port_chip_id_order(bdp_ctx, bdp_cfg->port_ids, bdp_cfg->port_count) != 0) {
+            URMA_LOG_ERR("Active port chip_id order mismatches user_ctl bonding port config.\n");
+            goto FREE_JFC;
+        }
         cfg_active_port_count = bdp_cfg->port_count;
         cfg_active_port_ids = bdp_cfg->port_ids;
     }
@@ -363,6 +445,11 @@ urma_jfc_t *bondp_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
                                bdp_jfc->active_indices, &bdp_jfc->active_count,
                                cfg_active_port_ids, cfg_active_port_count) != 0) {
         URMA_LOG_ERR("Failed to init active indices\n");
+        goto FREE_JFC;
+    }
+
+    if (bondp_check_port_cfg_match(bdp_ctx, bdp_jfc->enabled_indices, bdp_jfc->enabled_count) != 0) {
+        URMA_LOG_ERR("Active port config mismatches user_ctl bonding port config.\n");
         goto FREE_JFC;
     }
 
@@ -453,35 +540,64 @@ static inline int get_matrix_port_p_idx(int primary_idx, int port_idx)
     return primary_idx * PORT_EID_MAX_NUM_PER_DEV + port_idx + PRIMARY_EID_NUM;
 }
 
-static int convert_bond_port_id_to_active_index(const bondp_context_t *bdp_ctx, bondp_port_id_t port_id,
-                                                uint32_t *active_index)
+int convert_bond_port_id_to_active_index(const bondp_context_t *bdp_ctx, bondp_port_id_t port_id,
+                                         uint32_t *active_index)
 {
-    if (port_id.chip_id == 0 || port_id.chip_id > CHIP_NUM) {
-        URMA_LOG_ERR("Invalid primary chip_id=%u.\n", port_id.chip_id);
+    if (port_id.bs.chip_id == 0 || port_id.bs.chip_id > CHIP_NUM) {
+        URMA_LOG_ERR("Invalid primary chip_id=%u.\n", port_id.bs.chip_id);
         return -1;
     }
 
-    if (port_id.die_id != 1) {
-        URMA_LOG_ERR("Invalid port_id.die_id=%u.\n", port_id.die_id);
+    if (port_id.bs.die_id != 1) {
+        URMA_LOG_ERR("Invalid port_id.die_id=%u.\n", port_id.bs.die_id);
         return -1;
     }
 
-    if (port_id.port_idx == UINT8_MAX) {
-        *active_index = port_id.chip_id - 1;
+    if (port_id.bs.port_idx == UINT8_MAX) {
+        *active_index = port_id.bs.chip_id - 1;
+        if (bdp_ctx->p_ctxs[*active_index] == NULL) {
+            URMA_LOG_ERR("Primary eid has no live physical ctx, chip_id=%u, bonding_level=%d.\n",
+                         port_id.bs.chip_id, bdp_ctx->bonding_level);
+            return -1;
+        }
         return 0;
     }
 
-    if (port_id.port_idx > PORT_NUM) {
-        URMA_LOG_ERR("Invalid port_id.port_idx=%u.\n", port_id.port_idx);
+    if (port_id.bs.port_idx > PORT_NUM) {
+        URMA_LOG_ERR("Invalid port_id.port_idx=%u.\n", port_id.bs.port_idx);
         return -1;
     }
 
-    *active_index = (uint32_t)get_matrix_port_p_idx(port_id.chip_id - 1, port_id.port_idx);
+    *active_index = (uint32_t)get_matrix_port_p_idx(port_id.bs.chip_id - 1, port_id.bs.port_idx);
     if (*active_index >= (uint32_t)bdp_ctx->dev_num) {
         URMA_LOG_ERR("Invalid converted active index=%u.\n", *active_index);
         return -1;
     }
+    /* A primary EID only has a live p_ctx under IODIE bonding level and a port EID
+     * only under PORT level; reject ids addressing an empty p_ctxs slot here so
+     * callers fail early instead of at physical object creation. */
+    if (bdp_ctx->p_ctxs[*active_index] == NULL) {
+        URMA_LOG_ERR("Port eid has no live physical ctx, active_index=%u, bonding_level=%d, value=0x%x.\n",
+                     *active_index, bdp_ctx->bonding_level, port_id.value);
+        return -1;
+    }
     return 0;
+}
+
+/* Inverse of convert_bond_port_id_to_active_index. */
+bondp_port_id_t bondp_active_index_to_port_id(uint32_t active_index)
+{
+    bondp_port_id_t id = {0};
+    id.bs.die_id = 1;
+    if (active_index < (uint32_t)IODIE_NUM) {
+        id.bs.chip_id = (uint16_t)(active_index + 1);
+        id.bs.port_idx = UINT8_MAX;
+    } else {
+        uint32_t off = active_index - (uint32_t)IODIE_NUM;
+        id.bs.chip_id = (uint16_t)(off / PORT_EID_MAX_NUM_PER_DEV + 1);
+        id.bs.port_idx = (uint16_t)(off % PORT_EID_MAX_NUM_PER_DEV);
+    }
+    return id;
 }
 
 static int init_active_indices_ex(bondp_context_t *bdp_ctx,
@@ -508,7 +624,7 @@ static int init_active_indices_ex(bondp_context_t *bdp_ctx,
     for (uint32_t n = 0; n < port_count; ++n) {
         uint32_t active_index = 0;
         if (convert_bond_port_id_to_active_index(bdp_ctx, port_ids[n], &active_index) != 0) {
-            URMA_LOG_ERR("Invalid active port id, value=0x%lx.\n", port_ids[n].value);
+            URMA_LOG_ERR("Invalid active port id, value=0x%x.\n", port_ids[n].value);
             return -1;
         }
 
@@ -694,12 +810,21 @@ urma_jfs_t *bondp_create_jfs(urma_context_t *ctx, urma_jfs_cfg_t *cfg)
             URMA_LOG_ERR("Invalid active port config for jfs, port_ids is NULL or port_count is 0.\n");
             goto FREE_JFS;
         }
+        if (bondp_check_port_chip_id_order(bdp_ctx, bdp_cfg->port_ids, bdp_cfg->port_count) != 0) {
+            URMA_LOG_ERR("Active port chip_id order mismatches user_ctl bonding port config.\n");
+            goto FREE_JFS;
+        }
         cfg_active_port_count = bdp_cfg->port_count;
         cfg_active_port_ids = bdp_cfg->port_ids;
     }
 
     if (init_active_indices(bdp_ctx, bdp_jfs, cfg_active_port_ids, cfg_active_port_count) != 0) {
         URMA_LOG_ERR("Failed to init active indices\n");
+        goto FREE_JFS;
+    }
+
+    if (bondp_check_port_cfg_match(bdp_ctx, bdp_jfs->enabled_indices, bdp_jfs->enabled_count) != 0) {
+        URMA_LOG_ERR("Active port config mismatches user_ctl bonding port config.\n");
         goto FREE_JFS;
     }
 
@@ -722,13 +847,9 @@ urma_jfs_t *bondp_create_jfs(urma_context_t *ctx, urma_jfs_cfg_t *cfg)
         goto DEL_P_VJFS_ID;
     }
 
-    uint32_t cfg_max_sge = (cfg->max_sge == 0 || cfg->max_sge > BONDP_MAX_SGE_NUM)
-                               ? BONDP_MAX_SGE_NUM
-                               : cfg->max_sge;
-    uint32_t cfg_max_rsge = (cfg->max_rsge == 0 || cfg->max_rsge > BONDP_MAX_SGE_NUM)
-                                ? BONDP_MAX_SGE_NUM
-                                : cfg->max_rsge;
-    if (bondp_init_wr_buf(bdp_jfs, &bdp_jfs->send_wr_buf, cfg->depth, cfg_max_sge, cfg_max_rsge, true) != 0) {
+    bdp_jfs->max_send_sge = bondp_get_jfs_max_sge(bdp_ctx, cfg);
+    bdp_jfs->max_send_rsge = bondp_get_jfs_max_rsge(bdp_ctx, cfg);
+    if (bondp_init_wr_buf(bdp_jfs, &bdp_jfs->send_wr_buf, cfg->depth, true) != 0) {
         URMA_LOG_ERR("Failed to init jfs wr buf\n");
         goto UNINIT_CONNECTION_TABLE;
     }
@@ -770,14 +891,11 @@ urma_status_t bondp_delete_jfs(urma_jfs_t *jfs)
      */
     pthread_rwlock_wrlock(&bdp_ctx->p_vjetty_id_table.lock);
     atomic_store(&bdp_jfs->deleting, true);
+    /* Stop cached lookups before deciding whether only retry tasks hold refs. */
+    bondp_hash_table_inc_gen(&bdp_ctx->p_vjetty_id_table);
+    uint32_t retry_task_num = bondp_rnr_retry_pending_task_num(bdp_jfs);
     unsigned long use_cnt = atomic_load(&bdp_jfs->use_cnt.atomic_cnt);
-    if (use_cnt == 0) {
-        /* Invalidate fast-path cache */
-        bondp_hash_table_inc_gen(&bdp_ctx->p_vjetty_id_table);
-        /* Re-check */
-        use_cnt = atomic_load(&bdp_jfs->use_cnt.atomic_cnt);
-    }
-    if (use_cnt > 0) {
+    if (use_cnt > retry_task_num) {
         atomic_store(&bdp_jfs->deleting, false);
         pthread_rwlock_unlock(&bdp_ctx->p_vjetty_id_table.lock);
         URMA_LOG_ERR("Failed to delete jfs[%u], still in use. use_cnt=%lu\n", jfs_id, use_cnt);
@@ -791,7 +909,24 @@ urma_status_t bondp_delete_jfs(urma_jfs_t *jfs)
     */
     pthread_rwlock_unlock(&bdp_ctx->p_vjetty_id_table.lock);
 
+    /*
+     * RNR retry cancellation waits for the worker callback. Do it only after
+     * removing the jfs from the lookup table and releasing the table lock,
+     * because other callbacks on the same worker may need that lock.
+     */
+    int cancel_ret = bondp_rnr_retry_cancel_all(bdp_jfs);
+    if (cancel_ret != 0) {
+        URMA_LOG_WARN("Failed to cancel jfs[%u] RNR retry tasks, ret=%d\n", jfs_id, cancel_ret);
+    }
+    use_cnt = atomic_load(&bdp_jfs->use_cnt.atomic_cnt);
+    if (use_cnt > 0) {
+        URMA_LOG_ERR("Failed to delete jfs[%u], RNR retry tasks still in use. use_cnt=%lu\n",
+                     jfs_id, use_cnt);
+        return URMA_EAGAIN;
+    }
+
     bondp_uninit_connection_table(bdp_jfs);
+    /* Drop all outstanding WRs and their target jetty/segment references. */
     bondp_uninit_wr_buf(&bdp_jfs->send_wr_buf);
 
     if (bondp_delete_vjfs(bdp_jfs) != URMA_SUCCESS) {
@@ -984,12 +1119,21 @@ urma_jfr_t *bondp_create_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg)
             URMA_LOG_ERR("Invalid active port config, port_ids is NULL or port_count is 0.\n");
             goto FREE_JFR;
         }
+        if (bondp_check_port_chip_id_order(bdp_ctx, bdp_cfg->port_ids, bdp_cfg->port_count) != 0) {
+            URMA_LOG_ERR("Active port chip_id order mismatches user_ctl bonding port config.\n");
+            goto FREE_JFR;
+        }
         cfg_active_port_count = bdp_cfg->port_count;
         cfg_active_port_ids = bdp_cfg->port_ids;
     }
 
     if (init_active_indices(bdp_ctx, bdp_jfr, cfg_active_port_ids, cfg_active_port_count) != 0) {
         URMA_LOG_ERR("Failed to init active indices\n");
+        goto FREE_JFR;
+    }
+
+    if (bondp_check_port_cfg_match(bdp_ctx, bdp_jfr->enabled_indices, bdp_jfr->enabled_count) != 0) {
+        URMA_LOG_ERR("Active port config mismatches user_ctl bonding port config.\n");
         goto FREE_JFR;
     }
 
@@ -1012,11 +1156,8 @@ urma_jfr_t *bondp_create_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg)
         goto DEL_P_VJFR_ID;
     }
 
-    uint32_t cfg_max_sge = (cfg->max_sge == 0 || cfg->max_sge > BONDP_MAX_SGE_NUM)
-                               ? BONDP_MAX_SGE_NUM
-                               : cfg->max_sge;
-    if (bdp_ctx->msn_enable &&
-        bondp_init_wr_buf(bdp_jfr, &bdp_jfr->recv_wr_buf, cfg->depth, cfg_max_sge, cfg_max_sge, false) != 0) {
+    bdp_jfr->max_recv_sge = bondp_get_jfr_max_sge(bdp_ctx, cfg);
+    if (bondp_init_wr_buf(bdp_jfr, &bdp_jfr->recv_wr_buf, cfg->depth, false) != 0) {
         URMA_LOG_ERR("Failed to init jfr wr buf\n");
         goto UNINIT_JFR_CONNECTION_TABLE;
     }
@@ -1126,9 +1267,6 @@ urma_status_t bondp_modify_jfr(urma_jfr_t *jfr, urma_jfr_attr_t *attr)
     @param[out]attr->rx_threshold:urma_query_jfr returns the smaller value if two are returned; returns the value
     directly if only one is returned; returns zero if neither is returned.
 
-    @param[out]attr->mask:Use bits to indicate whether the aforementioned two values are valid. The state remains
-    valid at all times, whereas rx_threshold requires processing based on the return value of urma_query_jfr.
-
     @param[out]cfg:Directly assign jfr_cfg to v_jfr
 */
 urma_status_t bondp_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_attr_t *attr)
@@ -1137,14 +1275,16 @@ urma_status_t bondp_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_att
     bondp_comp_t *bdp_jfr = CONTAINER_OF_FIELD(jfr, bondp_comp_t, v_jfr);
     int cmp_threshold = UINT32_MAX;
     bool isready = false;
+    bool has_member = false;
     /*
-    The sequential traversal from 0 to 2 is because JFR currently only supports multi-path configuration,
-    hence it is only necessary to traverse the JFR corresponding to the primary EID.
+    p_jfr[] is sparsely indexed by enabled_indices, which can reach URMA_UBAGG_DEV_MAX_NUM
+    in port-level bonding. Scan the full range with a NULL check, as bondp_delete_pjfr does.
     */
-    for (int i = 0; i < IODIE_NUM; i++) {
+    for (int i = 0; i < URMA_UBAGG_DEV_MAX_NUM; i++) {
         if (bdp_jfr->p_jfr[i] == NULL) {
             continue;
         }
+        has_member = true;
         ret = urma_query_jfr(bdp_jfr->p_jfr[i], cfg, attr);
         if (ret == URMA_SUCCESS) {
             /*
@@ -1153,10 +1293,10 @@ urma_status_t bondp_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_att
             2. Both return values are different and one is ready.
             3. Both return values are different and neither is ready.
             */
-            if ((attr->mask & JFR_STATE) && attr->state == URMA_JFR_STATE_READY) {
+            if (attr->state == URMA_JFR_STATE_READY) {
                 isready = true;
             }
-            if ((attr->mask & JFR_RX_THRESHOLD) && attr->rx_threshold != 0) {
+            if (attr->rx_threshold != 0) {
                 cmp_threshold = cmp_threshold > attr->rx_threshold ? attr->rx_threshold : cmp_threshold;
             }
         } else {
@@ -1167,15 +1307,17 @@ urma_status_t bondp_query_jfr(urma_jfr_t *jfr, urma_jfr_cfg_t *cfg, urma_jfr_att
             return ret;
         }
     }
+    if (!has_member) {
+        URMA_LOG_ERR("no physical jfr on v_jfr, jfr_id=%u\n", bdp_jfr->v_jfr.jfr_id.id);
+        return URMA_EINVAL;
+    }
     if (isready) {
         attr->state = URMA_JFR_STATE_READY;
     }
     if (cmp_threshold != UINT32_MAX) {
         attr->rx_threshold = cmp_threshold;
-        attr->mask = JFR_STATE | JFR_RX_THRESHOLD;
     } else {
         attr->rx_threshold = 0;
-        attr->mask = JFR_STATE;
     }
     *cfg = bdp_jfr->v_jfr.jfr_cfg;
     return URMA_SUCCESS;
@@ -1259,8 +1401,8 @@ static int bondp_delete_vjetty(bondp_comp_t *bdp_jetty)
 
     ref_cnt = atomic_load(&(bdp_jetty->use_cnt.atomic_cnt));
 
-    URMA_LOG_INFO("bondp delete, v_jetty id is %u, modify_to err is %d, vjetty_use_cnt is %lu.\n",
-                  bdp_jetty->v_jetty.jetty_id.id, bdp_jetty->modify_to_error, ref_cnt);
+    URMA_LOG_DEBUG("Deleting vjetty, jetty_id=%u, modify_to_error=%d, use_cnt=%lu.\n",
+                   bdp_jetty->v_jetty.jetty_id.id, bdp_jetty->modify_to_error, ref_cnt);
     return urma_cmd_delete_jetty(&bdp_jetty->v_jetty);
 }
 
@@ -1272,11 +1414,11 @@ static int bondp_delete_pjetty(bondp_comp_t *bdp_jetty)
             continue;
         }
 
-        URMA_LOG_DEBUG("bondp delete, p_jetty id is %u.\n",
-                       bdp_jetty->p_jetty[i]->jetty_id.id);
+        URMA_LOG_DEBUG("Deleting pjetty, idx=%d, jetty_id=%u.\n",
+                       i, bdp_jetty->p_jetty[i]->jetty_id.id);
         int p_ret = urma_delete_jetty(bdp_jetty->p_jetty[i]);
         if (p_ret != 0) {
-            URMA_LOG_ERR("Failed to delete pjetty %d, ret=%d.\n", i, ret);
+            URMA_LOG_ERR("Failed to delete pjetty, idx=%d, ret=%d.\n", i, p_ret);
             ret = p_ret;
         }
         bdp_jetty->p_jetty[i] = NULL;
@@ -1296,8 +1438,8 @@ static int bondp_add_jetty_p_vjetty_id_info(bondp_context_t *bdp_ctx, bondp_comp
                                                          jetty_id, bdp_jetty);
         if (ret == BONDP_HASH_MAP_COLLIDE_ERROR &&
             jetty_id > 0 && jetty_id < BONDP_MAX_WELL_KNOWN_JETTY_ID) {
-            URMA_LOG_INFO("Add repeated wk-jetty id[%d]: ret=%d, p_jetty_id=%u, v_jetty_id=%u\n",
-                          i, ret, pjetty_id.id, jetty_id);
+            URMA_LOG_DEBUG("Add repeated wk-jetty id[%d]: ret=%d, p_jetty_id=%u, v_jetty_id=%u\n",
+                           i, ret, pjetty_id.id, jetty_id);
         } else if (ret != 0) {
             URMA_LOG_ERR("Failed to add p_vjetty_id[%d]: ret=%d, p_jetty_id=%u, v_jetty_id=%u\n",
                          i, ret, pjetty_id.id, jetty_id);
@@ -1367,6 +1509,11 @@ urma_jetty_t *bondp_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *jetty_cf
     atomic_init(&bdp_jetty->deleting, false);
     (void)pthread_spin_init(&bdp_jetty->send_lock, PTHREAD_PROCESS_PRIVATE);
     bdp_jetty->modify_to_error = false;
+    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; i++) {
+        for (uint32_t j = 0; j < URMA_UBAGG_DEV_MAX_NUM; j++) {
+            atomic_init(&bdp_jetty->sqe_cnt[i][j], 0);
+        }
+    }
 
     const bondp_port_id_t *cfg_active_port_ids = NULL;
     uint32_t cfg_active_port_count = 0;
@@ -1376,12 +1523,34 @@ urma_jetty_t *bondp_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *jetty_cf
             URMA_LOG_ERR("Invalid active port config for jetty, port_ids is NULL or port_count is 0\n");
             goto FREE_JETTY;
         }
+        if (bondp_check_port_chip_id_order(bdp_ctx, bdp_cfg->port_ids, bdp_cfg->port_count) != 0) {
+            URMA_LOG_ERR("Active port chip_id order mismatches user_ctl bonding port config.\n");
+            goto FREE_JETTY;
+        }
         cfg_active_port_count = bdp_cfg->port_count;
         cfg_active_port_ids = bdp_cfg->port_ids;
     }
 
     if (init_active_indices(bdp_ctx, bdp_jetty, cfg_active_port_ids, cfg_active_port_count) != 0) {
         URMA_LOG_ERR("Failed to init active indices\n");
+        goto FREE_JETTY;
+    }
+
+    /* bondp_hc_start creates the probe jettys and schedules the probe task.
+     * Hold ctx->mutex to serialize with bondp_hc_uninit: both
+     * bondp_delete_context and bondp_set_bonding_mode tear the health check
+     * down under this mutex, so without it a concurrent uninit could delete
+     * the same probe jettys hc_start is creating (double delete). */
+    (void)pthread_mutex_lock(&ctx->mutex);
+    int hc_ret = bondp_hc_start(bdp_ctx, jetty_cfg->jfs_cfg.priority);
+    (void)pthread_mutex_unlock(&ctx->mutex);
+    if (hc_ret != 0) {
+        URMA_LOG_ERR("Failed to start health check\n");
+        goto FREE_JETTY;
+    }
+
+    if (bondp_check_port_cfg_match(bdp_ctx, bdp_jetty->enabled_indices, bdp_jetty->enabled_count) != 0) {
+        URMA_LOG_ERR("Active port config mismatches user_ctl bonding port config.\n");
         goto FREE_JETTY;
     }
 
@@ -1405,14 +1574,9 @@ urma_jetty_t *bondp_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *jetty_cf
         goto DEL_P_VJETTY_ID;
     }
 
-    uint32_t cfg_max_sge = (jetty_cfg->jfs_cfg.max_sge == 0 || jetty_cfg->jfs_cfg.max_sge > BONDP_MAX_SGE_NUM)
-                               ? BONDP_MAX_SGE_NUM
-                               : jetty_cfg->jfs_cfg.max_sge;
-    uint32_t cfg_max_rsge = (jetty_cfg->jfs_cfg.max_rsge == 0 || jetty_cfg->jfs_cfg.max_rsge > BONDP_MAX_SGE_NUM)
-                                ? BONDP_MAX_SGE_NUM
-                                : jetty_cfg->jfs_cfg.max_rsge;
-    if (bondp_init_wr_buf(bdp_jetty, &bdp_jetty->send_wr_buf, jetty_cfg->jfs_cfg.depth,
-                          cfg_max_sge, cfg_max_rsge, true) != 0) {
+    bdp_jetty->max_send_sge = bondp_get_jfs_max_sge(bdp_ctx, &jetty_cfg->jfs_cfg);
+    bdp_jetty->max_send_rsge = bondp_get_jfs_max_rsge(bdp_ctx, &jetty_cfg->jfs_cfg);
+    if (bondp_init_wr_buf(bdp_jetty, &bdp_jetty->send_wr_buf, jetty_cfg->jfs_cfg.depth, true) != 0) {
         URMA_LOG_ERR("Failed to init jetty send wr buf\n");
         goto UNINIT_JETTY_CONNECTION_TABLE;
     }
@@ -1449,6 +1613,7 @@ urma_status_t bondp_delete_jetty(urma_jetty_t *jetty)
     bondp_comp_t *bdp_jetty = CONTAINER_OF_FIELD(jetty, bondp_comp_t, base);
     bondp_context_t *bdp_ctx = CONTAINER_OF_FIELD(jetty->urma_ctx, bondp_context_t, v_ctx);
     urma_status_t ret = URMA_SUCCESS;
+    uint32_t jetty_id = jetty->jetty_id.id;
     /* When creating bondp_jetty, jetty_cfg.shared.jfr has been validated and is non-null. */
     bondp_comp_t *bdp_jfr = CONTAINER_OF_FIELD(jetty->jetty_cfg.shared.jfr, bondp_comp_t, v_jfr);
     bondp_jfc_t *bdp_jfc = NULL;
@@ -1465,17 +1630,14 @@ urma_status_t bondp_delete_jetty(urma_jetty_t *jetty)
     */
     pthread_rwlock_wrlock(&bdp_ctx->p_vjetty_id_table.lock);
     atomic_store(&bdp_jetty->deleting, true);
+    /* Stop cached lookups before deciding whether only retry tasks hold refs. */
+    bondp_hash_table_inc_gen(&bdp_ctx->p_vjetty_id_table);
+    uint32_t retry_task_num = bondp_rnr_retry_pending_task_num(bdp_jetty);
     unsigned long use_cnt = atomic_load(&bdp_jetty->use_cnt.atomic_cnt);
-    if (use_cnt == 0) {
-        /* Invalidate fast-path cache */
-        bondp_hash_table_inc_gen(&bdp_ctx->p_vjetty_id_table);
-        /* Re-check */
-        use_cnt = atomic_load(&bdp_jetty->use_cnt.atomic_cnt);
-    }
-    if (use_cnt > 0) {
+    if (use_cnt > retry_task_num) {
         atomic_store(&bdp_jetty->deleting, false);
         pthread_rwlock_unlock(&bdp_ctx->p_vjetty_id_table.lock);
-        URMA_LOG_ERR("Failed to delete jetty[%d], still in use. use_cnt=%lu\n", jetty->jetty_id.id, use_cnt);
+        URMA_LOG_ERR("Failed to delete jetty[%u], still in use. use_cnt=%lu\n", jetty_id, use_cnt);
         return URMA_EAGAIN;
     }
     bondp_del_jetty_p_vjetty_info_without_lock(bdp_jetty);
@@ -1485,8 +1647,27 @@ urma_status_t bondp_delete_jetty(urma_jetty_t *jetty)
     ! thus allowing us to directly execute the deletion process.
     */
     pthread_rwlock_unlock(&bdp_ctx->p_vjetty_id_table.lock);
-    bondp_fb_cancel_tasks(bdp_ctx, jetty->jetty_id.id);
+
+    /*
+     * RNR retry cancellation waits for the worker callback. Do it only after
+     * removing the jetty from the lookup table and releasing the table lock,
+     * because other callbacks on the same worker may need that lock.
+     */
+    int cancel_ret = bondp_rnr_retry_cancel_all(bdp_jetty);
+    if (cancel_ret != 0) {
+        URMA_LOG_WARN("Failed to cancel jetty[%u] RNR retry tasks, ret=%d\n",
+                      jetty_id, cancel_ret);
+    }
+    use_cnt = atomic_load(&bdp_jetty->use_cnt.atomic_cnt);
+    if (use_cnt > 0) {
+        URMA_LOG_ERR("Failed to delete jetty[%u], RNR retry tasks still in use. use_cnt=%lu\n",
+                     jetty_id, use_cnt);
+        return URMA_EAGAIN;
+    }
+
+    bondp_fb_cancel_tasks(bdp_ctx, jetty_id);
     bondp_uninit_connection_table(bdp_jetty);
+    /* Drop all outstanding WRs and their target jetty/segment references. */
     bondp_uninit_wr_buf(&bdp_jetty->send_wr_buf);
     if (bondp_delete_vjetty(bdp_jetty) != URMA_SUCCESS) {
         URMA_LOG_ERR("Failed to delete vjetty\n");

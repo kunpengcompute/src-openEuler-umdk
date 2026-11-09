@@ -35,9 +35,13 @@ typedef struct umq_ub_jetty_node_list {
     jetty_pool_node_t **node_list;
     uint32_t list_len;
     urpc_bitmap_t bitmap;
+    // Compact array of occupied slot ids: append on create, memmove-compact on destroy. Lets the
+    // data-plane poll iterate live nodes in O(valid_cnt) instead of scanning the 64K-bit bitmap.
+    uint16_t *valid_idx;
+    uint32_t valid_cnt;                   // number of entries in valid_idx
     volatile uint32_t ref_cnt;
-    volatile uint32_t next_poll_idx;
-    util_external_mutex_lock *lock;       // serializes bitmap + node_list slot mutation (create/destroy)
+    volatile uint32_t next_poll_idx;      // round-robin cursor in valid_idx space [0, valid_cnt)
+    util_external_mutex_lock *lock;       // serializes bitmap + node_list + valid_idx mutation (create/destroy)
 } umq_ub_jetty_node_list_t;
 
 // Jetty pool configuration
@@ -68,7 +72,7 @@ void umq_ub_jetty_pool_put_free_node(jetty_pool_node_t *node);
 int umq_ub_jetty_node_add(jetty_pool_node_t *node);
 int umq_ub_jetty_node_remove(jetty_pool_node_t *node);
 jetty_pool_node_t *umq_ub_jetty_node_alloc(void);
-int umq_ub_jetty_node_free(jetty_pool_node_t *node);
+int umq_ub_jetty_node_free(jetty_pool_node_t *node, bool should_report_event);
 int umq_ub_jetty_pool_get_eventfd(void);
 // Register a jetty-availability callback; returns the node (pass to unregister later) or NULL.
 umq_ub_jetty_avail_cb_node_t *umq_ub_jetty_pool_register_avail_cb(umq_ub_jetty_avail_cb_t cb, void *user_data);
@@ -79,6 +83,7 @@ bool umq_ub_jetty_pool_has_avail(void);
 umq_ub_jetty_node_list_t *umq_ub_jetty_pool_get_jetty_node_list(void);
 uint32_t umq_ub_jetty_pool_put_jetty_node_list(umq_ub_jetty_node_list_t *jetty_node_list);
 void umq_ub_jetty_node_mark_err(jetty_pool_node_t *node);
+int umq_ub_jetty_node_modify_err_and_to_relay(jetty_pool_node_t *node);
 
 // Enforce that a main umq's tx_depth and tx_buf_size match the jetty pool baseline.
 // The first main+share_transport umq to call establishes the baseline; every subsequent caller must match it

@@ -17,8 +17,9 @@
 #include "urma_api.h"
 #include "urma_log.h"
 
-#include "bondp_topo_info.h"
+#include "bondp_context_table.h"
 #include "bondp_cp_tjetty.h"
+#include "bondp_topo_info.h"
 #include "bondp_types.h"
 #include "bondp_worker.h"
 
@@ -26,11 +27,8 @@
 
 #define HC_CQE_BATCH         (8)
 #define HC_PROBE_BUF_LEN     (1)
-#define HC_PROBE_DEPTH       (1024)
-/* Stop posting probes when a local probe SQ has this many outstanding WRs,
- * leaving headroom so a batch cannot overflow the SQ (depth HC_PROBE_DEPTH) and
- * wedge urma_post_jetty_send_wr into ENOMEM. */
-#define HC_PROBE_INFLIGHT_HI (HC_PROBE_DEPTH)
+#define HC_PROBE_QUEUE_DEPTH (1024)
+#define HC_PATH_INIT_CAP     (8)
 /* ummu_grant requires page-aligned VA and a length multiple of the page size.
  * The probe payload is only HC_PROBE_BUF_LEN bytes, but the registered segment
  * must cover a full page; the data path keeps its 1-byte sge length. */
@@ -39,15 +37,18 @@
 typedef struct bondp_hc_ctx bondp_hc_ctx_t;
 
 typedef struct bondp_probe_res {
-    bondp_hc_ctx_t *hc_ctx;
     int local_idx;
     void *buf;
-    urma_jfce_t *jfce;
     urma_jfc_t *jfc;
     urma_jfr_t *jfr;
     urma_target_seg_t *seg;
+    /* No lock needed for the jetty pointer: while the probe task is alive it
+     * is only written by the single worker thread (rebuild). The start paths
+     * (hc_create_probe_jettys / hc_destroy_probe_jettys) and uninit
+     * (hc_destroy_probe_resource) are serialized against the worker by
+     * ctx->mutex plus bondp_worker_cancel's wait-for-task-completion
+     * semantics, and against each other by ctx->mutex. */
     urma_jetty_t *jetty;
-    int jfce_fd;
     /* Number of probe WRs posted but not yet completed. Only touched on the
      * single worker thread, so a plain counter is safe. Used to stop posting
      * when the probe SQ nears capacity, otherwise urma_post_jetty_send_wr
@@ -55,26 +56,36 @@ typedef struct bondp_probe_res {
     uint32_t inflight;
 } bondp_probe_res_t;
 
+typedef struct bondp_hc_path {
+    struct bondp_target_jetty *tjetty;
+    urma_target_seg_t *tseg;
+#ifndef __cplusplus
+    atomic_bool valid;
+#else
+    std::atomic_bool valid;
+#endif
+    uint8_t local_idx;
+    uint8_t target_idx;
+    uint8_t no_cqe_round;
+    bool probe_checked;
+} bondp_hc_path_t;
+
 typedef struct bondp_hc_node {
     uint32_t node_idx;
-
-#ifndef __cplusplus
-    atomic_bool valid[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
-#else
-    std::atomic_bool valid[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
-#endif
-
-    pthread_rwlock_t lock; /* Protects tjetty_list and hc_tjetty */
-    struct bondp_target_jetty *hc_tjetty[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
+    uint16_t path_cnt;
+    uint16_t path_cap;
+    pthread_rwlock_t lock;
     struct ub_list tjetty_list;
-    bool probe_checked[URMA_UBAGG_DEV_MAX_NUM][URMA_UBAGG_DEV_MAX_NUM];
+    bondp_hc_path_t *paths;
 } bondp_hc_node_t;
 
 /* Per-context health-check context */
 struct bondp_hc_ctx {
     bondp_hc_cfg_t cfg;
+    uint8_t priority;
     bondp_probe_res_t probes[URMA_UBAGG_DEV_MAX_NUM];
     atomic_uint_fast64_t probe_task_id;
+    atomic_bool started;    /* Probe jettys and task are started lazily by bondp_hc_start */
     atomic_bool stopping;   /* Set by uninit to stop the probe task from rescheduling */
     uint32_t probe_cur_idx; /* Current polling position for batched node probing */
     uint32_t node_num;
@@ -99,14 +110,58 @@ static inline void hc_decode_user_ctx(uint64_t user_ctx, uint32_t *node_idx, uin
     *target_idx = (uint32_t)user_ctx;
 }
 
+static bondp_hc_path_t *hc_find_path(bondp_hc_node_t *node, uint32_t local_idx, uint32_t target_idx)
+{
+    for (uint32_t i = 0; i < node->path_cnt; ++i) {
+        if (node->paths[i].local_idx == (uint8_t)local_idx &&
+            node->paths[i].target_idx == (uint8_t)target_idx) {
+            return &node->paths[i];
+        }
+    }
+    return NULL;
+}
+
+static bondp_hc_path_t *hc_append_path(bondp_hc_node_t *node, uint8_t local_idx, uint8_t target_idx)
+{
+    if (node->path_cnt >= node->path_cap) {
+        uint16_t new_cap = (node->path_cap == 0) ? HC_PATH_INIT_CAP
+                                                 : (uint16_t)(node->path_cap * 2);
+        new_cap = MIN(new_cap, URMA_UBAGG_MAX_CONNECTION);
+        if (node->path_cnt >= new_cap) {
+            return NULL;
+        }
+        bondp_hc_path_t *paths = (bondp_hc_path_t *)calloc(new_cap, sizeof(*paths));
+        if (paths == NULL) {
+            return NULL;
+        }
+        if (node->paths != NULL) {
+            (void)memcpy(paths, node->paths, (size_t)node->path_cnt * sizeof(*paths));
+            free(node->paths);
+        }
+        node->paths = paths;
+        node->path_cap = new_cap;
+    }
+
+    bondp_hc_path_t *path = &node->paths[node->path_cnt++];
+    path->tjetty = NULL;
+    path->tseg = NULL;
+    atomic_store(&path->valid, true);
+    path->local_idx = local_idx;
+    path->target_idx = target_idx;
+    path->no_cqe_round = 0;
+    path->probe_checked = false;
+    return path;
+}
+
 static urma_jetty_t *hc_create_probe_jetty(urma_context_t *p_ctx, urma_jfc_t *jfc,
-                                           urma_jfr_t *jfr, int local_idx)
+                                           urma_jfr_t *jfr, int local_idx, uint8_t priority)
 {
     urma_jetty_cfg_t p_cfg = {
         .flag = {.bs = {.share_jfr = URMA_SHARE_JFR}},
         .jfs_cfg = {
-            .depth = HC_PROBE_DEPTH,
+            .depth = HC_PROBE_QUEUE_DEPTH,
             .trans_mode = URMA_TM_RM,
+            .priority = priority,
             .max_sge = 1,
             .rnr_retry = URMA_TYPICAL_RNR_RETRY,
             .err_timeout = 0,
@@ -123,11 +178,14 @@ static urma_jetty_t *hc_create_probe_jetty(urma_context_t *p_ctx, urma_jfc_t *jf
     return jetty;
 }
 
-static void hc_rebuild_probe_jetty(bondp_probe_res_t *res)
+static void hc_rebuild_probe_jetty(bondp_hc_ctx_t *hc_ctx, bondp_probe_res_t *res)
 {
     int local_idx = res->local_idx;
     if (res->jfc == NULL || res->jfc->urma_ctx == NULL || res->jfr == NULL) {
         URMA_LOG_ERR("Invalid health probe resource for jetty rebuild, local_idx=%d.\n", local_idx);
+        return;
+    }
+    if (res->jetty == NULL) {
         return;
     }
 
@@ -137,23 +195,40 @@ static void hc_rebuild_probe_jetty(bondp_probe_res_t *res)
         .state = URMA_JETTY_STATE_ERROR,
     };
 
-    if (res->jetty != NULL) {
-        urma_status_t ret = urma_modify_jetty(res->jetty, &attr);
-        if (ret != URMA_SUCCESS) {
-            URMA_LOG_WARN("Failed to modify health probe jetty to error, local_idx=%d, ret=%d.\n",
-                          local_idx, ret);
-        }
-        ret = urma_delete_jetty(res->jetty);
-        if (ret != URMA_SUCCESS) {
-            URMA_LOG_ERR("Failed to delete old health probe jetty, local_idx=%d, ret=%d.\n",
-                         local_idx, ret);
-            return;
-        }
-        res->jetty = NULL;
+    urma_status_t ret = urma_modify_jetty(res->jetty, &attr);
+    if (ret != URMA_SUCCESS) {
+        URMA_LOG_WARN("Failed to modify health probe jetty to error, local_idx=%d, ret=%d.\n",
+                      local_idx, ret);
     }
+    ret = urma_delete_jetty(res->jetty);
+    if (ret != URMA_SUCCESS) {
+        URMA_LOG_ERR("Failed to delete old health probe jetty, local_idx=%d, ret=%d.\n",
+                     local_idx, ret);
+        return;
+    }
+    res->jetty = NULL;
     res->inflight = 0; /* The old SQ is gone; its outstanding WRs are flushed. */
 
-    res->jetty = hc_create_probe_jetty(p_ctx, res->jfc, res->jfr, local_idx);
+    for (uint32_t i = 0; i < hc_ctx->node_num; ++i) {
+        bondp_hc_node_t *node = &hc_ctx->nodes[i];
+
+        pthread_rwlock_wrlock(&node->lock);
+        for (uint32_t p = 0; p < node->path_cnt; ++p) {
+            if (node->paths[p].local_idx == (uint8_t)local_idx) {
+                node->paths[p].no_cqe_round = 0;
+            }
+        }
+        pthread_rwlock_unlock(&node->lock);
+    }
+
+    /* Don't recreate if uninit raced in; destroy thread will see NULL and skip. */
+    if (atomic_load(&hc_ctx->stopping)) {
+        return;
+    }
+    /* res->jetty is NULL here and rebuild runs only on the worker thread, so
+     * no other writer can race: uninit cancels (waits for) this task before
+     * destroying, and the start paths are serialized by ctx->mutex. */
+    res->jetty = hc_create_probe_jetty(p_ctx, res->jfc, res->jfr, local_idx, hc_ctx->priority);
     if (res->jetty == NULL) {
         URMA_LOG_ERR("Failed to rebuild health probe jetty, local_idx=%d.\n", local_idx);
     }
@@ -162,133 +237,167 @@ static void hc_rebuild_probe_jetty(bondp_probe_res_t *res)
 static void hc_set_tjetty_list_target_valid(bondp_hc_node_t *node, uint32_t local_idx, uint32_t target_idx)
 {
     bondp_target_jetty_t *bdp_tjetty = NULL;
+    uint32_t recovered_cnt = 0;
 
     pthread_rwlock_rdlock(&node->lock);
     UB_LIST_FOR_EACH (bdp_tjetty, hc_entry, &node->tjetty_list) {
         bondp_p_target_jetty_t *p_tjetty = bondp_find_p_tjetty(bdp_tjetty, local_idx, target_idx);
         if (p_tjetty != NULL) {
-            atomic_store(&p_tjetty->valid, true);
+            bool expected = false;
+            if (atomic_compare_exchange_strong(&p_tjetty->valid, &expected, true)) {
+                recovered_cnt++;
+            }
         }
     }
     pthread_rwlock_unlock(&node->lock);
+
+    if (recovered_cnt != 0) {
+        URMA_LOG_WARN("Path restored: target jettys recovered, node_idx=%u, "
+                      "path=[%u, %u], cnt=%u\n",
+                      node->node_idx, local_idx, target_idx, recovered_cnt);
+    }
 }
 
-static void hc_drain_probe_cq(bondp_probe_res_t *res)
+static void hc_set_local_idx_jettys_hc_valid(bondp_context_t *bdp_ctx, uint32_t local_idx)
 {
-    if (res == NULL || res->jfc == NULL || res->jfce == NULL) {
-        return;
-    }
-    int local_idx = res->local_idx;
-    bondp_hc_ctx_t *hc_ctx = res->hc_ctx;
-    if (hc_ctx == NULL || local_idx < 0 || local_idx >= URMA_UBAGG_DEV_MAX_NUM ||
-        res != &hc_ctx->probes[local_idx]) {
+    if (bdp_ctx == NULL || local_idx >= URMA_UBAGG_DEV_MAX_NUM) {
         return;
     }
 
-    urma_jfce_t *jfce = res->jfce;
-    urma_jfc_t *jfc = NULL;
-    int p_num = urma_wait_jfc(jfce, 1, 0, &jfc);
-    if (p_num < 0 || (p_num > 0 && jfc == NULL)) {
+    uint32_t ready_cnt = 0;
+    bdp_p_vjetty_id_t *item = NULL;
+
+    pthread_rwlock_rdlock(&bdp_ctx->p_vjetty_id_table.lock);
+    HMAP_FOR_EACH (item, hmap_node, &bdp_ctx->p_vjetty_id_table.hmap) {
+        bondp_comp_t *comp = item->comp;
+        if (item->key.type != JETTY || comp == NULL ||
+            comp->p_jetty[local_idx] == NULL) {
+            continue;
+        }
+        if (!atomic_exchange(&comp->rebuild_done[local_idx], false)) {
+            continue;
+        }
+        atomic_store(&comp->hc_valid[local_idx], true);
+        atomic_store(&comp->bondp_ctx->port_status_bad[local_idx], false);
+        ready_cnt++;
+    }
+    pthread_rwlock_unlock(&bdp_ctx->p_vjetty_id_table.lock);
+
+    if (ready_cnt != 0) {
+        URMA_LOG_WARN("Path ready: local jettys ready for failback, "
+                      "local_idx=%u, cnt=%u\n",
+                      local_idx, ready_cnt);
+    }
+}
+
+static void hc_process_probe_cr(bondp_hc_ctx_t *hc_ctx, int local_idx, const urma_cr_t *cr)
+{
+    uint32_t node_idx;
+    uint32_t target_idx;
+
+    hc_decode_user_ctx(cr->user_ctx, &node_idx, &target_idx);
+
+    if (node_idx >= hc_ctx->node_num) {
         return;
     }
-    if (p_num > 0) {
-        uint32_t nevents = (uint32_t)p_num;
-        urma_ack_jfc(&jfc, &nevents, 1);
-    } else {
-        jfc = res->jfc;
+    bondp_hc_node_t *node = &hc_ctx->nodes[node_idx];
+
+    if (target_idx >= URMA_UBAGG_DEV_MAX_NUM) {
+        return;
     }
+    bool ok = (cr->status == URMA_CR_SUCCESS);
+
+    /* paths may be replaced by a concurrent register (array growth), so the
+     * lookup must hold the read lock. Recovery helpers take the lock themselves
+     * and are called after unlocking to avoid recursive rdlock. */
+    pthread_rwlock_rdlock(&node->lock);
+    bondp_hc_path_t *path = hc_find_path(node, (uint32_t)local_idx, target_idx);
+    if (path == NULL) {
+        pthread_rwlock_unlock(&node->lock);
+        return;
+    }
+    bondp_target_jetty_t *bdp_tjetty = path->tjetty;
+    atomic_store(&path->valid, ok);
+    path->no_cqe_round = 0;
+    path->probe_checked = true;
+
+    bondp_context_t *bdp_ctx = NULL;
+    if (ok && bdp_tjetty != NULL) {
+        bdp_ctx = CONTAINER_OF_FIELD(bdp_tjetty->v_tjetty.urma_ctx, bondp_context_t, v_ctx);
+    }
+    pthread_rwlock_unlock(&node->lock);
+
+    if (ok) {
+        hc_set_tjetty_list_target_valid(node, (uint32_t)local_idx, target_idx);
+    }
+    if (bdp_ctx != NULL) {
+        hc_set_local_idx_jettys_hc_valid(bdp_ctx, (uint32_t)local_idx);
+    }
+}
+
+static void hc_poll_probe_cq(bondp_hc_ctx_t *hc_ctx, int local_idx)
+{
+    if (hc_ctx == NULL || local_idx < 0 || local_idx >= URMA_UBAGG_DEV_MAX_NUM) {
+        return;
+    }
+    bondp_probe_res_t *res = &hc_ctx->probes[local_idx];
+    if (res->jfc == NULL) {
+        return;
+    }
+
+    bool has_timeout_cqe = false;
     urma_cr_t cr[HC_CQE_BATCH];
-    bool need_rebuild = false;
-    uint32_t drained = 0;
 
     while (true) {
-        int n = urma_poll_jfc(jfc, HC_CQE_BATCH, cr);
+        int n = urma_poll_jfc(res->jfc, HC_CQE_BATCH, cr);
         if (n <= 0) {
             break;
         }
-        drained += (uint32_t)n;
-
-        for (int k = 0; k < n; k++) {
-            uint32_t node_idx;
-            uint32_t target_idx;
-
-            hc_decode_user_ctx(cr[k].user_ctx, &node_idx, &target_idx);
-
-            if (node_idx >= hc_ctx->node_num) {
-                continue;
+        for (int i = 0; i < n; i++) {
+            if (!has_timeout_cqe) {
+                hc_process_probe_cr(hc_ctx, local_idx, &cr[i]);
             }
-            bondp_hc_node_t *node = &hc_ctx->nodes[node_idx];
-
-            if (target_idx >= URMA_UBAGG_DEV_MAX_NUM) {
-                continue;
-            }
-            bool ok = (cr[k].status == URMA_CR_SUCCESS);
-            bondp_target_jetty_t *bdp_tjetty = node->hc_tjetty[local_idx][target_idx];
-            bool prev = true;
-            if (bdp_tjetty != NULL) {
-                const bondp_p_target_jetty_t *p_tjetty = bondp_find_p_tjetty_const(bdp_tjetty, local_idx, target_idx);
-                prev = (p_tjetty != NULL) ? atomic_load(&p_tjetty->valid) : true;
-            }
-            atomic_store(&node->valid[local_idx][target_idx], ok);
-            if (ok && !prev) {
-                hc_set_tjetty_list_target_valid(node, local_idx, target_idx);
-            }
-
-            node->probe_checked[local_idx][target_idx] = true;
-
-            if (cr[k].status == URMA_CR_ACK_TIMEOUT_ERR) { /* status 9 */
-                need_rebuild = true;
-                break;
+            if (cr[i].status == URMA_CR_ACK_TIMEOUT_ERR) { /* status 9 */
+                has_timeout_cqe = true;
             }
         }
+        if ((uint32_t)n > res->inflight) {
+            URMA_LOG_WARN("Health probe inflight underflow, local_idx=%d, inflight=%u, poll_cnt=%d.\n",
+                          local_idx, res->inflight, n);
+            res->inflight = 0;
+        } else {
+            res->inflight -= (uint32_t)n;
+        }
     }
-    if (drained >= res->inflight) {
-        res->inflight = 0;
-    } else {
-        res->inflight -= drained;
-    }
-
-    urma_status_t ret = urma_rearm_jfc(jfc, false);
-    if (ret != URMA_SUCCESS) {
-        URMA_LOG_WARN("Failed to rearm health probe jfc, local_idx=%d, ret=%d.\n", local_idx, ret);
-    }
-
-    if (need_rebuild) {
-        hc_rebuild_probe_jetty(res);
+    if (has_timeout_cqe) {
+        hc_rebuild_probe_jetty(hc_ctx, res);
     }
 }
 
-static void hc_jfce_handler(void *arg)
+static void hc_probe_link(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node, bondp_hc_path_t *path)
 {
-    /* The jfce fd fired: at least one CQE arrived since the last arm. Drain the
-     * CQ and re-arm. */
-    hc_drain_probe_cq((bondp_probe_res_t *)arg);
-}
-
-static void hc_probe_link(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node,
-                          int local_idx, int target_idx)
-{
-    if (hc_ctx == NULL || node == NULL ||
-        local_idx < 0 || local_idx >= URMA_UBAGG_DEV_MAX_NUM ||
-        target_idx < 0 || target_idx >= URMA_UBAGG_DEV_MAX_NUM) {
+    if (hc_ctx == NULL || node == NULL || path == NULL) {
         return;
     }
+    uint32_t local_idx = path->local_idx;
+    uint32_t target_idx = path->target_idx;
 
     bondp_probe_res_t *res = &hc_ctx->probes[local_idx];
     if (res->jetty == NULL || res->seg == NULL || res->buf == NULL) {
         return;
     }
 
-    /* Throttle: stop posting once the local probe SQ is close to capacity. The
-     * worker is single-threaded, so completions cannot be reaped while this
-     * batch is being posted; without throttling the SQ overflows and
-     * urma_post_jetty_send_wr returns ENOMEM. Remaining paths are picked up by
-     * the next firing after the CQ is drained. */
-    if (res->inflight >= HC_PROBE_INFLIGHT_HI) {
+    if (res->inflight >= HC_PROBE_QUEUE_DEPTH) {
+        return;
+    }
+    if (path->no_cqe_round != 0) {
+        if (path->no_cqe_round != UINT8_MAX) {
+            path->no_cqe_round++;
+        }
         return;
     }
 
-    bondp_target_jetty_t *bdp_tjetty = node->hc_tjetty[local_idx][target_idx];
+    bondp_target_jetty_t *bdp_tjetty = path->tjetty;
     if (bdp_tjetty == NULL) {
         return;
     }
@@ -299,7 +408,7 @@ static void hc_probe_link(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node,
     }
 
     urma_target_jetty_t *tjetty = p_tjetty->p_tjetty;
-    urma_target_seg_t *tseg = p_tjetty->p_check_tseg;
+    urma_target_seg_t *tseg = path->tseg;
     if (tjetty == NULL || tseg == NULL) {
         return;
     }
@@ -317,7 +426,7 @@ static void hc_probe_link(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node,
         .user_tseg = NULL,
     };
 
-    uint64_t user_ctx = hc_encode_user_ctx(node->node_idx, (uint32_t)target_idx);
+    uint64_t user_ctx = hc_encode_user_ctx(node->node_idx, target_idx);
 
     urma_jfs_wr_t wr = {
         .opcode = URMA_OPC_WRITE,
@@ -335,60 +444,41 @@ static void hc_probe_link(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node,
     urma_status_t ret = urma_post_jetty_send_wr(res->jetty, &wr, &bad_wr);
     if (ret == URMA_SUCCESS) {
         res->inflight++;
+        path->no_cqe_round = 1;
     } else {
-        URMA_LOG_WARN("Failed to send health probe, node_idx=%u, local_idx=%d, target_idx=%d, ret=%d.\n",
+        URMA_LOG_WARN("Failed to send health probe, node_idx=%u, local_idx=%u, target_idx=%u, ret=%d.\n",
                       node->node_idx, local_idx, target_idx, ret);
-        atomic_store(&node->valid[local_idx][target_idx], false);
+        atomic_store(&path->valid, false);
     }
 }
 
-static bool hc_probe_sq_has_room(bondp_hc_ctx_t *hc_ctx)
-{
-    /* Return true if at least one local probe SQ still has room for a new WR.
-     * Used to short-circuit the node scan once every local_idx is throttled. */
-    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-        if (hc_ctx->probes[i].jetty != NULL && hc_ctx->probes[i].inflight < HC_PROBE_INFLIGHT_HI) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void hc_probe_node(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node)
+static bool hc_probe_node(bondp_hc_ctx_t *hc_ctx, bondp_hc_node_t *node)
 {
     bool any_connected = false;
     bool all_checked = true;
 
     pthread_rwlock_rdlock(&node->lock);
-    for (int i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-        if (hc_ctx->probes[i].inflight >= HC_PROBE_INFLIGHT_HI) {
-            all_checked = false;
+    for (uint32_t p = 0; p < node->path_cnt; ++p) {
+        bondp_hc_path_t *path = &node->paths[p];
+        if (path->tjetty == NULL) {
             continue;
         }
-        for (int j = 0; j < URMA_UBAGG_DEV_MAX_NUM; ++j) {
-            if (node->hc_tjetty[i][j] == NULL) {
-                continue;
-            }
-            any_connected = true;
-            if (node->probe_checked[i][j]) {
-                continue;
-            }
-            all_checked = false;
-            hc_probe_link(hc_ctx, node, i, j);
-            if (hc_ctx->probes[i].inflight >= HC_PROBE_INFLIGHT_HI) {
-                break;
-            }
+        any_connected = true;
+        if (path->probe_checked) {
+            continue;
         }
+        all_checked = false;
+        hc_probe_link(hc_ctx, node, path);
     }
 
     if (any_connected && all_checked) {
-        for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-            for (uint32_t j = 0; j < URMA_UBAGG_DEV_MAX_NUM; ++j) {
-                node->probe_checked[i][j] = false;
-            }
+        for (uint32_t p = 0; p < node->path_cnt; ++p) {
+            node->paths[p].probe_checked = false;
         }
     }
     pthread_rwlock_unlock(&node->lock);
+
+    return any_connected;
 }
 
 static void hc_probe_fn(bondp_worker_task_reason_t reason, void *arg)
@@ -405,27 +495,21 @@ static void hc_probe_fn(bondp_worker_task_reason_t reason, void *arg)
         return;
     }
 
-    /* Drain pending completions before posting new probes. The worker thread
-     * is single-threaded, so the jfce handler cannot run concurrently while
-     * hc_probe_fn is posting. Without this drain, the probe SQ (depth
-     * HC_PROBE_DEPTH) can overflow when a batch covers many nodes x paths,
-     * causing urma_post_jetty_send_wr to return ENOMEM and leaving the SQ
-     * wedged (completions never reaped). Draining here keeps the SQ below
-     * capacity and processes ACK-timeout rebuilds promptly. */
     for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-        hc_drain_probe_cq(&hc_ctx->probes[i]);
+        if (hc_ctx->probes[i].jetty == NULL) {
+            continue;
+        }
+        hc_poll_probe_cq(hc_ctx, (int)i);
     }
 
-    uint32_t probe_cnt = MIN(hc_ctx->cfg.probe_node_num, hc_ctx->node_num);
+    uint32_t batch_cnt = MIN(hc_ctx->cfg.batch_node_num, hc_ctx->node_num);
     uint32_t node_idx = hc_ctx->probe_cur_idx % hc_ctx->node_num;
-    for (uint32_t i = 0; i < probe_cnt; ++i) {
-        if (!hc_probe_sq_has_room(hc_ctx)) {
-            /* All local probe SQs are at the throttle limit; the remaining nodes
-             * will be probed on the next firing after the CQs are drained. */
-            break;
-        }
+    uint32_t probe_cnt = 0;
+    for (uint32_t scan_cnt = 0; scan_cnt < hc_ctx->node_num && probe_cnt < batch_cnt; ++scan_cnt) {
         bondp_hc_node_t *node = &hc_ctx->nodes[node_idx];
-        hc_probe_node(hc_ctx, node);
+        if (hc_probe_node(hc_ctx, node)) {
+            probe_cnt++;
+        }
         node_idx = (node_idx + 1) % hc_ctx->node_num;
     }
     hc_ctx->probe_cur_idx = node_idx;
@@ -450,12 +534,9 @@ static int hc_init_node(bondp_hc_node_t *node, uint32_t node_idx)
 {
     node->node_idx = node_idx;
     ub_list_init(&node->tjetty_list);
-    (void)memset(node->hc_tjetty, 0, sizeof(node->hc_tjetty));
-    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-        for (uint32_t j = 0; j < URMA_UBAGG_DEV_MAX_NUM; ++j) {
-            atomic_store(&node->valid[i][j], true);
-        }
-    }
+    node->paths = NULL;
+    node->path_cnt = 0;
+    node->path_cap = 0;
 
     if (pthread_rwlock_init(&node->lock, NULL) != 0) {
         return -1;
@@ -473,9 +554,26 @@ static void hc_destroy_node(bondp_hc_node_t *node)
     bondp_target_jetty_t *next = NULL;
     UB_LIST_FOR_EACH_SAFE (tjetty, next, hc_entry, &node->tjetty_list) {
         ub_list_remove(&tjetty->hc_entry);
-        tjetty->hc_registered = false;
+        tjetty->mask &= ~BONDP_TJETTY_FLAG_HC_REGISTERED;
         tjetty->hc_node_idx = 0;
     }
+
+    for (uint32_t p = 0; p < node->path_cnt; ++p) {
+        bondp_hc_path_t *path = &node->paths[p];
+        if (path->tseg == NULL) {
+            continue;
+        }
+        if (urma_unimport_seg(path->tseg) == URMA_SUCCESS) {
+            path->tseg = NULL;
+        } else {
+            URMA_LOG_ERR("Failed to unimport health probe seg, local_idx=%u, target_idx=%u.\n",
+                         path->local_idx, path->target_idx);
+        }
+    }
+    free(node->paths);
+    node->paths = NULL;
+    node->path_cnt = 0;
+    node->path_cap = 0;
 
     pthread_rwlock_destroy(&node->lock);
 }
@@ -528,24 +626,9 @@ ERR_DESTROY_NODES:
     return -1;
 }
 
-static void hc_detach_probe_fds(bondp_hc_ctx_t *hc_ctx)
-{
-    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-        bondp_probe_res_t *res = &hc_ctx->probes[i];
-        if (res->jfce != NULL && res->jfce_fd >= 0 &&
-            bondp_worker_del_fd(res->jfce_fd) == 0) {
-            res->jfce_fd = -1;
-        }
-    }
-}
-
 static void hc_destroy_probe_resource(bondp_hc_ctx_t *hc_ctx, int local_idx)
 {
     bondp_probe_res_t *res = &hc_ctx->probes[local_idx];
-
-    if (res->jfce != NULL && res->jfce_fd >= 0) {
-        (void)bondp_worker_del_fd(res->jfce_fd);
-    }
 
     if (res->jetty != NULL) {
         urma_delete_jetty(res->jetty);
@@ -567,30 +650,19 @@ static void hc_destroy_probe_resource(bondp_hc_ctx_t *hc_ctx, int local_idx)
         urma_delete_jfc(res->jfc);
         res->jfc = NULL;
     }
-    if (res->jfce != NULL) {
-        urma_delete_jfce(res->jfce);
-        res->jfce = NULL;
-    }
     *res = (bondp_probe_res_t){0};
 }
 
-static int hc_init_probe_resource(bondp_hc_ctx_t *hc_ctx, urma_context_t *p_ctx, bondp_probe_res_t *res)
+static int hc_init_probe_resource(urma_context_t *p_ctx, bondp_probe_res_t *res)
 {
     int local_idx = res->local_idx;
-    urma_jfce_t *jfce = urma_create_jfce(p_ctx);
-    if (jfce == NULL) {
-        URMA_LOG_ERR("Failed to create health probe jfce, local_idx=%d.\n", local_idx);
-        return -1;
-    }
-
     urma_jfc_cfg_t jfc_cfg = {
-        .depth = 4096,
-        .jfce = jfce,
+        .depth = HC_PROBE_QUEUE_DEPTH,
     };
     urma_jfc_t *jfc = urma_create_jfc(p_ctx, &jfc_cfg);
     if (jfc == NULL) {
         URMA_LOG_ERR("Failed to create health probe jfc, local_idx=%d.\n", local_idx);
-        goto DELETE_JFCE;
+        return -1;
     }
 
     urma_jfr_cfg_t jfr_cfg = {
@@ -626,50 +698,30 @@ static int hc_init_probe_resource(bondp_hc_ctx_t *hc_ctx, urma_context_t *p_ctx,
         goto FREE_PROBE_BUF;
     }
 
-    urma_jetty_t *jetty = hc_create_probe_jetty(p_ctx, jfc, jfr, local_idx);
-    if (jetty == NULL) {
-        goto UNREGISTER_SEG;
-    }
-
-    res->hc_ctx = hc_ctx;
-    if (bondp_worker_add_fd(jfce->fd, hc_jfce_handler, res) != 0) {
-        URMA_LOG_ERR("Failed to add health probe jfce fd to worker, local_idx=%d.\n", local_idx);
-        goto DELETE_JETTY;
-    }
-
     *res = (bondp_probe_res_t){
-        .hc_ctx = hc_ctx,
         .local_idx = local_idx,
         .buf = buf,
-        .jfce = jfce,
         .jfc = jfc,
         .jfr = jfr,
         .seg = seg,
-        .jetty = jetty,
-        .jfce_fd = jfce->fd,
+        .jetty = NULL,
     };
 
     return 0;
 
-DELETE_JETTY:
-    urma_delete_jetty(jetty);
-UNREGISTER_SEG:
-    urma_unregister_seg(seg);
 FREE_PROBE_BUF:
     free(buf);
 DELETE_JFR:
     urma_delete_jfr(jfr);
 DELETE_JFC:
     urma_delete_jfc(jfc);
-DELETE_JFCE:
-    urma_delete_jfce(jfce);
     return -1;
 }
 
 static void hc_init_cfg(bondp_hc_ctx_t *hc_ctx, const bondp_hc_cfg_t *cfg)
 {
     hc_ctx->cfg.probe_interval_ms = BONDP_HC_DEFAULT_PROBE_INTERVAL_MS;
-    hc_ctx->cfg.probe_node_num = BONDP_HC_DEFAULT_PROBE_NODE_NUM;
+    hc_ctx->cfg.batch_node_num = BONDP_HC_DEFAULT_BATCH_NODE_NUM;
 
     if (cfg == NULL) {
         return;
@@ -678,8 +730,8 @@ static void hc_init_cfg(bondp_hc_ctx_t *hc_ctx, const bondp_hc_cfg_t *cfg)
     if (cfg->probe_interval_ms != 0) {
         hc_ctx->cfg.probe_interval_ms = cfg->probe_interval_ms;
     }
-    if (cfg->probe_node_num != 0) {
-        hc_ctx->cfg.probe_node_num = cfg->probe_node_num;
+    if (cfg->batch_node_num != 0) {
+        hc_ctx->cfg.batch_node_num = cfg->batch_node_num;
     }
 }
 
@@ -702,7 +754,7 @@ static int hc_init_probe_resources(bondp_context_t *bdp_ctx, bondp_hc_ctx_t *hc_
             continue;
         }
         hc_ctx->probes[i].local_idx = i;
-        int ret = hc_init_probe_resource(hc_ctx, p_ctx, &hc_ctx->probes[i]);
+        int ret = hc_init_probe_resource(p_ctx, &hc_ctx->probes[i]);
         if (ret != 0) {
             URMA_LOG_ERR("Failed to create health probe resources, local_idx=%u.\n", i);
             goto ERR_DESTROY_PROBES;
@@ -721,6 +773,42 @@ static int hc_init_probe_resources(bondp_context_t *bdp_ctx, bondp_hc_ctx_t *hc_
 
 ERR_DESTROY_PROBES:
     hc_destroy_probe_resources(hc_ctx);
+    return -1;
+}
+
+static void hc_destroy_probe_jettys(bondp_hc_ctx_t *hc_ctx)
+{
+    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
+        bondp_probe_res_t *res = &hc_ctx->probes[i];
+        if (res->jetty != NULL) {
+            urma_delete_jetty(res->jetty);
+            res->jetty = NULL;
+        }
+        res->inflight = 0;
+    }
+}
+
+static int hc_create_probe_jettys(bondp_hc_ctx_t *hc_ctx)
+{
+    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
+        bondp_probe_res_t *res = &hc_ctx->probes[i];
+        if (res->jfc == NULL) {
+            continue;
+        }
+        urma_context_t *p_ctx = res->jfc->urma_ctx;
+        if (p_ctx == NULL || res->jfr == NULL) {
+            URMA_LOG_ERR("Invalid health probe resource, local_idx=%u.\n", i);
+            goto ERR_DESTROY_JETTYS;
+        }
+        res->jetty = hc_create_probe_jetty(p_ctx, res->jfc, res->jfr, res->local_idx, hc_ctx->priority);
+        if (res->jetty == NULL) {
+            goto ERR_DESTROY_JETTYS;
+        }
+    }
+    return 0;
+
+ERR_DESTROY_JETTYS:
+    hc_destroy_probe_jettys(hc_ctx);
     return -1;
 }
 
@@ -764,6 +852,38 @@ int bondp_hc_init(bondp_context_t *bdp_ctx, const bondp_hc_cfg_t *cfg)
         goto ERR_DESTROY_NODES;
     }
 
+    bdp_ctx->hc_ctx = hc_ctx;
+    return 0;
+
+ERR_DESTROY_NODES:
+    hc_destroy_nodes(hc_ctx);
+ERR_FREE_CTX:
+    free(hc_ctx);
+    return ret;
+}
+
+int bondp_hc_start(bondp_context_t *bdp_ctx, uint8_t priority)
+{
+    int ret;
+
+    if (bdp_ctx == NULL || bdp_ctx->hc_ctx == NULL) {
+        return 0;
+    }
+
+    bondp_hc_ctx_t *hc_ctx = bdp_ctx->hc_ctx;
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&hc_ctx->started, &expected, true)) {
+        return 0;
+    }
+
+    hc_ctx->priority = priority;
+
+    ret = hc_create_probe_jettys(hc_ctx);
+    if (ret != 0) {
+        atomic_store(&hc_ctx->started, false);
+        return ret;
+    }
+
     bondp_worker_task_id_t task_id = 0;
     ret = bondp_worker_schedule(hc_ctx->cfg.probe_interval_ms,
                                 hc_probe_fn, hc_ctx, &task_id);
@@ -772,38 +892,38 @@ int bondp_hc_init(bondp_context_t *bdp_ctx, const bondp_hc_cfg_t *cfg)
         goto ERR_DESTROY_PROBES;
     }
     atomic_store(&hc_ctx->probe_task_id, task_id);
-    URMA_LOG_INFO("Health probe task scheduled, interval=%lums, node_num=%u.\n",
-                  hc_ctx->cfg.probe_interval_ms, hc_ctx->node_num);
+    URMA_LOG_INFO("Health probe task scheduled, interval=%lums, node_num=%u, priority=%u.\n",
+                  hc_ctx->cfg.probe_interval_ms, hc_ctx->node_num, hc_ctx->priority);
 
-    bdp_ctx->hc_ctx = hc_ctx;
     return 0;
 
 ERR_DESTROY_PROBES:
-    hc_destroy_probe_resources(hc_ctx);
-ERR_DESTROY_NODES:
-    hc_destroy_nodes(hc_ctx);
-ERR_FREE_CTX:
-    free(hc_ctx);
+    hc_destroy_probe_jettys(hc_ctx);
+    atomic_store(&hc_ctx->started, false);
     return ret;
 }
 
 void bondp_hc_uninit(bondp_context_t *bdp_ctx)
 {
-    if (bdp_ctx == NULL || bdp_ctx->hc_ctx == NULL) {
+    if (bdp_ctx == NULL) {
         return;
     }
 
-    bondp_hc_ctx_t *hc_ctx = bdp_ctx->hc_ctx;
-    bdp_ctx->hc_ctx = NULL;
+    /* Atomically detach hc_ctx: exactly one uninit caller wins the exchange
+     * and owns the teardown. A concurrent or duplicate uninit (e.g.
+     * bondp_delete_context racing bondp_set_bonding_mode, or the
+     * bondp_init_ctx_features error rollback) gets NULL and returns instead
+     * of tearing the same resources down twice (double free). */
+    bondp_hc_ctx_t *hc_ctx = atomic_exchange(&bdp_ctx->hc_ctx, NULL);
+    if (hc_ctx == NULL) {
+        return;
+    }
 
     /* Signal the probe task to stop running/rescheduling before cancelling it.
      * bondp_worker_cancel may invoke a concurrent hc_probe_fn(EXECUTED) to
      * completion (which would otherwise reschedule a new task that escapes
      * the cancel and fires after hc_ctx is freed). */
     atomic_store(&hc_ctx->stopping, true);
-    /* Detach first; the synchronous cancel below then acts as a worker barrier. */
-    hc_detach_probe_fds(hc_ctx);
-
     bondp_worker_task_id_t task_id;
     while ((task_id = atomic_exchange(&hc_ctx->probe_task_id, 0)) != 0) {
         (void)bondp_worker_cancel(task_id);
@@ -839,29 +959,29 @@ int bondp_hc_fill_seg_info(const bondp_context_t *bdp_ctx,
     return 0;
 }
 
-urma_status_t bondp_hc_unimport_tseg(bondp_target_jetty_t *bdp_tjetty)
+static void hc_rollback_register_paths(bondp_hc_node_t *node, const bondp_target_jetty_t *bdp_tjetty,
+                                       uint32_t upto)
 {
-    if (bdp_tjetty == NULL) {
-        return URMA_FAIL;
-    }
-
-    urma_status_t ret = URMA_SUCCESS;
-    for (uint32_t i = 0; i < bdp_tjetty->p_tjetty_count; ++i) {
-        urma_target_seg_t *tseg = bdp_tjetty->p_tjettys[i].p_check_tseg;
-        if (tseg == NULL) {
+    for (uint32_t rk = 0; rk <= upto && rk < bdp_tjetty->p_tjetty_count; ++rk) {
+        uint32_t ri = bdp_tjetty->p_tjettys[rk].local_indice;
+        uint32_t rj = bdp_tjetty->p_tjettys[rk].remote_indice;
+        bondp_hc_path_t *path = hc_find_path(node, ri, rj);
+        if (path == NULL || path->tjetty != bdp_tjetty) {
             continue;
         }
-        bdp_tjetty->p_tjettys[i].p_check_tseg = NULL;
-        if (urma_unimport_seg(tseg) != URMA_SUCCESS) {
-            URMA_LOG_ERR("Failed to unimport health probe seg, path_idx=%u.\n", i);
-            ret = URMA_FAIL;
+        if (path->tseg != NULL) {
+            if (urma_unimport_seg(path->tseg) == URMA_SUCCESS) {
+                path->tseg = NULL;
+            } else {
+                URMA_LOG_ERR("Failed to unimport health probe seg, local_idx=%u, target_idx=%u.\n", ri, rj);
+            }
         }
+        path->tjetty = NULL;
     }
-    return ret;
 }
 
-int bondp_hc_import_tseg(const bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
-                         const urma_bond_id_info_out_t *rjetty_info)
+int bondp_hc_register_tjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty,
+                             const urma_bond_id_info_out_t *rjetty_info)
 {
     if (bdp_ctx == NULL || bdp_tjetty == NULL || rjetty_info == NULL) {
         return -EINVAL;
@@ -869,97 +989,8 @@ int bondp_hc_import_tseg(const bondp_context_t *bdp_ctx, bondp_target_jetty_t *b
     if (bdp_ctx->hc_ctx == NULL || !rjetty_info->is_health_check_enable) {
         return 0;
     }
-
-    urma_import_seg_flag_t flag = {
-        .bs.cacheable = URMA_NON_CACHEABLE,
-        .bs.mapping = URMA_SEG_NOMAP,
-        .bs.access = URMA_ACCESS_READ | URMA_ACCESS_WRITE,
-    };
-    for (uint32_t k = 0; k < bdp_tjetty->p_tjetty_count; ++k) {
-        bondp_p_target_jetty_t *path = &bdp_tjetty->p_tjettys[k];
-        if (path->p_tjetty == NULL) {
-            continue;
-        }
-        uint32_t i = path->local_indice;
-        uint32_t j = path->remote_indice;
-        if (bdp_ctx->p_ctxs[i] == NULL) {
-            continue;
-        }
-        const urma_seg_base_t *base = &rjetty_info->health_check_seg.slaves[j];
-        if (base->len == 0) {
-            continue;
-        }
-
-        urma_seg_t seg = {0};
-        bondp_seg_base_to_seg(base, &seg);
-        path->p_check_tseg = urma_import_seg(bdp_ctx->p_ctxs[i], &seg, NULL, 0, flag);
-        if (path->p_check_tseg == NULL) {
-            URMA_LOG_ERR("Failed to import health probe seg, local_idx=%u, target_idx=%u.\n", i, j);
-            (void)bondp_hc_unimport_tseg(bdp_tjetty);
-            return -1;
-        }
-    }
-    return 0;
-}
-
-static bool hc_tjetty_has_probe_path(const bondp_target_jetty_t *bdp_tjetty)
-{
-    for (uint32_t i = 0; i < bdp_tjetty->p_tjetty_count; ++i) {
-        if (bdp_tjetty->p_tjettys[i].p_tjetty != NULL && bdp_tjetty->p_tjettys[i].p_check_tseg != NULL) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void hc_register_tjetty_path(bondp_hc_node_t *node, bondp_target_jetty_t *bdp_tjetty)
-{
-    for (uint32_t k = 0; k < bdp_tjetty->p_tjetty_count; ++k) {
-        if (bdp_tjetty->p_tjettys[k].p_tjetty == NULL || bdp_tjetty->p_tjettys[k].p_check_tseg == NULL) {
-            continue;
-        }
-        uint32_t i = bdp_tjetty->p_tjettys[k].local_indice;
-        uint32_t j = bdp_tjetty->p_tjettys[k].remote_indice;
-        if (node->hc_tjetty[i][j] != NULL) {
-            continue;
-        }
-        node->hc_tjetty[i][j] = bdp_tjetty;
-    }
-}
-
-static bondp_target_jetty_t *hc_find_tjetty_for_path(bondp_hc_node_t *node, uint32_t local_idx,
-                                                     uint32_t target_idx)
-{
-    bondp_target_jetty_t *tjetty = NULL;
-
-    UB_LIST_FOR_EACH (tjetty, hc_entry, &node->tjetty_list) {
-        const bondp_p_target_jetty_t *p_tjetty = bondp_find_p_tjetty_const(tjetty, local_idx, target_idx);
-        if (p_tjetty != NULL && p_tjetty->p_tjetty != NULL && p_tjetty->p_check_tseg != NULL) {
-            return tjetty;
-        }
-    }
-    return NULL;
-}
-
-static void hc_unregister_tjetty_path(bondp_hc_node_t *node, bondp_target_jetty_t *bdp_tjetty)
-{
-    for (uint32_t i = 0; i < URMA_UBAGG_DEV_MAX_NUM; ++i) {
-        for (uint32_t j = 0; j < URMA_UBAGG_DEV_MAX_NUM; ++j) {
-            if (node->hc_tjetty[i][j] != bdp_tjetty) {
-                continue;
-            }
-            node->hc_tjetty[i][j] = hc_find_tjetty_for_path(node, i, j);
-        }
-    }
-}
-
-int bondp_hc_register_tjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty)
-{
-    if (bdp_ctx == NULL || bdp_tjetty == NULL || bdp_tjetty->hc_registered) {
+    if (bdp_tjetty->mask & BONDP_TJETTY_FLAG_HC_REGISTERED) {
         return -1;
-    }
-    if (bdp_ctx->hc_ctx == NULL) {
-        return 0;
     }
 
     bondp_hc_ctx_t *hc_ctx = bdp_ctx->hc_ctx;
@@ -972,22 +1003,162 @@ int bondp_hc_register_tjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp
     }
     bondp_hc_node_t *node = &hc_ctx->nodes[node_idx];
 
+    urma_import_seg_flag_t flag = {
+        .bs.cacheable = URMA_NON_CACHEABLE,
+        .bs.mapping = URMA_SEG_NOMAP,
+        .bs.access = URMA_ACCESS_READ | URMA_ACCESS_WRITE,
+    };
+
+    bool any_registered = false;
+
+    /* Slot check and seg import must be atomic under the write lock to prevent
+     * duplicate imports when multiple tjettys target the same [i][j] slot. */
     pthread_rwlock_wrlock(&node->lock);
-    if (hc_tjetty_has_probe_path(bdp_tjetty)) {
-        bdp_tjetty->hc_registered = true;
-        bdp_tjetty->hc_node_idx = node_idx;
+    uint32_t k = 0;
+    for (k = 0; k < bdp_tjetty->p_tjetty_count; ++k) {
+        bondp_p_target_jetty_t *tjetty_path = &bdp_tjetty->p_tjettys[k];
+        if (tjetty_path->p_tjetty == NULL) {
+            continue;
+        }
+        uint32_t i = tjetty_path->local_indice;
+        uint32_t j = tjetty_path->remote_indice;
+        const urma_seg_base_t *base = &rjetty_info->health_check_seg.slaves[j];
+        if (bdp_ctx->p_ctxs[i] == NULL || base->len == 0) {
+            continue;
+        }
+        any_registered = true;
+        tjetty_path->hc_va = base->ubva.va;
+        tjetty_path->hc_token_id = base->token_id;
+
+        bondp_hc_path_t *hc_path = hc_find_path(node, i, j);
+        if (hc_path == NULL) {
+            hc_path = hc_append_path(node, (uint8_t)i, (uint8_t)j);
+            if (hc_path == NULL) {
+                URMA_LOG_ERR("Failed to alloc health check path, node_idx=%u, local_idx=%u, target_idx=%u.\n",
+                             node_idx, i, j);
+                goto ERR_ROLLBACK;
+            }
+        }
+        if (hc_path->tjetty != NULL) {
+            continue;
+        }
+
+        /* Register the tjetty at this path slot */
+        hc_path->tjetty = bdp_tjetty;
+        hc_path->no_cqe_round = 0;
+
+        /* Import health probe seg at node level if not already present */
+        if (hc_path->tseg == NULL) {
+            urma_seg_t seg = {0};
+            bondp_seg_base_to_seg(base, &seg);
+            hc_path->tseg = urma_import_seg(bdp_ctx->p_ctxs[i], &seg, NULL, 0, flag);
+            if (hc_path->tseg == NULL) {
+                URMA_LOG_ERR("Failed to import health probe seg, local_idx=%u, target_idx=%u.\n", i, j);
+                goto ERR_ROLLBACK;
+            }
+        }
+    }
+
+    if (any_registered) {
+        bdp_tjetty->mask |= BONDP_TJETTY_FLAG_HC_REGISTERED;
+        bdp_tjetty->hc_node_idx = (uint16_t)node_idx;
         ub_list_push_back(&node->tjetty_list, &bdp_tjetty->hc_entry);
-        hc_register_tjetty_path(node, bdp_tjetty);
     }
     pthread_rwlock_unlock(&node->lock);
+
     URMA_LOG_DEBUG("Health check tjetty registered, node_idx=%u.\n", node->node_idx);
     return 0;
+
+ERR_ROLLBACK:
+    hc_rollback_register_paths(node, bdp_tjetty, k);
+    pthread_rwlock_unlock(&node->lock);
+    return -1;
+}
+
+static bondp_target_jetty_t *hc_find_tjetty_for_path(bondp_hc_node_t *node, uint32_t local_idx,
+                                                     uint32_t target_idx)
+{
+    bondp_target_jetty_t *tjetty = NULL;
+
+    UB_LIST_FOR_EACH (tjetty, hc_entry, &node->tjetty_list) {
+        const bondp_p_target_jetty_t *p_tjetty = bondp_find_p_tjetty_const(tjetty, local_idx, target_idx);
+        if (p_tjetty != NULL && p_tjetty->p_tjetty != NULL && p_tjetty->hc_va != 0) {
+            return tjetty;
+        }
+    }
+    return NULL;
+}
+
+static void hc_unregister_tjetty_path(bondp_hc_node_t *node, bondp_target_jetty_t *bdp_tjetty,
+                                      bondp_context_t *bdp_ctx)
+{
+    urma_import_seg_flag_t flag = {
+        .bs.cacheable = URMA_NON_CACHEABLE,
+        .bs.mapping = URMA_SEG_NOMAP,
+        .bs.access = URMA_ACCESS_READ | URMA_ACCESS_WRITE,
+    };
+
+    for (uint32_t p = 0; p < node->path_cnt; ++p) {
+        bondp_hc_path_t *path = &node->paths[p];
+        if (path->tjetty != bdp_tjetty) {
+            continue;
+        }
+        uint32_t i = path->local_idx;
+        uint32_t j = path->target_idx;
+        if (path->tseg != NULL) {
+            if (urma_unimport_seg(path->tseg) != URMA_SUCCESS) {
+                URMA_LOG_ERR("Failed to unimport health probe seg, local_idx=%u, target_idx=%u.\n", i, j);
+                path->tjetty = NULL;
+                atomic_store(&path->valid, false);
+                continue;
+            }
+            path->tseg = NULL;
+        }
+
+        bondp_target_jetty_t *backup = hc_find_tjetty_for_path(node, i, j);
+        path->tjetty = backup;
+        path->no_cqe_round = 0;
+
+        if (backup == NULL) {
+            continue;
+        }
+
+        /* Backup found: re-import seg using backup's va and token_id.
+         * eid/uasid come from the backup's physical target jetty;
+         * len and attr are fixed for health check segs. */
+        const bondp_p_target_jetty_t *backup_path = bondp_find_p_tjetty_const(backup, i, j);
+        if (backup_path == NULL || backup_path->p_tjetty == NULL || bdp_ctx->p_ctxs[i] == NULL) {
+            continue;
+        }
+        urma_seg_t seg = {
+            .ubva = {
+                .eid = backup_path->p_tjetty->id.eid,
+                .uasid = backup_path->p_tjetty->id.uasid,
+                .va = backup_path->hc_va,
+            },
+            .len = HC_PROBE_SEG_LEN,
+            .attr = {
+                .bs = {
+                    .token_policy = URMA_TOKEN_NONE,
+                    .cacheable = URMA_NON_CACHEABLE,
+                    .access = URMA_ACCESS_WRITE | URMA_ACCESS_READ,
+                },
+            },
+            .token_id = backup_path->hc_token_id,
+        };
+        path->tseg = urma_import_seg(bdp_ctx->p_ctxs[i], &seg, NULL, 0, flag);
+        if (path->tseg == NULL) {
+            URMA_LOG_ERR("Failed to re-import health probe seg, local_idx=%u, target_idx=%u.\n", i, j);
+            path->tjetty = NULL;
+            atomic_store(&path->valid, false);
+        }
+    }
 }
 
 void bondp_hc_unregister_tjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *bdp_tjetty)
 {
     if (bdp_ctx == NULL || bdp_ctx->hc_ctx == NULL ||
-        bdp_tjetty == NULL || !bdp_tjetty->hc_registered) {
+        bdp_tjetty == NULL || (bdp_tjetty->mask & BONDP_TJETTY_FLAG_HC_REGISTERED) == 0) {
         return;
     }
 
@@ -996,7 +1167,7 @@ void bondp_hc_unregister_tjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *
     if (node_idx >= hc_ctx->node_num) {
         URMA_LOG_WARN("Invalid health check node idx, skip tjetty unregister, node_idx=%u, node_num=%u.\n",
                       node_idx, hc_ctx->node_num);
-        bdp_tjetty->hc_registered = false;
+        bdp_tjetty->mask &= ~BONDP_TJETTY_FLAG_HC_REGISTERED;
         bdp_tjetty->hc_node_idx = 0;
         return;
     }
@@ -1004,17 +1175,16 @@ void bondp_hc_unregister_tjetty(bondp_context_t *bdp_ctx, bondp_target_jetty_t *
 
     pthread_rwlock_wrlock(&node->lock);
     ub_list_remove(&bdp_tjetty->hc_entry);
-    hc_unregister_tjetty_path(node, bdp_tjetty);
-    bdp_tjetty->hc_registered = false;
+    hc_unregister_tjetty_path(node, bdp_tjetty, bdp_ctx);
+    bdp_tjetty->mask &= ~BONDP_TJETTY_FLAG_HC_REGISTERED;
     bdp_tjetty->hc_node_idx = 0;
     pthread_rwlock_unlock(&node->lock);
     URMA_LOG_DEBUG("Health check tjetty unregistered, node_idx=%u.\n", node->node_idx);
 }
 
-void bondp_hc_tjetty_sync_valid(const bondp_target_jetty_t *bdp_tjetty,
-                                uint32_t skip_local_idx, uint32_t skip_target_idx)
+void bondp_hc_tjetty_sync_valid(const bondp_target_jetty_t *bdp_tjetty)
 {
-    if (bdp_tjetty == NULL || !bdp_tjetty->hc_registered) {
+    if (bdp_tjetty == NULL || (bdp_tjetty->mask & BONDP_TJETTY_FLAG_HC_REGISTERED) == 0) {
         return;
     }
 
@@ -1033,26 +1203,18 @@ void bondp_hc_tjetty_sync_valid(const bondp_target_jetty_t *bdp_tjetty,
     bondp_target_jetty_t *cur = NULL;
     pthread_rwlock_rdlock(&node->lock);
     UB_LIST_FOR_EACH (cur, hc_entry, &node->tjetty_list) {
-        bondp_p_target_jetty_t *skip_p_tjetty = bondp_find_p_tjetty(cur, skip_local_idx, skip_target_idx);
-        if (skip_p_tjetty != NULL) {
-            atomic_store(&skip_p_tjetty->valid, false);
-        }
-        for (uint32_t li = 0; li < URMA_UBAGG_DEV_MAX_NUM; ++li) {
-            for (uint32_t ti = 0; ti < URMA_UBAGG_DEV_MAX_NUM; ++ti) {
-                if (li == skip_local_idx && ti == skip_target_idx) {
-                    continue;
-                }
-                if (node->hc_tjetty[li][ti] == NULL) {
-                    continue;
-                }
-                bondp_p_target_jetty_t *p_tjetty = bondp_find_p_tjetty(cur, li, ti);
-                if (p_tjetty == NULL) {
-                    continue;
-                }
-                bool v = atomic_load(&node->valid[li][ti]);
-                if (!v) {
-                    atomic_store(&p_tjetty->valid, v);
-                }
+        for (uint32_t p = 0; p < node->path_cnt; ++p) {
+            bondp_hc_path_t *path = &node->paths[p];
+            if (path->tjetty == NULL) {
+                continue;
+            }
+            bondp_p_target_jetty_t *p_tjetty = bondp_find_p_tjetty(cur, path->local_idx, path->target_idx);
+            if (p_tjetty == NULL) {
+                continue;
+            }
+            bool v = atomic_load(&path->valid);
+            if (!v) {
+                atomic_store(&p_tjetty->valid, v);
             }
         }
     }
