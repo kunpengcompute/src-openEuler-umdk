@@ -244,11 +244,7 @@ between UMS kernel modules via TLS 1.3 channel.
 %if %{with dfx_tool}
     -DDFX_TOOL="enable" \
 %endif
-%if %{build_all}
-    -DBUILD_ALL="enable" \
-%else
     -DBUILD_ALL="disable" \
-%endif
 %if %{build_all} || %{with urma} || %{with urpc}
     -DBUILD_URMA="enable" \
 %else
@@ -262,7 +258,7 @@ between UMS kernel modules via TLS 1.3 channel.
 %else
     -DBUILD_URPC="disable" \
 %endif
-%if %{with dlock}
+%if %{build_all} || %{with dlock}
     -DBUILD_DLOCK="enable" \
 %endif
 %if %{without udma_stb64_disable}
