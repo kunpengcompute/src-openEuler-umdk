@@ -13,9 +13,6 @@
 # add --with test option, i.e. disable test by default
 %bcond_with test
 
-# add --with ubagg_disable option, i.e. enable ubagg by default
-%bcond_with ubagg_disable
-
 # add --with release_enable option, i.e. disable release by default
 %bcond_with release_enable
 
@@ -63,6 +60,9 @@ Source0       : %{name}-%{version}.tar.gz
 ExclusiveArch : aarch64
 
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel, libnl3-devel, glib2-devel
+%if %{build_all} || %{with ums}
+BuildRequires : kernel-devel
+%endif
 Requires: glibc, glib2, libummu
 %if %{with asan}
 Requires: libasan
@@ -70,199 +70,6 @@ Requires: libasan
 %if %{with tsan}
 Requires: libtsan
 %endif
-
-Patch0000: 0000-umdk-urma-add-container-support.patch
-Patch0001: 0001-umdk-urpc-support-shared-jfr.patch
-Patch0002: 0002-umdk-urma-bugfix-container.patch
-Patch0003: 0003-umdk-udma-Fix-a-bug-related-to-create-sq.patch
-Patch0004: 0004-umdk-udma-Support-for-the-separate-page-table-feature.patch
-Patch0005: 0005-umdk-udma-bugfix-related-to-log-print.patch
-Patch0006: 0006-umdk-udma-bugfix-related-to-free-tid.patch
-Patch0007: 0007-umdk-urma-bugfix-related-to-uvs.patch
-Patch0008: 0008-umdk-urma-bugfix-related-to-uvs-and-urma-admin.patch
-Patch0009: 0009-umdk-urma-bugfix-of-topo-info.patch
-Patch0010: 0010-umdk-urma-support-ipourma.patch
-Patch0011: 0011-umdk-urpc-support-rnr-free-flowcontrol.patch
-Patch0012: 0012-umdk-urpc-support-adaptive-flowcontrol-and-log-enhancement.patch
-Patch0013: 0013-umdk-urma-Fix-urma_perftest-size-check-for-send-opc.patch
-Patch0014: 0014-umdk-urma-modify-log-for-liburma-bondp.patch
-Patch0015: 0015-umdk-urma-modify-urma-log-format.patch
-Patch0016: 0016-umdk-urma-optimize-the-logs-of-bondp-and-liburma.patch
-Patch0017: 0017-umdk-urma-refine-uvs-logging.patch
-Patch0018: 0018-umdk-urma-set-get-sl-priority.patch
-Patch0019: 0019-umdk-udma-support-disable-compile-udma.patch
-Patch0020: 0020-umdk-urma-standalone-aggregate-mode-currently-does-not-support-WQE-list.patch
-Patch0021: 0021-umdk-urma-add-entity_id-into-bondp-and-admin-topo.patch
-Patch0022: 0022-umdk-urma-bondp-support-half-loopback.patch
-Patch0023: 0023-umdk-urma-change-logic-between-device_list-and-eid_list.patch
-Patch0024: 0024-umdk-urma-fix-expose-agg-dev.patch
-Patch0025: 0025-umdk-urma-optimize-efficiency-of-expose-agg-dev.patch
-Patch0026: 0026-umdk-urma-set-CTP-priority-to-6-as-workaround.patch
-Patch0027: 0027-umdk-urma-optimize-EID-lookup-logic.patch
-Patch0028: 0028-umdk-urma-add-urma-ping-client.patch
-Patch0029: 0029-umdk-ums-fix-the-issue-of-links-not-being-shareable.patch
-Patch0030: 0030-umdk-ums-prevent-Send-WR-from-being-posted-to-Jetty-when-ubcore_bind_jetty-fails.patch
-Patch0031: 0031-umdk-dlock-fix-example-issue-client_init-deinit-calls-need-to-be-locked.patch
-Patch0032: 0032-umdk-urma-seg-cache-default-disable.patch
-Patch0033: 0033-umdk-urma-fix-timing-bug-in-urma-ping.patch
-Patch0034: 0034-umdk-dlock-fix-codecheck-warnings.patch
-Patch0035: 0035-umdk-ums-fix-codecheck-warnings.patch
-Patch0036: 0036-umdk-urma-support-uboe.patch
-Patch0037: 0037-umdk-urpc-normalize-line-ending-and-bugfix.patch
-Patch0038: 0038-umdk-urma-bugfix-query-sl-resource.patch
-Patch0039: 0039-umdk-urma-bondp-datapath-optimization.patch
-Patch0040: 0040-umdk-urma-userctl-header-file-in-user-space.patch
-Patch0041: 0041-umdk-urma-User-space-implementation-of-Jetty-extension-interface.patch
-Patch0042: 0042-umdk-udma-Support-uboe-function.patch
-Patch0043: 0043-umdk-udma-Support-user-ctl-function.patch
-Patch0044: 0044-umdk-urma-hotfix-bondp-topo-to-adapt-loopback-changes.patch
-Patch0045: 0045-umdk-urma-bugfix-of-urma_admin.patch
-Patch0046: 0046-umdk-urma-optimize-urma_admin-usage-printing.patch
-Patch0047: 0047-umdk-urma-urma_perftest-support-page_size-config-value.patch
-Patch0048: 0048-umdk-urma-bugfix-for-urma_perftest.patch
-Patch0049: 0049-umdk-urma-add-new-param-checks-for-urma_ping-client.patch
-Patch0050: 0050-umdk-urma-correct-log-format.patch
-Patch0051: 0051-umdk-urma-cleancode-fix-for-sync.patch
-Patch0052: 0052-umdk-urma-cleancode-fix-for-sync-urma-ping.patch
-Patch0053: 0053-umdk-urma-simplify-bondp-import.patch
-Patch0054: 0054-umdk-urma-bond-import-without-user-mode-topo.patch
-Patch0055: 0055-umdk-urma-remove-unused-bond-code.patch
-Patch0056: 0056-umdk-urma-Disable-deletion-operations-on-bonding_dev_0.patch
-Patch0057: 0057-umdk-urma-fix-cleancode.patch
-Patch0058: 0058-umdk-urma-add-signal-handler-for-urma_ping.patch
-Patch0059: 0059-umdk-urma-bugfix-for-inline_data.patch
-Patch0060: 0060-umdk-urma-cleancode-fix-for-bondp_segment-etc.patch
-Patch0061: 0061-umdk-urma-fix-bondp_datapath-cleancode.patch
-Patch0062: 0062-umdk-urma-clean-code-fo-topo_info.patch
-Patch0063: 0063-umdk-urma-urma_admin-cleancode.patch
-Patch0064: 0064-umdk-urma-urma_perftest-cleancode.patch
-Patch0065: 0065-umdk-urma-cleancode-fix-for-ping_parameters.patch
-Patch0066: 0066-umdk-urma-check-ioctl-errno-value.patch
-Patch0067: 0067-umdk-urma-change-uvs-and-urma_admin-log-format.patch
-Patch0068: 0068-umdk-urma-cleancode-fix-for-bond.patch
-Patch0069: 0069-umdk-urma-bondp-seg-cache-should-not-import-vseg-twice.patch
-Patch0070: 0070-umdk-urma-bond-device-no-longer-requires.patch
-Patch0071: 0071-umdk-urma-add-comments-for-urma_wait_jfc0.patch
-Patch0072: 0072-umdk-urma-bonding-dev-adapts-to-SL-functionality.patch
-Patch0073: 0073-umdk-urma-remove-unused-bondp-code.patch
-Patch0074: 0074-umdk-urma-add-eid_idx-validity-check-when-set-eid-to-ns.patch
-Patch0075: 0075-umdk-urma-for-updates-to-external-files-or-APIs.patch
-Patch0076: 0076-umdk-urma-update-urma-admin-agg-expose.patch
-Patch0077: 0077-umdk-urma-do-not-parse-vendor-and-device-for-bonding-device.patch
-Patch0078: 0078-umdk-urma-update-urma_admin-show.patch
-Patch0079: 0079-umdk-urma-add-param-check-for-target-port.patch
-Patch0080: 0080-umdk-urma-fix-codecheck.patch
-Patch0081: 0081-umdk-urma-optimize-perftest-tool-parameters.patch
-Patch0082: 0082-umdk-dlock-adapt-to-urma-bondp-API-change-remove-bond-user-ctl-code.patch
-Patch0083: 0083-umdk-dlock-adapt-to-urma-API-change-set-jetty-priority-by-tp_type.patch
-Patch0084: 0084-umdk-dlock-synchronize-jetty-flush-flags-to-avoid-data-race-issue.patch
-Patch0085: 0085-umdk-udma-bugfix-related-to-clean-jfc.patch
-Patch0086: 0086-umdk-dlock-initialize-reserved-field-prevent-heap-bits-leaks.patch
-Patch0087: 0087-umdk-ums-adapt-to-ubcore-API-change-set-jetty-priority-by-tp_type.patch
-Patch0088: 0088-umdk-urma-refactor-bondp-poll-and-flush.patch
-Patch0089: 0089-umdk-urma-inline_data-add-description.patch
-Patch0090: 0090-umdk-urma-remove-legacy-bond-device-create-delete.patch
-Patch0091: 0091-umdk-urma-support-ubp-methods.patch
-Patch0092: 0092-umdk-urma-bugfix-for-libiurma-log-config.patch
-Patch0093: 0093-umdk-urma-add-max-jetty-config-check-for-urma_perftest.patch
-Patch0094: 0094-umdk-urma-fix-default-parameters-of-urma-perftest.patch
-Patch0095: 0095-umdk-urma-fix-the-issue-of-VeLinux-urma-log-not-displaying.patch
-Patch0096: 0096-umdk-urma-bugfix-perftest-display-bw-peak-err.patch
-Patch0097: 0097-umdk-urma-fix-urma_admin-agg-del.patch
-Patch0098: 0098-umdk-urma-fix-prepare-recv-wr-when-urma_perftest-send_bw.patch
-Patch0099: 0099-umdk-urma-fix-codecheck-problems.patch
-Patch0100: 0100-umdk-urma-Update-JFS-index.patch
-Patch0101: 0101-umdk-urma-support-the-perftest-O-parameter.patch
-Patch0102: 0102-umdk-urma-rctp-reuse-in-urma-bind-jetty.patch
-Patch0103: 0103-umdk-urma-support-create-agg-dev-with-explicit-dev_name.patch
-Patch0104: 0104-umdk-urma-update-validation-checks-for-single-path-and-aggregation-mode.patch
-Patch0105: 0105-umdk-urma-reduce-urma-slide-window-when-standalone.patch
-Patch0106: 0106-umdk-urma-bdp-slide-wnd-bool-function-return-value-fix.patch
-Patch0107: 0107-umdk-urma-support-custom-dev_name-in-urma_admin-agg-add-command.patch
-Patch0108: 0108-umdk-ums-fix-softirq-context-safety-in-ums_link_put.patch
-Patch0109: 0109-umdk-ums-fix-and-prevent-credits-deadlock-by-reserving-emergency-credits.patch
-Patch0110: 0110-umdk-urma-fix-bondp-balance-mode-datapath.patch
-Patch0111: 0111-umdk-urma-support-clos-port.patch
-Patch0112: 0112-umdk-urpc-enable-urma-clos-networking-and-failover.patch
-Patch0113: 0113-umdk-urma-fix-concurrency-error.patch
-Patch0114: 0114-umdk-urma-perftest-profiling-with-process.patch
-Patch0115: 0115-umdk-urma-add-urma-switch-inc.patch
-Patch0116: 0116-umdk-urma-bonding-dev-support-affinity-for-specific-iodie.patch
-Patch0117: 0117-umdk-urma-refactor-bonding-device-create-delete-context.patch
-Patch0118: 0118-umdk-urma-fix-bonding-device-cr-local_id.patch
-Patch0119: 0119-umdk-urma-fix-yum-install-error.patch
-Patch0120: 0120-umdk-urma-remove-bonding-device-unused-code.patch
-Patch0121: 0121-umdk-urma-return-wrong-when-there-are-no-send-path.patch
-Patch0122: 0122-umdk-urma-bondp-support-nl-revert-msg.patch
-Patch0123: 0123-umdk-urma-bonding-device-resend-should-keep-order.patch
-Patch0124: 0124-umdk-urma-fix-urma-log-format.patch
-Patch0125: 0125-umdk-urma-init-bondp-context-by-member-eid-info-list.patch
-Patch0126: 0126-umdk-urma-fix-wrid-0-in-empty-wr.patch
-Patch0127: 0127-umdk-urma-schedule-send-balance-should-support-iodie-leve.patch
-Patch0128: 0128-umdk-urma-recovery-backup-link.patch
-Patch0129: 0129-umdk-urma-user_space-support-profiling-by-only-UDMA.patch
-Patch0130: 0130-umdk-urma-fix-urma_perftest-single_path-compatibility.patch
-Patch0131: 0131-umdk-urma-update-bonding-device-failover-status.patch
-Patch0132: 0132-umdk-urma-bondp-support-balance-mode-recovery-link.patch
-Patch0133: 0133-umdk-urma-bonding-device-import-will-try-all-iodie.patch
-Patch0134: 0134-umdk-urma-fix-asan-build.patch
-Patch0135: 0135-umdk-urma-Add-fool-proofing-to-uvs_get_path_set-interface.patch
-Patch0136: 0136-umdk-urma-fix-bonding-device-udata-in-size.patch
-Patch0137: 0137-urma-Enable-ctp-while-using-single_path-mode-and-fix.patch
-Patch0138: 0138-umdk-urma-bugfix-for-bonding-import_jetty-jfr.patch
-Patch0139: 0139-umdk-urma-delete-pog-when-user_space-profiling.patch
-Patch0140: 0140-umdk-urma-fix-bonding-device-bug.patch
-Patch0141: 0141-umdk-urma-bonding-device-should-handle-flush_err_done-cr.patch
-Patch0142: 0142-umdk-urma-profiling-support-long-lived-thread.patch
-Patch0143: 0143-umdk-urma-bonding-tseg-and-tjetty-support-ref.patch
-Patch0144: 0144-umdk-urma-fix-tjetty-error-parameter.patch
-Patch0145: 0145-umdk-urma-support-change-log-separator.patch
-Patch0146: 0146-umdk-urma-fix-port-down-recover-error-bug.patch
-Patch0147: 0147-umdk-urma-delete-the-flushing-operation-before-delete-jetty.patch
-Patch0148: 0148-umdk-urma-bonding-device-should-not-use-wr-entry-if-jetty.patch
-Patch0149: 0149-umdk-urma-bugfix-retry-send-msg.patch
-Patch0150: 0150-umdk-urma-add-log-in-unimport_jetty-and-delete_jetty.patch
-Patch0151: 0151-umdk-urma-bonding-device-remove-target-jetty-from-vconn.patch
-Patch0152: 0152-umdk-urma-bonding-device-move-wr-buf-from-jfc-to-comp.patch
-Patch0153: 0153-umdk-urma-urma_get_perf_info-bug-fix.patch
-Patch0154: 0154-umdk-urma-fix-bonding-device-flush-err-done-handler.patch
-Patch0155: 0155-urma-bonding-schedule-send-balance-support-random-se.patch
-Patch0156: 0156-umdk-urma-filter-path-set-by-EID-type-for-FULLMESH_1D-top.patch
-Patch0157: 0157-umdk-urma-refactor-bonding-conn-api.patch
-Patch0158: 0158-umdk-urma-display-full-EID-format-in-show-topo-command.patch
-Patch0159: 0159-umdk-urma-supports-p9999-latency-statistics.patch
-Patch0160: 0160-umdk-urma-fix-bonding-standalone-rm-mode.patch
-Patch0161: 0161-umdk-urma-fix_fake_cr.patch
-Patch0162: 0162-umdk-urma-make-urma_perf_is_enabled-a-prototype.patch
-Patch0163: 0163-umdk-urma-optimize-the-log-content-output-in-the-URMA-sec.patch
-Patch0164: 0164-umdk-urma-Fixed-the-chip_id-and-die_id-validation-logic.patch
-Patch0165: 0165-umdk-urma-bonding-provider-should-parse-env-when-initiali.patch
-Patch0166: 0166-umdk-urma-bonding-balance-mode-support-fallback-to-non-af.patch
-Patch0167: 0167-umdk-urma-fix-correct-bonding-mode-opcode-mismatch-in-urm.patch
-Patch0168: 0168-umdk-urma-Wr_buf-supports-selection-from-either-jfc-or-je.patch
-Patch0169: 0169-umdk-urpc-support-qbuf-escape-and-share-flow-control-jfr.patch
-Patch0170: 0170-umdk-urma-fix-return-CONVERT_SKIP-when-comp-is-NULL.patch
-Patch0171: 0171-umdk-urma-avoid-to-record-error-log-when-failed-to-wait-jfc-with.patch
-Patch0172: 0172-umdk-urma-support-bazel-compile.patch
-Patch0173: 0173-umdk-urma-fix-the-change-of-new-interface-for-cache.patch
-Patch0174: 0174-umdk-urma-reorganize-uvs-cmake-openssl.patch
-Patch0175: 0175-umdk-urma-fix-ceqn-upper-bound-wording.patch
-Patch0176: 0176-umdk-urma-fix-warning-typo-in-support-matrix.patch
-Patch0177: 0177-umdk-urma-fix-unlimited-help-text-typo-in-urma_ping.patch
-Patch0178: 0178-umdk-urma-support-link-retransmission-counting.patch
-Patch0179: 0179-umdk-urma-change-bazel-liburma-udma-so-name.patch
-Patch0180: 0180-umdk-urma-revert-non-blocking-scene-for-JFR-deletion.patch
-Patch0181: 0181-umdk-urma-move-log-init-to-liburma_init-constructor.patch
-Patch0182: 0182-umdk-urma-add-extended-interface-for-bondp_create_jfc.patch
-Patch0183: 0183-umdk-urma-add-validation-for-port_ids-in-bondp_create_jfs-jetty.patch
-Patch0184: 0184-umdk-urma-add-extended-interface-for-bondp_create_jfr.patch
-Patch0185: 0185-umdk-urma-fix-bondp_import_jetty-mem-leak.patch
-Patch0186: 0186-umdk-urma-support-link-recovery-under-active_backup-mode.patch
-Patch0187: 0187-umdk-add-umdk-main-package.patch
-Patch0188: 0188-umdk-urma-refactor-user-dfx.patch
-Patch0189: 0189-umdk-urma-fix-RM-jetty-import-requiring-drv_ext-in-active-backup-mode.patch
-Patch0190: 0190-umdk-urma-fix-bazel-compile-problems.patch
-Patch0191: 0191-umdk-urma-fix-copy_to_usr-failed-when-create-bonding-dev-context.patch
 
 %description
 A new system interconnect architecture
@@ -388,7 +195,7 @@ Requires:       umdk-dlock-lib = %{version}
 This package contains all the executable examples of dlock.
 %endif
 
-%if %{with ums}
+%if %{build_all} || %{with ums}
 %package ums
 Summary:        kmod file of ums
 BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
@@ -400,6 +207,15 @@ kmod file of ums
 Summary:        tools of ums
 %description ums-tools
 tools of ums, contains ums_run
+
+%package ums-agent
+Summary:        UMS Agent daemon for secure token exchange
+BuildRequires:  systemd-devel, keyutils-libs-devel, openssl-devel
+Requires:       systemd-libs, glib2, libnl3, openssl, keyutils
+Requires(pre):  shadow-utils
+%description ums-agent
+UMS Agent is a user-space daemon for secure TokenValue exchange
+between UMS kernel modules via TLS 1.3 channel.
 %endif
 
 %prep
@@ -427,9 +243,6 @@ tools of ums, contains ums_run
 %if %{defined kernel_version}
     -DKERNEL_RELEASE=%{kernel_version} \
     -DKERNEL_PATH=%{kernel_build_path} \
-%endif
-%if %{without ubagg_disable}
-    -DUB_AGG="enable" \
 %endif
 %if %{with dfx_tool}
     -DDFX_TOOL="enable" \
@@ -493,7 +306,6 @@ fi
     %{_libdir}/liburma.so
     %{_libdir}/liburma_common.so
     %{_libdir}/urma/liburma_ubagg.so
-    %{_libdir}/urma/liburma-udma.so
     %dir %{_includedir}/ub/umdk/urma
     %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/urma_*.h
@@ -556,7 +368,6 @@ fi
     %{_libdir}/libumq.so.*
     %{_libdir}/libumq_buf.so.*
     %{_libdir}/libumq_ub.so.*
-    %{_libdir}/libumq_ipc.so.*
     /etc/rsyslog.d/umq.conf
     /etc/logrotate.d/umq
 
@@ -575,7 +386,6 @@ fi
     %{_libdir}/libumq.so
     %{_libdir}/libumq_buf.so
     %{_libdir}/libumq_ub.so
-    %{_libdir}/libumq_ipc.so
     %dir %{_includedir}/ub
     %dir %{_includedir}/ub/umdk
     %dir %{_includedir}/ub/umdk/urpc
@@ -635,7 +445,7 @@ fi
     %{_bindir}/dlock_client_object_test
 %endif
 
-%if %{with ums}
+%if %{build_all} || %{with ums}
 %files ums
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
@@ -681,6 +491,31 @@ if [ $1 -eq 0 ]; then
     [ -f /usr/lib/libums-preload.so ] && %{__rm} -f /usr/lib/libums-preload.so || :
     [ -f /usr/bin/ums_run ] && %{__rm} -f /usr/bin/ums_run || :
 fi
+
+%pre ums-agent
+getent passwd ums >/dev/null || \
+    useradd -r -s /sbin/nologin -d /var/lib/ums ums
+
+%post ums-agent
+if [ -x %{_bindir}/systemctl ] && [ -x %{_sbindir}/rsyslogd ]; then
+    %{_bindir}/systemctl restart rsyslog >/dev/null  2>&1
+fi
+%systemd_post ums_agent.service
+
+%preun ums-agent
+%systemd_preun ums_agent.service
+
+%postun ums-agent
+%systemd_postun ums_agent.service
+
+%files ums-agent
+%defattr(-,root,root)
+    %attr(750,root,ums) %{_sbindir}/ums_agent
+    %attr(644,root,root) %{_unitdir}/ums_agent.service
+    %dir %attr(750,root,ums) /etc/ums_agent
+    %attr(640,root,ums) %config(noreplace) /etc/ums_agent/ums_agent.conf
+    %attr(644,root,root) /etc/rsyslog.d/ums_agent.conf
+    %attr(644,root,root) /etc/logrotate.d/ums_agent
 %endif
 
 %changelog
