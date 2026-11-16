@@ -55,7 +55,7 @@
 Name          : umdk
 Summary       : Unified memory development kit
 Version       : 25.12.0
-Release       : 1%{?dist}
+Release       : 2%{?dist}
 Group         : umdk
 License       : MIT
 Vendor        : Huawei Technologies Co., Ltd
@@ -684,6 +684,10 @@ fi
 %endif
 
 %changelog
+* Mon Nov 16 2026 Zhu Chenghao <zhuchenghao6@h-partners.com> - 25.12.0-2
+- [Type] sync
+- [DESC] update to 930.
+
 * Fri Jul 17 2026 Wang Sheng <2664101109@qq.com> - 25.12.0-1
 - [Type] sync
 - [DESC] Initial UMDK-25.12.0 rpm spec file.
