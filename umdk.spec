@@ -60,9 +60,6 @@ Source0       : %{name}-%{version}.tar.gz
 ExclusiveArch : aarch64
 
 BuildRequires : rpm-build, make, cmake, gcc, gcc-c++, glibc-devel, libummu-devel, libnl3-devel, glib2-devel
-%if %{build_all} || %{with ums}
-BuildRequires : kernel-devel
-%endif
 Requires: glibc, glib2, libummu
 %if %{with asan}
 Requires: libasan
@@ -195,7 +192,7 @@ Requires:       umdk-dlock-lib = %{version}
 This package contains all the executable examples of dlock.
 %endif
 
-%if %{build_all} || %{with ums}
+%if %{with ums}
 %package ums
 Summary:        kmod file of ums
 BuildRequires:  glib2-devel, libnl3-devel, kernel-devel
@@ -445,7 +442,7 @@ fi
     %{_bindir}/dlock_client_object_test
 %endif
 
-%if %{build_all} || %{with ums}
+%if %{with ums}
 %files ums
 %defattr(-,root,root)
     %dir /lib/modules/%{kernel_version}/extra/ums/
